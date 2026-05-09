@@ -8,7 +8,7 @@
   ],
   "assertions": [
     "Lobby join-seat options show only seat 1 and seat 2.",
-    "Match board projection rehydrates to configured tile count.",
+    "Match board snapshot rehydrates to configured tile count.",
     "Recent message payload displays economy and dice overrides from parameter_manifest."
   ]
 }

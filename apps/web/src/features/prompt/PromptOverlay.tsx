@@ -25,11 +25,17 @@ type PromptOverlayProps = {
   compactChoices?: boolean;
   presentationMode?: PromptPresentationMode;
   effectContext?: PromptEffectContext | null;
+  widthPercent?: PromptWidthPercent;
+  onWidthPercentChange?: (widthPercent: PromptWidthPercent) => void;
   onToggleCollapse: () => void;
   onSelectChoice: (choiceId: string) => void;
 };
 
 type PromptPresentationMode = "decision-focus" | "board-preserve";
+export type PromptWidthPercent = 33 | 50 | 75 | 100;
+
+const PROMPT_WIDTH_OPTIONS: PromptWidthPercent[] = [33, 50, 75, 100];
+
 type PromptEffectContext = {
   label: string;
   detail: string;
@@ -117,6 +123,12 @@ type LapRewardOption = LapRewardSelection & {
 };
 
 type CharacterPickOption = NonNullable<PromptViewModel["surface"]["characterPick"]>["options"][number];
+
+const TRICK_USE_BLOCKED_CARD_NAMES = new Set(["가벼운짐", "무거운짐"]);
+
+function isTrickUseBlockedCardName(name: string): boolean {
+  return TRICK_USE_BLOCKED_CARD_NAMES.has(name.replace(/\s+/g, "").trim());
+}
 
 type ChoiceGridVariant = "default" | "target" | "decision" | "reward";
 type SummaryPillValue = string | null | undefined;
@@ -881,6 +893,126 @@ function DecisionChoiceSection({
   );
 }
 
+type RewardAllocationItem = {
+  key: keyof LapRewardSelection;
+  label: string;
+  units: number;
+  pool: number;
+  cost: number;
+};
+
+type RewardAllocationSectionProps = {
+  busy: boolean;
+  locale: string;
+  rewardBudget: number | null;
+  rewardSpentPoints: number;
+  rewardRemaining: number | null;
+  rewardPoolSummary: string;
+  promptText: PromptText;
+  selection: LapRewardSelection;
+  selectedChoice: LapRewardOption | null;
+  rewardItems: RewardAllocationItem[];
+  onAdjust: (field: keyof LapRewardSelection, delta: 1 | -1) => void;
+  onConfirm: (choiceId: string) => void;
+};
+
+function RewardAllocationSection({
+  busy,
+  locale,
+  rewardBudget,
+  rewardSpentPoints,
+  rewardRemaining,
+  rewardPoolSummary,
+  promptText,
+  selection,
+  selectedChoice,
+  rewardItems,
+  onAdjust,
+  onConfirm,
+}: RewardAllocationSectionProps) {
+  return (
+    <section className="prompt-section prompt-hand-stage">
+      <div className="prompt-section-summary">
+        <div className="prompt-summary-pill-row">
+          {rewardBudget !== null ? (
+            <span className="prompt-summary-pill" data-tone="decision">{`${promptText.context.rewardBudget}: ${rewardSpentPoints}/${rewardBudget}`}</span>
+          ) : null}
+          {rewardRemaining !== null ? (
+            <span className="prompt-summary-pill" data-tone="resource">
+              {isKoreanLocale(locale) ? `남은 포인트: ${rewardRemaining}` : `Remaining points: ${rewardRemaining}`}
+            </span>
+          ) : null}
+          {rewardPoolSummary ? (
+            <span className="prompt-summary-pill" data-tone="resource">{`${promptText.context.rewardPools}: ${rewardPoolSummary}`}</span>
+          ) : null}
+        </div>
+      </div>
+      <div className="prompt-lap-reward-builder">
+        {rewardItems.map((item) => (
+          <article key={item.key} className="prompt-lap-reward-card">
+            <div className="prompt-lap-reward-head">
+              <strong>{item.label}</strong>
+              <span className="prompt-choice-badge">
+                {isKoreanLocale(locale) ? `1개당 ${item.cost}포인트` : `${item.cost} points each`}
+              </span>
+            </div>
+            <div className="prompt-lap-reward-controls">
+              <button
+                type="button"
+                className="prompt-lap-adjust"
+                disabled={busy || item.units <= 0}
+                onClick={() => onAdjust(item.key, -1)}
+              >
+                -
+              </button>
+              <div className="prompt-lap-reward-value">
+                <span>{item.units}</span>
+                <small>{isKoreanLocale(locale) ? `남은 풀 ${item.pool}` : `Pool ${item.pool}`}</small>
+              </div>
+              <button
+                type="button"
+                className="prompt-lap-adjust"
+                disabled={busy}
+                onClick={() => onAdjust(item.key, 1)}
+              >
+                +
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="prompt-lap-reward-summary">
+        <strong>
+          {isKoreanLocale(locale)
+            ? `현금 +${selection.cashUnits} / 조각 +${selection.shardUnits} / 승점 +${selection.coinUnits}`
+            : `Cash +${selection.cashUnits} / Shards +${selection.shardUnits} / Points +${selection.coinUnits}`}
+        </strong>
+        <small>
+          {selectedChoice
+            ? isKoreanLocale(locale)
+              ? "현재 조합으로 결정할 수 있습니다."
+              : "This allocation is ready to confirm."
+            : isKoreanLocale(locale)
+              ? "가능한 조합이 되도록 포인트를 조절하세요."
+              : "Adjust to a valid allocation."}
+        </small>
+        <button
+          type="button"
+          className="prompt-primary-action"
+          disabled={busy || !selectedChoice}
+          onClick={() => {
+            if (selectedChoice) {
+              onConfirm(selectedChoice.choiceId);
+            }
+          }}
+        >
+          {isKoreanLocale(locale) ? "결정" : "Confirm"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function PromptOverlay({
   prompt,
   markTargetCandidates = [],
@@ -891,6 +1023,8 @@ export function PromptOverlay({
   compactChoices = false,
   presentationMode = "decision-focus",
   effectContext = null,
+  widthPercent = 75,
+  onWidthPercentChange,
   onToggleCollapse,
   onSelectChoice,
 }: PromptOverlayProps) {
@@ -947,7 +1081,7 @@ export function PromptOverlay({
     return buildBurdenChoiceCards(prompt);
   }, [prompt]);
   const lapRewardOptions = useMemo(() => {
-    if (!prompt || prompt.requestType !== "lap_reward") {
+    if (!prompt || (prompt.requestType !== "lap_reward" && prompt.requestType !== "start_reward")) {
       return new Map<string, LapRewardOption>();
     }
     const options = new Map<string, LapRewardOption>();
@@ -1127,7 +1261,7 @@ export function PromptOverlay({
     prompt.requestType === "final_character_choice";
   const isMarkTarget = prompt.requestType === "mark_target";
   const isPurchaseTile = prompt.requestType === "purchase_tile";
-  const isLapReward = prompt.requestType === "lap_reward";
+  const isRewardAllocation = prompt.requestType === "lap_reward" || prompt.requestType === "start_reward";
   const isTrickTileTarget = prompt.requestType === "trick_tile_target";
   const isActiveFlip = prompt.requestType === "active_flip";
   const isBurdenExchange = prompt.requestType === "burden_exchange";
@@ -1224,7 +1358,7 @@ export function PromptOverlay({
     (rewardSurface?.budget ?? rewardBudget) === null ? null : Math.max(0, (rewardSurface?.budget ?? rewardBudget ?? 0) - lapRewardSpentPoints);
 
   useEffect(() => {
-    if (!prompt || prompt.requestType !== "lap_reward") {
+    if (!prompt || (prompt.requestType !== "lap_reward" && prompt.requestType !== "start_reward")) {
       setLapRewardSelection({ cashUnits: 0, shardUnits: 0, coinUnits: 0 });
       return;
     }
@@ -1385,6 +1519,7 @@ export function PromptOverlay({
       }`}
       data-testid="prompt-overlay"
       data-prompt-type={prompt.requestType}
+      data-prompt-width={widthPercent}
       data-purchase-source={purchaseSource || undefined}
       data-effect-character={isMatchmakerPurchase ? "중매꾼" : undefined}
       data-presentation-mode={presentationMode}
@@ -1411,6 +1546,26 @@ export function PromptOverlay({
                 </span>
               ))}
             </div>
+            {onWidthPercentChange ? (
+              <div
+                className="prompt-width-control"
+                role="group"
+                aria-label={isKoreanLocale(locale) ? "프롬프트 폭 선택" : "Prompt width"}
+                data-testid="prompt-width-control"
+              >
+                {PROMPT_WIDTH_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    key={option}
+                    className={option === widthPercent ? "prompt-width-button prompt-width-button-active" : "prompt-width-button"}
+                    aria-pressed={option === widthPercent}
+                    onClick={() => onWidthPercentChange(option)}
+                  >
+                    {option}%
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <button type="button" onClick={onToggleCollapse} data-testid="prompt-overlay-collapse">
               {promptText.collapse}
             </button>
@@ -1596,20 +1751,29 @@ export function PromptOverlay({
               ) : null}
 
               {trickChoices.cards.map((card) => {
+                const isBlockedTrickUseCard =
+                  prompt.requestType === "trick_to_use" && isTrickUseBlockedCardName(card.name);
+                const isUnavailableTrickUseCard =
+                  prompt.requestType === "trick_to_use" && (!card.isUsable || isBlockedTrickUseCard);
                 const canSelectCard =
-                  prompt.requestType === "hidden_trick_card" ? Boolean(card.choiceId) : card.isUsable && Boolean(card.choiceId);
+                  prompt.requestType === "hidden_trick_card"
+                    ? Boolean(card.choiceId)
+                    : !isBlockedTrickUseCard && card.isUsable && Boolean(card.choiceId);
 
                 return (
                   <button
                     type="button"
                     key={card.key}
-                    className={`prompt-choice-card ${card.isHidden ? "hand-card-hidden" : ""}`}
+                    className={`prompt-choice-card ${card.isHidden ? "hand-card-hidden" : ""} ${
+                      isUnavailableTrickUseCard ? "prompt-choice-card-unavailable" : ""
+                    }`}
                     data-testid={`trick-choice-${card.key}`}
                     data-card-name={card.name}
                     data-card-visibility={card.isHidden ? "hidden" : "public"}
+                    data-card-unavailable={isUnavailableTrickUseCard ? "true" : "false"}
                     disabled={busy || !canSelectCard}
                     onClick={() => {
-                      if (card.choiceId) {
+                      if (canSelectCard && card.choiceId) {
                         onSelectChoice(card.choiceId);
                       }
                     }}
@@ -1621,7 +1785,7 @@ export function PromptOverlay({
                       </span>
                     </div>
                     <small>{cleanCardDescription(card.description)}</small>
-                    {!card.isUsable && prompt.requestType !== "hidden_trick_card" ? (
+                    {isUnavailableTrickUseCard ? (
                       <small className="prompt-choice-footnote">{promptText.hiddenState.unavailable}</small>
                     ) : null}
                   </button>
@@ -1646,62 +1810,65 @@ export function PromptOverlay({
                 }));
 
               return (
-            <div className={`prompt-choices prompt-character-card-grid ${compactChoices ? "prompt-choices-compact" : ""}`}>
-              {characterPickOptions.map((choice) => (
-                (() => {
-                  const body = splitChoiceBodyText(choice.description);
-                  const prioritySlot = prioritySlotForCharacterName(choice.name);
-                  const priorityLabel = isKoreanLocale(locale) ? "우선권" : "Priority";
-                  const portraitIndex = portraitIndexForCharacter(choice.name);
-                  const portraitCol = portraitIndex % 4;
-                  const portraitRow = Math.floor(portraitIndex / 4);
-
-                  return (
-                  <button
-                    type="button"
-                    key={choice.choiceId}
-                    className="prompt-choice-card prompt-choice-card-emphasis prompt-character-card"
-                    data-testid={`character-choice-${choice.choiceId}`}
-                    onClick={() => onSelectChoice(choice.choiceId)}
-                    disabled={busy}
+                <div
+                  className={`prompt-choices prompt-character-card-grid ${compactChoices ? "prompt-choices-compact" : ""}`}
+                  data-option-count={characterPickOptions.length}
                 >
-                    <div className="prompt-character-card-frame">
-                      <div className="prompt-character-card-top">
-                        <span className="prompt-character-card-priority">
-                          {priorityLabel} {prioritySlot ?? "-"}
-                        </span>
-                      </div>
-                      <div
-                        className="prompt-character-card-art"
-                        aria-hidden="true"
-                        style={
-                          {
-                            "--character-portrait-url": `url(${characterPortraitSpriteUrl})`,
-                            "--character-portrait-x": `${portraitCol * 33.333333}%`,
-                            "--character-portrait-y": `${portraitRow * 33.333333}%`,
-                          } as CSSProperties
-                        }
-                      >
-                        <span>{Array.from(choice.name.trim())[0] ?? "?"}</span>
-                      </div>
-                      <div className="prompt-character-card-body">
-                        <strong>{choice.name}</strong>
-                        {choice.inactiveName && choice.inactiveName !== choice.name ? (
-                          <small className="prompt-character-card-face-note">
-                            {isKoreanLocale(locale) ? `뒷면 ${choice.inactiveName}` : `Back ${choice.inactiveName}`}
-                          </small>
-                        ) : null}
-                        <div className="prompt-choice-body">
-                          {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
-                          {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                  );
-                })()
-              ))}
-            </div>
+                  {characterPickOptions.map((choice) =>
+                    (() => {
+                      const body = splitChoiceBodyText(choice.description);
+                      const prioritySlot = prioritySlotForCharacterName(choice.name);
+                      const priorityLabel = isKoreanLocale(locale) ? "우선권" : "Priority";
+                      const portraitIndex = portraitIndexForCharacter(choice.name);
+                      const portraitCol = portraitIndex % 4;
+                      const portraitRow = Math.floor(portraitIndex / 4);
+
+                      return (
+                        <button
+                          type="button"
+                          key={choice.choiceId}
+                          className="prompt-choice-card prompt-choice-card-emphasis prompt-character-card"
+                          data-testid={`character-choice-${choice.choiceId}`}
+                          onClick={() => onSelectChoice(choice.choiceId)}
+                          disabled={busy}
+                        >
+                          <div className="prompt-character-card-frame">
+                            <div className="prompt-character-card-top">
+                              <span className="prompt-character-card-priority">
+                                {priorityLabel} {prioritySlot ?? "-"}
+                              </span>
+                            </div>
+                            <div
+                              className="prompt-character-card-art"
+                              aria-hidden="true"
+                              style={
+                                {
+                                  "--character-portrait-url": `url(${characterPortraitSpriteUrl})`,
+                                  "--character-portrait-x": `${portraitCol * 33.333333}%`,
+                                  "--character-portrait-y": `${portraitRow * 33.333333}%`,
+                                } as CSSProperties
+                              }
+                            >
+                              <span>{Array.from(choice.name.trim())[0] ?? "?"}</span>
+                            </div>
+                            <div className="prompt-character-card-body">
+                              <strong>{choice.name}</strong>
+                              {choice.inactiveName && choice.inactiveName !== choice.name ? (
+                                <small className="prompt-character-card-face-note">
+                                  {isKoreanLocale(locale) ? `뒷면 ${choice.inactiveName}` : `Back ${choice.inactiveName}`}
+                                </small>
+                              ) : null}
+                              <div className="prompt-choice-body">
+                                {body.summary ? <p className="prompt-choice-summary">{body.summary}</p> : null}
+                                {body.detail ? <small className="prompt-choice-detail">{body.detail}</small> : null}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })(),
+                  )}
+                </div>
               );
             })()}
           </section>
@@ -1814,112 +1981,43 @@ export function PromptOverlay({
           </>
         ) : null}
 
-        {isLapReward ? (
-          <section className="prompt-section prompt-hand-stage">
-            <div className="prompt-section-summary">
-              <div className="prompt-summary-pill-row">
-                {rewardBudget !== null ? (
-                  <span className="prompt-summary-pill" data-tone="decision">{`${promptText.context.rewardBudget}: ${lapRewardSpentPoints}/${rewardBudget}`}</span>
-                ) : null}
-                {lapRewardRemaining !== null ? (
-                  <span className="prompt-summary-pill" data-tone="resource">
-                    {isKoreanLocale(locale) ? `남은 포인트: ${lapRewardRemaining}` : `Remaining points: ${lapRewardRemaining}`}
-                  </span>
-                ) : null}
-                {rewardPoolSummary ? (
-                  <span className="prompt-summary-pill" data-tone="resource">{`${promptText.context.rewardPools}: ${rewardPoolSummary}`}</span>
-                ) : null}
-              </div>
-            </div>
-            <div className="prompt-lap-reward-builder">
-              {[
-                {
-                  key: "cashUnits" as const,
-                  label: isKoreanLocale(locale) ? "현금" : "Cash",
-                  units: lapRewardSelection.cashUnits,
-                  pool: rewardCashPool,
-                  cost: rewardCashCost,
-                },
-                {
-                  key: "shardUnits" as const,
-                  label: isKoreanLocale(locale) ? "조각" : "Shards",
-                  units: lapRewardSelection.shardUnits,
-                  pool: rewardShardPool,
-                  cost: rewardShardCost,
-                },
-                {
-                  key: "coinUnits" as const,
-                  label: isKoreanLocale(locale) ? "승점" : "Points",
-                  units: lapRewardSelection.coinUnits,
-                  pool: rewardCoinPool,
-                  cost: rewardCoinCost,
-                },
-              ].map((item) => (
-                <article key={item.key} className="prompt-lap-reward-card">
-                  <div className="prompt-lap-reward-head">
-                    <strong>{item.label}</strong>
-                    <span className="prompt-choice-badge">
-                      {isKoreanLocale(locale)
-                        ? `1개당 ${item.cost}포인트`
-                        : `${item.cost} points each`}
-                    </span>
-                  </div>
-                  <div className="prompt-lap-reward-controls">
-                    <button
-                      type="button"
-                      className="prompt-lap-adjust"
-                      disabled={busy || item.units <= 0}
-                      onClick={() => adjustLapReward(item.key, -1)}
-                    >
-                      -
-                    </button>
-                    <div className="prompt-lap-reward-value">
-                      <span>{item.units}</span>
-                      <small>
-                        {isKoreanLocale(locale) ? `남은 풀 ${item.pool}` : `Pool ${item.pool}`}
-                      </small>
-                    </div>
-                    <button
-                      type="button"
-                      className="prompt-lap-adjust"
-                      disabled={busy}
-                      onClick={() => adjustLapReward(item.key, 1)}
-                    >
-                      +
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-            <div className="prompt-lap-reward-summary">
-              <strong>
-                {isKoreanLocale(locale)
-                  ? `현금 +${lapRewardSelection.cashUnits} / 조각 +${lapRewardSelection.shardUnits} / 승점 +${lapRewardSelection.coinUnits}`
-                  : `Cash +${lapRewardSelection.cashUnits} / Shards +${lapRewardSelection.shardUnits} / Points +${lapRewardSelection.coinUnits}`}
-              </strong>
-              <small>
-                {selectedLapRewardChoice
-                  ? isKoreanLocale(locale)
-                    ? "현재 조합으로 결정할 수 있습니다."
-                    : "This allocation is ready to confirm."
-                  : isKoreanLocale(locale)
-                    ? "가능한 조합이 되도록 포인트를 조절하세요."
-                    : "Adjust to a valid allocation."}
-              </small>
-              <button
-                type="button"
-                className="prompt-primary-action"
-                disabled={busy || !selectedLapRewardChoice}
-                onClick={() => {
-                  if (selectedLapRewardChoice) {
-                    onSelectChoice(selectedLapRewardChoice.choiceId);
-                  }
-                }}
-              >
-                {isKoreanLocale(locale) ? "결정" : "Confirm"}
-              </button>
-            </div>
-          </section>
+        {isRewardAllocation ? (
+          <RewardAllocationSection
+            busy={busy}
+            locale={locale}
+            rewardBudget={rewardBudget}
+            rewardSpentPoints={lapRewardSpentPoints}
+            rewardRemaining={lapRewardRemaining}
+            rewardPoolSummary={rewardPoolSummary}
+            promptText={promptText}
+            selection={lapRewardSelection}
+            selectedChoice={selectedLapRewardChoice}
+            rewardItems={[
+              {
+                key: "cashUnits",
+                label: isKoreanLocale(locale) ? "현금" : "Cash",
+                units: lapRewardSelection.cashUnits,
+                pool: rewardCashPool,
+                cost: rewardCashCost,
+              },
+              {
+                key: "shardUnits",
+                label: isKoreanLocale(locale) ? "조각" : "Shards",
+                units: lapRewardSelection.shardUnits,
+                pool: rewardShardPool,
+                cost: rewardShardCost,
+              },
+              {
+                key: "coinUnits",
+                label: isKoreanLocale(locale) ? "승점" : "Points",
+                units: lapRewardSelection.coinUnits,
+                pool: rewardCoinPool,
+                cost: rewardCoinCost,
+              },
+            ]}
+            onAdjust={adjustLapReward}
+            onConfirm={(choiceId) => onSelectChoice(choiceId)}
+          />
         ) : null}
 
         {isTrickTileTarget ? (

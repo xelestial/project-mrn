@@ -12,8 +12,8 @@ function runtimeStatusLabel(status: string, labels: ReturnType<typeof useI18n>["
   switch (status) {
     case "running":
       return labels.running;
-    case "finished":
-      return labels.finished;
+    case "completed":
+      return labels.completed;
     case "failed":
       return labels.failed;
     case "recovery_required":

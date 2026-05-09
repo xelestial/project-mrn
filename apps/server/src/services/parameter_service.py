@@ -90,6 +90,8 @@ class GameParameterResolver:
         seat_limits = self._resolve_seat_limits(raw=raw, default_player_count=int(cfg.player_count))
         board_topology = self._resolve_board_topology(raw=raw)
         participant_defaults = self._resolve_participant_defaults(raw=raw)
+        end_rules = self._resolve_end_rules(raw=raw, cfg=cfg)
+        start_reward_rules = self._resolve_start_reward_rules(cfg=cfg)
 
         dice_values = raw.get("dice_values", list(cfg.dice_cards.values))
         if not isinstance(dice_values, list) or not dice_values or not all(isinstance(v, int) and v > 0 for v in dice_values):
@@ -148,6 +150,10 @@ class GameParameterResolver:
             },
             "resources": {
                 "starting_shards": int(starting_shards),
+            },
+            "rules": {
+                "end": end_rules,
+                "start_reward": start_reward_rules,
             },
             "labels": labels,
         }
@@ -321,6 +327,83 @@ class GameParameterResolver:
             raise ParameterValidationError("invalid_board_topology")
         return topology
 
+    @staticmethod
+    def _resolve_end_rules(raw: dict[str, Any], cfg: Any) -> dict[str, Any]:
+        rules_raw = raw.get("rules")
+        if rules_raw is None:
+            rules_raw = {}
+        if not isinstance(rules_raw, dict):
+            raise ParameterValidationError("invalid_rules_config")
+
+        end_raw = raw.get("end")
+        if end_raw is None:
+            end_raw = rules_raw.get("end")
+        if end_raw is None:
+            end_raw = {}
+        if not isinstance(end_raw, dict):
+            raise ParameterValidationError("invalid_end_rules")
+        runtime_raw = raw.get("runtime")
+        if runtime_raw is None:
+            runtime_raw = {}
+        if not isinstance(runtime_raw, dict):
+            raise ParameterValidationError("invalid_runtime_config")
+
+        default_end = cfg.rules.end
+
+        f_threshold = end_raw.get("f_threshold", default_end.f_threshold)
+        if f_threshold is not None:
+            if isinstance(f_threshold, bool) or not isinstance(f_threshold, (int, float)) or float(f_threshold) <= 0:
+                raise ParameterValidationError("invalid_end_f_threshold")
+            f_threshold = float(f_threshold)
+
+        monopolies = end_raw.get("monopolies_to_trigger_end", default_end.monopolies_to_trigger_end)
+        if isinstance(monopolies, bool) or not isinstance(monopolies, int) or monopolies < 0:
+            raise ParameterValidationError("invalid_end_monopolies_to_trigger_end")
+
+        tiles = end_raw.get("tiles_to_trigger_end", default_end.tiles_to_trigger_end)
+        if tiles is not None:
+            if isinstance(tiles, bool) or not isinstance(tiles, int) or tiles < 1:
+                raise ParameterValidationError("invalid_end_tiles_to_trigger_end")
+            tiles = int(tiles)
+
+        alive = end_raw.get("alive_players_at_most", default_end.alive_players_at_most)
+        if isinstance(alive, bool) or not isinstance(alive, int) or alive < 1:
+            raise ParameterValidationError("invalid_end_alive_players_at_most")
+
+        max_rounds = end_raw.get("max_rounds", runtime_raw.get("max_rounds", default_end.max_rounds))
+        if max_rounds is not None:
+            if isinstance(max_rounds, bool) or not isinstance(max_rounds, int) or max_rounds < 1:
+                raise ParameterValidationError("invalid_end_max_rounds")
+            max_rounds = int(max_rounds)
+
+        max_turns = end_raw.get("max_turns", runtime_raw.get("max_turns", default_end.max_turns))
+        if max_turns is not None:
+            if isinstance(max_turns, bool) or not isinstance(max_turns, int) or max_turns < 1:
+                raise ParameterValidationError("invalid_end_max_turns")
+            max_turns = int(max_turns)
+
+        return {
+            "f_threshold": f_threshold,
+            "monopolies_to_trigger_end": int(monopolies),
+            "tiles_to_trigger_end": tiles,
+            "alive_players_at_most": int(alive),
+            "max_rounds": max_rounds,
+            "max_turns": max_turns,
+        }
+
+    @staticmethod
+    def _resolve_start_reward_rules(cfg: Any) -> dict[str, int]:
+        rules = getattr(getattr(cfg, "rules", None), "start_reward", None)
+        return {
+            "points_budget": int(getattr(rules, "points_budget", 20)),
+            "cash_point_cost": int(getattr(rules, "cash_point_cost", 2)),
+            "shards_point_cost": int(getattr(rules, "shards_point_cost", 3)),
+            "coins_point_cost": int(getattr(rules, "coins_point_cost", 3)),
+            "cash_pool": int(getattr(rules, "cash_pool", 30)),
+            "shards_pool": int(getattr(rules, "shards_pool", 18)),
+            "coins_pool": int(getattr(rules, "coins_pool", 18)),
+        }
+
     def _resolve_seat_limits(self, raw: dict[str, Any], default_player_count: int) -> dict[str, Any]:
         seat_limits_raw = raw.get("seat_limits")
         if seat_limits_raw is None:
@@ -386,6 +469,7 @@ class PublicManifestBuilder:
             "dice": params.get("dice", {}),
             "economy": params.get("economy", {}),
             "resources": params.get("resources", {}),
+            "rules": params.get("rules", {}),
             "labels": params.get("labels", {}),
             "source_fingerprints": fingerprints,
         }

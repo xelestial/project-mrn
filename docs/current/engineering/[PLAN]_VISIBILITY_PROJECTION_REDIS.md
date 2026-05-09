@@ -1,6 +1,12 @@
 # Visibility Projection Redis Plan
 
-Updated: 2026-04-30
+Status: SUPERSEDED by the server authoritative `ViewCommit` contract.
+Updated: 2026-05-06
+
+This document is historical. Live UI state must not be rebuilt from stream
+history, replay projection, or route-level filtering. RuntimeService writes the
+latest viewer-specific `ViewCommit` to Redis atomically with the engine
+checkpoint, and WebSocket/REST live recovery reads that cached commit only.
 
 ## Goal
 
@@ -52,7 +58,7 @@ Keys:
 Store:
 
 - room status, title, host seat, config
-- session status, resolved config, started/finished timestamps
+- session status, resolved config, started/completed timestamps
 - seat type, display name, participant type
 - keyed token hashes only, never raw tokens
 - role principal: seat, player id, spectator/admin permission if supported
@@ -392,13 +398,11 @@ Important change:
 
 ### Phase 3: Make View State Viewer-Specific
 
-- Change `project_view_state(messages)` to accept `viewer`.
-- Build projections from already-filtered messages or from canonical state using viewer rules.
-- Store:
-  - public view state
-  - player-specific view state when needed
-  - spectator view state
-- Ensure websocket resume sends viewer-safe replay plus viewer-safe latest view state.
+Historical proposal, now superseded by authoritative `ViewCommit`:
+
+- Message-history projection was considered for viewer-specific snapshots.
+- Live code must build viewer snapshots from canonical runtime state only.
+- WebSocket resume must send the cached authoritative `ViewCommit`, not replay output.
 
 ### Phase 4: Normalize Prompt Visibility
 
@@ -429,10 +433,10 @@ Add keys:
 game:{session_id}:view_state:public
 game:{session_id}:view_state:spectator
 game:{session_id}:view_state:player:{player_id}
-game:{session_id}:projection_checkpoint
+game:{session_id}:historical_projection_cursor
 ```
 
-`projection_checkpoint` stores:
+`historical_projection_cursor` stores:
 
 - canonical latest seq
 - projection schema version

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from policy.asset.spec import ArenaPolicyAsset, DEFAULT_ARENA_CHARACTER_LINEUP, HeuristicPolicyAsset
 
 
@@ -104,6 +107,34 @@ class PolicyFactory:
         player_character_policy_modes: dict[int, str] | None = None,
         rng=None,
     ):
+        if policy_mode == "arena" and PolicyFactory._uses_rl_seat(
+            player_character_policy_modes=player_character_policy_modes,
+            player_lap_policy_modes=player_lap_policy_modes,
+        ):
+            model_dir = os.environ.get("MRN_RL_POLICY_MODEL")
+            if not model_dir:
+                raise ValueError("MRN_RL_POLICY_MODEL is required when arena uses rl_v1 seats")
+            if not (Path(model_dir) / "policy_model.json").exists():
+                raise ValueError(f"MRN_RL_POLICY_MODEL does not contain policy_model.json: {model_dir}")
+            from policy.rl_policy import MixedRuntimePolicy
+
+            return MixedRuntimePolicy(
+                model_dir=model_dir,
+                player_character_policy_modes=dict(player_character_policy_modes or {}),
+                player_lap_policy_modes=dict(player_lap_policy_modes or {}),
+                base_character_policy_mode=DEFAULT_ARENA_CHARACTER_LINEUP[0],
+                base_lap_policy_mode=lap_policy_mode,
+                rng=rng,
+            )
+        if policy_mode == "rl_v1":
+            model_dir = os.environ.get("MRN_RL_POLICY_MODEL")
+            if not model_dir:
+                raise ValueError("MRN_RL_POLICY_MODEL is required when policy_mode='rl_v1'")
+            if not (Path(model_dir) / "policy_model.json").exists():
+                raise ValueError(f"MRN_RL_POLICY_MODEL does not contain policy_model.json: {model_dir}")
+            from policy.rl_policy import RlRuntimePolicy
+
+            return RlRuntimePolicy(model_dir=model_dir, rng=rng)
         if policy_mode == "arena":
             return PolicyFactory.create_arena_policy(
                 ArenaPolicyAsset(
@@ -129,3 +160,12 @@ class PolicyFactory:
             player_lap_policy_modes=dict(normalized_asset.player_lap_policy_modes),
             rng=rng,
         )
+
+    @staticmethod
+    def _uses_rl_seat(
+        *,
+        player_character_policy_modes: dict[int, str] | None = None,
+        player_lap_policy_modes: dict[int, str] | None = None,
+    ) -> bool:
+        modes = [*dict(player_character_policy_modes or {}).values(), *dict(player_lap_policy_modes or {}).values()]
+        return any(mode == "rl_v1" for mode in modes)

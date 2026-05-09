@@ -21,6 +21,13 @@ class ViewerContext:
     session_id: str = ""
     seat: int | None = None
     player_id: int | None = None
+    legacy_player_id: int | None = None
+    public_player_id: str | None = None
+    seat_id: str | None = None
+    viewer_id: str | None = None
+    seat_index: int | None = None
+    turn_order_index: int | None = None
+    player_label: str | None = None
 
     @property
     def is_seat(self) -> bool:
@@ -43,7 +50,19 @@ def viewer_from_auth_context(auth_ctx: dict[str, Any], *, session_id: str = "") 
     role = str(auth_ctx.get("role") or "spectator").strip().lower()
     seat = _optional_int(auth_ctx.get("seat"))
     player_id = _optional_int(auth_ctx.get("player_id"))
-    return ViewerContext(role=role, session_id=session_id, seat=seat, player_id=player_id)
+    return ViewerContext(
+        role=role,
+        session_id=session_id,
+        seat=seat,
+        player_id=player_id,
+        legacy_player_id=_optional_int(auth_ctx.get("legacy_player_id")),
+        public_player_id=_optional_str(auth_ctx.get("public_player_id")),
+        seat_id=_optional_str(auth_ctx.get("seat_id")),
+        viewer_id=_optional_str(auth_ctx.get("viewer_id")),
+        seat_index=_optional_int(auth_ctx.get("seat_index")),
+        turn_order_index=_optional_int(auth_ctx.get("turn_order_index")),
+        player_label=_optional_str(auth_ctx.get("player_label")),
+    )
 
 
 def can_view(visibility: dict[str, Any] | None, viewer: ViewerContext) -> bool:
@@ -179,3 +198,10 @@ def _optional_int(value: Any) -> int | None:
         return int(value)
     except Exception:
         return None
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

@@ -25,6 +25,29 @@ def handle_round_start(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
     return {"status": "committed", "module_type": ctx.module.module_type}
 
 
+def handle_initial_reward(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
+    if not _module_initial(ctx.module):
+        ctx.runner._complete_module(ctx.state, ctx.frame, ctx.module)
+        return {"status": "skipped", "module_type": ctx.module.module_type}
+    try:
+        index = int(ctx.module.payload.get("player_index", 0) or 0)
+        while index < len(ctx.state.players):
+            player = ctx.state.players[index]
+            ctx.module.cursor = f"initial_reward:p{index}"
+            if player.alive:
+                ctx.engine._apply_start_reward(ctx.state, player)
+            index += 1
+            ctx.module.payload["player_index"] = index
+    except Exception:
+        ctx.module.status = "suspended"
+        ctx.module.suspension_id = ctx.frame.frame_id
+        ctx.frame.status = "suspended"
+        raise
+    ctx.module.cursor = "completed"
+    ctx.runner._complete_module(ctx.state, ctx.frame, ctx.module)
+    return {"status": "committed", "module_type": ctx.module.module_type}
+
+
 def handle_weather(ctx: RoundFrameHandlerContext) -> dict[str, Any]:
     ctx.engine._reveal_round_weather(ctx.state)
     ctx.runner._complete_module(ctx.state, ctx.frame, ctx.module)
@@ -75,6 +98,7 @@ def handle_round_cleanup_and_next_round(ctx: RoundFrameHandlerContext) -> dict[s
 
 ROUND_FRAME_HANDLERS: dict[str, RoundFrameHandler] = {
     "RoundStartModule": handle_round_start,
+    "InitialRewardModule": handle_initial_reward,
     "WeatherModule": handle_weather,
     "DraftModule": handle_draft,
     "TurnSchedulerModule": handle_turn_scheduler,

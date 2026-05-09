@@ -1,8 +1,14 @@
 # [PLAN] Backend Selector And Middleware ViewModel Migration
 
-Status: ACTIVE  
-Updated: 2026-04-09  
+Status: SUPERSEDED by the server authoritative `ViewCommit` contract
+Updated: 2026-05-06
 Owner: Codex
+
+This plan is historical. The active contract is stricter: RuntimeService builds
+viewer-specific `ViewCommit.view_state` from canonical engine state and stores
+it in Redis atomically with the checkpoint. Frontend live rendering reads only
+the latest `ViewCommit`; replay/middleware projection is not a live recovery
+path.
 
 ## Purpose
 

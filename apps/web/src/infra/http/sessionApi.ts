@@ -1,6 +1,13 @@
-type SeatType = "human" | "ai";
+import type { ViewCommitPayload } from "../../core/contracts/stream";
+import {
+  FrontendConnectionRequestError,
+  getFrontendConnectionBaseUrl,
+  normalizeFrontendHttpBaseUrl,
+  requestFrontendConnectionJson,
+  setFrontendConnectionBaseUrl,
+} from "./connectionRequestManager";
 
-let apiBaseUrl = "";
+type SeatType = "human" | "ai";
 
 export type SeatInput = {
   seat: number;
@@ -8,18 +15,7 @@ export type SeatInput = {
   ai_profile?: string;
 };
 
-type ApiEnvelope<T> = {
-  ok: boolean;
-  data: T | null;
-  error: { code: string; category?: string; message: string; retryable: boolean } | null;
-};
-
-type ErrorEnvelope = {
-  ok?: boolean;
-  data?: unknown;
-  error?: { message?: string } | null;
-  detail?: unknown;
-};
+export { FrontendConnectionRequestError as ApiRequestError };
 
 export type ParameterManifest = {
   manifest_version: number;
@@ -114,6 +110,8 @@ export type RuntimeStatusResult = {
   };
 };
 
+export type ViewCommitResult = ViewCommitPayload;
+
 export type RoomSeatPublic = {
   seat: number;
   seat_type: SeatType;
@@ -169,70 +167,19 @@ export type ResumeRoomResult = PublicRoomResult & {
 };
 
 export function normalizeServerBaseUrl(value: string | null | undefined): string {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) {
-    return "http://127.0.0.1:9090";
-  }
-  if (/^https?:\/\//i.test(raw)) {
-    return raw.replace(/\/+$/, "");
-  }
-  return `http://${raw}`.replace(/\/+$/, "");
+  return normalizeFrontendHttpBaseUrl(value);
 }
 
 export function setApiBaseUrl(value: string): void {
-  apiBaseUrl = normalizeServerBaseUrl(value);
+  setFrontendConnectionBaseUrl(value);
 }
 
 export function getApiBaseUrl(): string {
-  return normalizeServerBaseUrl(apiBaseUrl);
-}
-
-function buildApiUrl(path: string): string {
-  const base = getApiBaseUrl();
-  return `${base}${path}`;
-}
-
-function extractErrorMessage(payload: ErrorEnvelope | null | undefined, status: number): string {
-  const directMessage = payload?.error?.message;
-  if (typeof directMessage === "string" && directMessage.trim()) {
-    return directMessage;
-  }
-  const detail = payload?.detail;
-  if (typeof detail === "string" && detail.trim()) {
-    return detail;
-  }
-  if (detail && typeof detail === "object") {
-    const detailRecord = detail as { error?: { message?: string } | null; message?: unknown };
-    const nested = detailRecord.error?.message;
-    if (typeof nested === "string" && nested.trim()) {
-      return nested;
-    }
-    if (typeof detailRecord.message === "string" && detailRecord.message.trim()) {
-      return detailRecord.message;
-    }
-  }
-  return `Request failed: ${status}`;
+  return getFrontendConnectionBaseUrl();
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(buildApiUrl(path), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  let payload: (ApiEnvelope<T> & ErrorEnvelope) | null = null;
-  try {
-    payload = (await response.json()) as ApiEnvelope<T> & ErrorEnvelope;
-  } catch {
-    payload = null;
-  }
-  if (!response.ok || !payload?.ok || payload.data == null) {
-    const message = extractErrorMessage(payload, response.status);
-    throw new Error(message);
-  }
-  return payload.data;
+  return requestFrontendConnectionJson<T>({ path, init, requireData: true });
 }
 
 export async function createSession(args: {
@@ -287,6 +234,17 @@ export async function getRuntimeStatus(sessionId: string, token?: string): Promi
   const query = params.toString();
   return requestJson<RuntimeStatusResult>(
     `/api/v1/sessions/${encodeURIComponent(sessionId)}/runtime-status${query ? `?${query}` : ""}`,
+  );
+}
+
+export async function getViewCommit(args: { sessionId: string; token?: string }): Promise<ViewCommitResult> {
+  const params = new URLSearchParams();
+  if (args.token?.trim()) {
+    params.set("token", args.token.trim());
+  }
+  const query = params.toString();
+  return requestJson<ViewCommitResult>(
+    `/api/v1/sessions/${encodeURIComponent(args.sessionId)}/view-commit${query ? `?${query}` : ""}`,
   );
 }
 

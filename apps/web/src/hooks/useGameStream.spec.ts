@@ -3,29 +3,12 @@ import {
   buildDecisionMessage,
   buildGameStreamKey,
   createDecisionRequestLedger,
-  shouldApplyReplayResponse,
-} from "./useGameStream";
+} from "../domain/stream/decisionProtocol";
 
-describe("useGameStream replay recovery guards", () => {
+describe("useGameStream authoritative commit helpers", () => {
   it("builds the active stream key from the normalized session and token", () => {
     expect(buildGameStreamKey(" sess_a ", "seat-token")).toBe("sess_a\nseat-token");
     expect(buildGameStreamKey("sess_a")).toBe("sess_a\n");
-  });
-
-  it("rejects replay responses captured for a previous stream key", () => {
-    const captured = buildGameStreamKey("sess_a", "seat-1");
-    const active = buildGameStreamKey("sess_a", "seat-2");
-
-    expect(shouldApplyReplayResponse(captured, active)).toBe(false);
-  });
-
-  it("rejects replay responses after the request is aborted", () => {
-    const controller = new AbortController();
-    const streamKey = buildGameStreamKey("sess_a", "seat-1");
-
-    controller.abort();
-
-    expect(shouldApplyReplayResponse(streamKey, streamKey, controller.signal)).toBe(false);
   });
 
   it("records a decision request id exactly once per stream key", () => {
@@ -61,6 +44,18 @@ describe("useGameStream replay recovery guards", () => {
     expect(secondLedger.shouldSend(streamKey, "req_burden_4")).toBe(true);
   });
 
+  it("can release one request id for a controlled stale-prompt retry", () => {
+    const ledger = createDecisionRequestLedger();
+    const streamKey = buildGameStreamKey("sess_retry", "seat-1");
+
+    ledger.recordSent(streamKey, "req_retry_1");
+    expect(ledger.shouldSend(streamKey, "req_retry_1")).toBe(false);
+
+    ledger.forget(streamKey, "req_retry_1");
+
+    expect(ledger.shouldSend(streamKey, "req_retry_1")).toBe(true);
+  });
+
   it("builds decision messages with the backend-issued module continuation", () => {
     expect(
       buildDecisionMessage({
@@ -69,6 +64,9 @@ describe("useGameStream replay recovery guards", () => {
         choiceId: "roll",
         choicePayload: { dice: 4 },
         continuation: {
+          promptInstanceId: 31,
+          promptFingerprint: "sha256:prompt-31",
+          promptFingerprintVersion: "prompt-fingerprint-v1",
           resumeToken: "resume-token-1",
           frameId: "turn:1:p1",
           moduleId: "mod:turn:1:p1:dice",
@@ -76,6 +74,7 @@ describe("useGameStream replay recovery guards", () => {
           moduleCursor: "dice:await_choice",
           batchId: null,
         },
+        viewCommitSeqSeen: 42,
         clientSeq: 42,
       }),
     ).toEqual({
@@ -85,11 +84,51 @@ describe("useGameStream replay recovery guards", () => {
       choice_id: "roll",
       choice_payload: { dice: 4 },
       resume_token: "resume-token-1",
+      prompt_fingerprint: "sha256:prompt-31",
+      prompt_fingerprint_version: "prompt-fingerprint-v1",
       frame_id: "turn:1:p1",
       module_id: "mod:turn:1:p1:dice",
       module_type: "DiceRollModule",
       module_cursor: "dice:await_choice",
+      prompt_instance_id: 31,
+      view_commit_seq_seen: 42,
       client_seq: 42,
+    });
+  });
+
+  it("keeps prompt instance zero in decision messages", () => {
+    expect(
+      buildDecisionMessage({
+        requestId: "req_batch_1",
+        playerId: 1,
+        choiceId: "confirm",
+        continuation: {
+          promptInstanceId: 0,
+          promptFingerprint: null,
+          promptFingerprintVersion: null,
+          resumeToken: "resume-token-0",
+          frameId: "turn:1:p1",
+          moduleId: "mod:turn:1:p1:burden",
+          moduleType: "BurdenExchangeModule",
+          moduleCursor: "burden:await_choice",
+          batchId: "batch:1",
+          missingPlayerIds: [1, 3],
+          resumeTokensByPlayerId: {
+            "1": "resume-token-0",
+            "3": "resume-token-3",
+          },
+        },
+        viewCommitSeqSeen: 7,
+        clientSeq: 8,
+      }),
+    ).toMatchObject({
+      prompt_instance_id: 0,
+      batch_id: "batch:1",
+      missing_player_ids: [1, 3],
+      resume_tokens_by_player_id: {
+        "1": "resume-token-0",
+        "3": "resume-token-3",
+      },
     });
   });
 });

@@ -315,7 +315,7 @@ class CoinRule:
 
 @dataclass(slots=True)
 class ShardRule:
-    starting_shards: int = 4
+    starting_shards: int = 2
     lap_reward_shards: int = 3
 
 
@@ -356,6 +356,8 @@ class EndRule:
     monopolies_to_trigger_end: int = 3
     higher_tiles_to_trigger_end: int | None = 9
     end_when_alive_players_at_most: int = 2
+    max_rounds: int | None = None
+    max_turns: int | None = None
 
 
 @dataclass(slots=True)

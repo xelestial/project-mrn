@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { withAuthoritativeViewCommits } from "./helpers/authoritativeMockRuntime";
 
 type ManifestRecord = {
   manifest_version: number;
@@ -179,18 +180,18 @@ async function expectSpectatorPanelCompact(page: Page, viewportWidth: number): P
       trainRowCount: trainRows.size,
       handleVisible: handle ? getComputedStyle(handle).display !== "none" : false,
       handleCursor: handle ? getComputedStyle(handle).cursor : "",
-      panelCursor: panel ? getComputedStyle(panel).cursor : "",
     };
   });
 
-  expect(metrics.contextWidth).toBeLessThanOrEqual(Math.min(770, viewportWidth - 48));
+  const expectedContextWidth = Math.min(viewportWidth * 0.75, viewportWidth - 48);
+  expect(metrics.contextWidth).toBeLessThanOrEqual(expectedContextWidth + 2);
+  expect(metrics.contextWidth).toBeGreaterThanOrEqual(expectedContextWidth - 8);
   expect(metrics.panelHasInternalScroll).toBe(false);
   expect(metrics.trainHasInternalScroll).toBe(false);
   expect(metrics.trainStepCount).toBeGreaterThan(0);
   expect(metrics.trainRowCount).toBeLessThanOrEqual(3);
   expect(metrics.handleVisible).toBe(true);
   expect(metrics.handleCursor).toBe("grab");
-  expect(metrics.panelCursor).toBe("grab");
 }
 
 async function expectSpectatorPanelDraggable(page: Page): Promise<void> {
@@ -348,6 +349,7 @@ async function expectCharacterPromptSingleRow(page: Page, viewportWidth: number)
 
     return {
       promptWidth: prompt.getBoundingClientRect().width,
+      promptWidthPercent: Number(prompt.getAttribute("data-prompt-width") ?? "75"),
       cardCount: cards.length,
       rowCount: cardRows.size,
       gridColumns,
@@ -357,11 +359,12 @@ async function expectCharacterPromptSingleRow(page: Page, viewportWidth: number)
     };
   });
 
-  expect(metrics.promptWidth).toBeLessThanOrEqual(Math.min(viewportWidth * 0.8, 1280) + 2);
-  expect(metrics.promptWidth).toBeGreaterThanOrEqual(Math.min(viewportWidth * 0.8, 1280) - 8);
+  const expectedPromptWidth = Math.min(viewportWidth * (metrics.promptWidthPercent / 100), viewportWidth - 24);
+  expect(metrics.promptWidth).toBeLessThanOrEqual(expectedPromptWidth + 2);
+  expect(metrics.promptWidth).toBeGreaterThanOrEqual(expectedPromptWidth - 8);
   expect(metrics.cardCount).toBe(4);
   expect(metrics.rowCount).toBe(1);
-  expect(metrics.gridColumns).toBe(4);
+  expect(metrics.gridColumns).toBeGreaterThanOrEqual(4);
   expect(metrics.bodyOverflowsY).toBe(false);
   expect(metrics.gridOverflowsY).toBe(false);
   expect(metrics.gridOverflowsX).toBe(false);
@@ -482,6 +485,13 @@ async function installMockRuntime(
     >;
   }
 ): Promise<void> {
+  const sessionEvents = withAuthoritativeViewCommits({
+    sessionManifests: args.sessionManifests,
+    sessionEvents: args.sessionEvents,
+    createSessionQueue: args.createSessionQueue,
+    startedSessions: args.startedSessions,
+  }) as Record<string, StreamMessage[]>;
+
   await page.addInitScript(
     ({ sessionManifests, sessionEvents, createSessionQueue, joinResults, startedSessions }) => {
       const manifests = sessionManifests as Record<string, ManifestRecord>;
@@ -502,6 +512,18 @@ async function installMockRuntime(
         );
       }
 
+      function latestCommitForSession(sessionId: string): StreamMessage | null {
+        const commits = (eventsBySession[sessionId] ?? []).filter((message) => message.type === "view_commit");
+        if (commits.length === 0) {
+          return null;
+        }
+        return commits.reduce((latest, message) => {
+          const latestSeq = typeof latest.payload.commit_seq === "number" ? latest.payload.commit_seq : 0;
+          const currentSeq = typeof message.payload.commit_seq === "number" ? message.payload.commit_seq : 0;
+          return currentSeq > latestSeq ? message : latest;
+        });
+      }
+
       const originalFetch = window.fetch.bind(window);
       window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const urlValue = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -510,14 +532,30 @@ async function installMockRuntime(
         const method = (init?.method ?? "GET").toUpperCase();
         const sessionMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)$/);
         const runtimeMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/runtime-status$/);
+        const viewCommitMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/view-commit$/);
         const joinMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/join$/);
         const startMatch = path.match(/^\/api\/v1\/sessions\/([^/]+)\/start$/);
 
         if (runtimeMatch) {
+          const sessionId = decodeURIComponent(runtimeMatch[1]);
+          const latestCommit = latestCommitForSession(sessionId);
           return response({
-            session_id: decodeURIComponent(runtimeMatch[1]),
-            runtime: { status: "running", watchdog_state: "ok", last_activity_ms: Date.now() },
+            session_id: sessionId,
+            runtime: {
+              status:
+                latestCommit?.payload.runtime && typeof latestCommit.payload.runtime === "object"
+                  ? (latestCommit.payload.runtime as Record<string, unknown>).status ?? "running"
+                  : "running",
+              watchdog_state: "ok",
+              last_activity_ms: Date.now(),
+            },
           });
+        }
+
+        if (viewCommitMatch) {
+          const sessionId = decodeURIComponent(viewCommitMatch[1]);
+          const latestCommit = latestCommitForSession(sessionId);
+          return latestCommit ? response(latestCommit.payload) : response(null, 404);
         }
 
         if (path === "/api/v1/sessions" && method === "POST") {
@@ -623,6 +661,13 @@ async function installMockRuntime(
           window.setTimeout(() => {
             this.readyState = MockWebSocket.OPEN;
             this.onopen?.(new Event("open"));
+            const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
+            const sessionId = match ? decodeURIComponent(match[1]) : "";
+            const latestCommit = latestCommitForSession(sessionId);
+            if (!latestCommit) {
+              return;
+            }
+            this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(latestCommit) }));
           }, 0);
         }
 
@@ -638,16 +683,16 @@ async function installMockRuntime(
           }
           const match = this.url.match(/\/api\/v1\/sessions\/([^/]+)\/stream/);
           const sessionId = match ? decodeURIComponent(match[1]) : "";
-          const lastSeq = typeof payload.last_seq === "number" ? payload.last_seq : 0;
-          const replay = (eventsBySession[sessionId] ?? []).filter((message) => message.seq > lastSeq);
-          replay.forEach((message, index) => {
-            window.setTimeout(() => {
-              if (this.readyState !== MockWebSocket.OPEN) {
-                return;
-              }
-              this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(message) }));
-            }, index * 5);
-          });
+          const latestCommit = latestCommitForSession(sessionId);
+          if (!latestCommit) {
+            return;
+          }
+          window.setTimeout(() => {
+            if (this.readyState !== MockWebSocket.OPEN) {
+              return;
+            }
+            this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(latestCommit) }));
+          }, 0);
         }
 
         close(): void {
@@ -665,7 +710,7 @@ async function installMockRuntime(
         value: MockWebSocket,
       });
     },
-    args
+    { ...args, sessionEvents }
   );
 }
 

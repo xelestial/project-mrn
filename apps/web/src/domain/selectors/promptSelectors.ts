@@ -9,12 +9,17 @@ export type PromptChoiceViewModel = {
 };
 
 export type PromptContinuationViewModel = {
+  promptInstanceId: number | null;
+  promptFingerprint: string | null;
+  promptFingerprintVersion: string | null;
   resumeToken: string | null;
   frameId: string | null;
   moduleId: string | null;
   moduleType: string | null;
   moduleCursor: string | null;
   batchId: string | null;
+  missingPlayerIds?: number[];
+  resumeTokensByPlayerId?: Record<string, string>;
 };
 
 export type PromptEffectContextViewModel = {
@@ -234,21 +239,11 @@ export type PromptInteractionViewModel = {
   shouldReleaseSubmission: boolean;
 };
 
-function isStateBearingMessage(message: InboundMessage): boolean {
-  return message.type === "event" || message.type === "prompt" || message.type === "decision_ack";
-}
-
-function latestStateBearingMessageIndex(messages: InboundMessage[]): number | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (isStateBearingMessage(messages[i])) {
-      return i;
-    }
-  }
-  return null;
-}
-
 function latestBackendViewStateEntry(messages: InboundMessage[]): { index: number; viewState: Record<string, unknown> } | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].type !== "view_commit") {
+      continue;
+    }
     const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
     const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
     if (viewState) {
@@ -258,46 +253,12 @@ function latestBackendViewStateEntry(messages: InboundMessage[]): { index: numbe
   return null;
 }
 
-function latestRuntimeProjectionAfterPrompt(
-  messages: InboundMessage[],
-  promptIndex: number
-): Record<string, unknown> | null {
-  for (let i = messages.length - 1; i > promptIndex; i -= 1) {
-    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
-    const viewState = isRecord(payload?.["view_state"]) ? payload["view_state"] : null;
-    const runtime = isRecord(viewState?.["runtime"]) ? viewState["runtime"] : null;
-    if (runtime) {
-      return runtime;
-    }
-  }
-  return null;
-}
-
-function isBackendProjectionCurrent(messages: InboundMessage[], index: number): boolean {
-  const latestStatefulIndex = latestStateBearingMessageIndex(messages);
-  return latestStatefulIndex === null || index >= latestStatefulIndex;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
 function stringOrEmpty(value: unknown): string {
   return typeof value === "string" && value.trim() ? String(value) : "";
-}
-
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.flatMap((item) => {
-    const text = stringOrEmpty(item);
-    return text ? [text] : [];
-  });
-}
-
-function isKoreanLocale(locale: string): boolean {
-  return locale.toLowerCase().startsWith("ko");
 }
 
 function isSecondaryChoiceRecord(choiceId: string, item: Record<string, unknown>): boolean {
@@ -362,149 +323,6 @@ function parsePromptEffectContext(raw: unknown): PromptEffectContextViewModel | 
   };
 }
 
-function eventPlayerId(payload: Record<string, unknown>): number | null {
-  return numberOrNull(payload["player_id"] ?? payload["acting_player_id"] ?? payload["player"]);
-}
-
-function closesPromptByPhaseProgress(requestType: string, payload: Record<string, unknown>, promptPlayerId: number): boolean {
-  const eventType = stringOrEmpty(payload["event_type"]);
-  const payloadPlayerId = eventPlayerId(payload);
-  if (requestType === "draft_card") {
-    return (
-      (eventType === "draft_pick" && payloadPlayerId === promptPlayerId) ||
-      eventType === "final_character_choice" ||
-      eventType === "turn_start"
-    );
-  }
-  if (requestType === "final_character" || requestType === "final_character_choice") {
-    return (eventType === "final_character_choice" && payloadPlayerId === promptPlayerId) || eventType === "turn_start";
-  }
-  if (requestType === "trick_to_use" || requestType === "hidden_trick_card" || requestType === "hand_choice") {
-    return (
-      (eventType === "trick_used" && payloadPlayerId === promptPlayerId) ||
-      (eventType === "trick_window_closed" && payloadPlayerId === promptPlayerId) ||
-      eventType === "dice_roll" ||
-      eventType === "player_move" ||
-      eventType === "turn_end_snapshot"
-    );
-  }
-  return false;
-}
-
-function isPromptClosed(messages: InboundMessage[], promptIndex: number, requestId: string, requestType: string, playerId: number): boolean {
-  if (isPromptClosedByRuntimeProjection(messages, promptIndex, requestId, requestType)) {
-    return true;
-  }
-  for (let i = promptIndex + 1; i < messages.length; i += 1) {
-    const message = messages[i];
-    if (message.type === "decision_ack") {
-      if (message.payload["request_id"] !== requestId) {
-        continue;
-      }
-      const status = message.payload["status"];
-      if (status === "accepted" || status === "stale") {
-        return true;
-      }
-      continue;
-    }
-    if (message.type !== "event") {
-      continue;
-    }
-    if (message.payload["request_id"] === requestId) {
-      const eventType = message.payload["event_type"];
-      if (eventType === "decision_resolved" || eventType === "decision_timeout_fallback") {
-        return true;
-      }
-    }
-    if (closesPromptByPhaseProgress(requestType, message.payload, playerId)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isPromptClosedByRuntimeProjection(
-  messages: InboundMessage[],
-  promptIndex: number,
-  requestId: string,
-  requestType: string
-): boolean {
-  const runtime = latestRuntimeProjectionAfterPrompt(messages, promptIndex);
-  if (!runtime) {
-    return false;
-  }
-  const activePromptRequestId = stringOrEmpty(runtime["active_prompt_request_id"]);
-  if (activePromptRequestId && activePromptRequestId !== requestId) {
-    return true;
-  }
-  if (requestType === "draft_card" || requestType === "final_character" || requestType === "final_character_choice") {
-    return runtime["draft_active"] !== true;
-  }
-  if (requestType === "active_flip") {
-    return runtime["card_flip_legal"] !== true;
-  }
-  if (requestType === "trick_to_use" || requestType === "hidden_trick_card" || requestType === "hand_choice") {
-    const activeSequence = stringOrEmpty(runtime["active_sequence"]);
-    return runtime["trick_sequence_active"] !== true && activeSequence !== "trick";
-  }
-  return false;
-}
-
-function handTrayCardsFromPublicContext(publicContext: Record<string, unknown>, locale: string): HandTrayCardViewModel[] {
-  const fullHand = Array.isArray(publicContext["full_hand"]) ? publicContext["full_hand"] : [];
-  if (fullHand.length > 0) {
-    return fullHand.flatMap((item, index) => {
-      if (!isRecord(item)) {
-        return [];
-      }
-      const deckIndex = typeof item["deck_index"] === "number" ? item["deck_index"] : null;
-      const title = stringOrEmpty(item["name"]) || (isKoreanLocale(locale) ? "잔꾀" : "Trick");
-      const effect = stringOrEmpty(item["card_description"]) || (isKoreanLocale(locale) ? "효과 없음" : "No effect text");
-      return [
-        {
-          key: `${deckIndex ?? index}-${title}`,
-          title,
-          effect,
-          serial: deckIndex === null ? "" : `#${deckIndex}`,
-          hidden: item["is_hidden"] === true,
-          currentTarget: item["is_current_target"] === true,
-        },
-      ];
-    });
-  }
-
-  const burdenCards = Array.isArray(publicContext["burden_cards"]) ? publicContext["burden_cards"] : [];
-  if (burdenCards.length > 0) {
-    return burdenCards.flatMap((item, index) => {
-      if (!isRecord(item)) {
-        return [];
-      }
-      const deckIndex = typeof item["deck_index"] === "number" ? item["deck_index"] : null;
-      const burdenCost = typeof item["burden_cost"] === "number" ? item["burden_cost"] : null;
-      const title = stringOrEmpty(item["name"]) || (isKoreanLocale(locale) ? "짐" : "Burden");
-      const effectBase = stringOrEmpty(item["card_description"]) || (isKoreanLocale(locale) ? "효과 없음" : "No effect text");
-      const effect =
-        burdenCost === null
-          ? effectBase
-          : isKoreanLocale(locale)
-            ? `${effectBase} / 제거 비용 ${burdenCost}`
-            : `${effectBase} / remove cost ${burdenCost}`;
-      return [
-        {
-          key: `${deckIndex ?? index}-${title}`,
-          title,
-          effect,
-          serial: deckIndex === null ? "" : `#${deckIndex}`,
-          hidden: false,
-          currentTarget: item["is_current_target"] === true,
-        },
-      ];
-    });
-  }
-
-  return [];
-}
-
 function parseChoices(raw: unknown): PromptChoiceViewModel[] {
   if (!Array.isArray(raw)) {
     return [];
@@ -553,13 +371,29 @@ function parsePromptBehavior(raw: unknown, requestType: string, publicContext: R
 }
 
 function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuationViewModel {
+  const missingPlayerIds = Array.isArray(raw["missing_player_ids"])
+    ? raw["missing_player_ids"].map((item) => numberOrNull(item)).filter((item): item is number => item !== null)
+    : null;
+  const rawResumeTokens = isRecord(raw["resume_tokens_by_player_id"]) ? raw["resume_tokens_by_player_id"] : null;
+  const resumeTokensByPlayerId = rawResumeTokens
+    ? Object.fromEntries(
+        Object.entries(rawResumeTokens)
+          .map(([playerId, token]) => [String(playerId), stringOrEmpty(token)] as const)
+          .filter(([, token]) => token.length > 0),
+      )
+    : null;
   return {
+    promptInstanceId: numberOrNull(raw["prompt_instance_id"]),
+    promptFingerprint: stringOrEmpty(raw["prompt_fingerprint"]) || null,
+    promptFingerprintVersion: stringOrEmpty(raw["prompt_fingerprint_version"]) || null,
     resumeToken: stringOrEmpty(raw["resume_token"]) || null,
     frameId: stringOrEmpty(raw["frame_id"]) || null,
     moduleId: stringOrEmpty(raw["module_id"]) || null,
     moduleType: stringOrEmpty(raw["module_type"]) || null,
     moduleCursor: stringOrEmpty(raw["module_cursor"]) || null,
     batchId: stringOrEmpty(raw["batch_id"]) || null,
+    ...(missingPlayerIds ? { missingPlayerIds } : {}),
+    ...(resumeTokensByPlayerId ? { resumeTokensByPlayerId } : {}),
   };
 }
 
@@ -583,11 +417,15 @@ function hasCompleteModuleContinuation(raw: Record<string, unknown>): boolean {
   if (!REQUIRED_MODULE_CONTINUATION_FIELDS.every((field) => stringOrEmpty(raw[field]).length > 0)) {
     return false;
   }
-  const frameId = stringOrEmpty(raw["frame_id"]);
   const moduleType = stringOrEmpty(raw["module_type"]);
-  const requiresBatch =
-    frameId.startsWith("simul:") || moduleType === "ResupplyModule" || moduleType === "SimultaneousPromptBatchModule";
-  if (!requiresBatch) {
+  const requestType = stringOrEmpty(raw["request_type"]);
+  const moduleCursor = stringOrEmpty(raw["module_cursor"]);
+  const isBatchPrompt =
+    moduleType === "SimultaneousPromptBatchModule" ||
+    (moduleType === "ResupplyModule" &&
+      (requestType === "burden_exchange" || requestType === "resupply_choice") &&
+      moduleCursor.startsWith("await_resupply_batch"));
+  if (!isBatchPrompt) {
     return true;
   }
   return (
@@ -963,13 +801,7 @@ function parsePromptSurface(raw: unknown, requestType: string, publicContext: Re
   };
 }
 
-function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel | null {
-  const entry = latestBackendViewStateEntry(messages);
-  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
-    return null;
-  }
-  const prompt = isRecord(entry.viewState["prompt"]) ? entry.viewState["prompt"] : null;
-  const active = isRecord(prompt?.["active"]) ? prompt["active"] : null;
+export function promptViewModelFromActivePromptPayload(active: Record<string, unknown>): PromptViewModel | null {
   if (!active) {
     return null;
   }
@@ -983,12 +815,13 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
     return null;
   }
   const publicContext = isRecord(active["public_context"]) ? active["public_context"] : {};
+  const choicesRaw = Array.isArray(active["choices"]) ? active["choices"] : active["legal_choices"];
   return {
     requestId,
     requestType,
     playerId,
     timeoutMs: typeof active["timeout_ms"] === "number" ? active["timeout_ms"] : 30000,
-    choices: parseChoices(active["choices"]),
+    choices: parseChoices(choicesRaw),
     publicContext: { ...publicContext },
     continuation: parsePromptContinuation(active),
     effectContext: parsePromptEffectContext(active["effect_context"]),
@@ -997,98 +830,38 @@ function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel 
       active["surface"],
       requestType,
       publicContext,
-      active["choices"]
+      choicesRaw
     ),
   };
 }
 
-export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel | null {
-  const backendPrompt = selectBackendActivePrompt(messages);
-  if (backendPrompt) {
-    return backendPrompt;
-  }
-  const backendEntry = latestBackendViewStateEntry(messages);
-  if (backendEntry && isBackendProjectionCurrent(messages, backendEntry.index)) {
+function selectBackendActivePrompt(messages: InboundMessage[]): PromptViewModel | null {
+  const entry = latestBackendViewStateEntry(messages);
+  if (!entry) {
     return null;
   }
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const promptMessage = messages[i];
-    if (promptMessage.type !== "prompt") {
-      continue;
-    }
-    const requestId = promptMessage.payload["request_id"];
-    if (typeof requestId !== "string" || !requestId.trim()) {
-      continue;
-    }
-    const requestType =
-      typeof promptMessage.payload["request_type"] === "string" ? String(promptMessage.payload["request_type"]) : "-";
-    const playerId = typeof promptMessage.payload["player_id"] === "number" ? promptMessage.payload["player_id"] : 0;
-    if (isPromptClosed(messages, i, requestId, requestType, playerId)) {
-      continue;
-    }
-    const choicesRaw = Array.isArray(promptMessage.payload["legal_choices"])
-      ? promptMessage.payload["legal_choices"]
-      : [];
-    if (declaresModuleContinuation(promptMessage.payload) && !hasCompleteModuleContinuation(promptMessage.payload)) {
-      continue;
-    }
-    const publicContext = isRecord(promptMessage.payload["public_context"]) ? promptMessage.payload["public_context"] : {};
-    return {
-      requestId,
-      requestType,
-      playerId,
-      timeoutMs: typeof promptMessage.payload["timeout_ms"] === "number" ? promptMessage.payload["timeout_ms"] : 30000,
-      choices: parseChoices(choicesRaw),
-      publicContext: { ...publicContext },
-      continuation: parsePromptContinuation(promptMessage.payload),
-      effectContext: parsePromptEffectContext(publicContext["effect_context"]),
-      behavior: parsePromptBehavior(
-        null,
-        requestType,
-        publicContext
-      ),
-      surface: parsePromptSurface(
-        null,
-        requestType,
-        publicContext,
-        choicesRaw
-      ),
-    };
+  const prompt = isRecord(entry.viewState["prompt"]) ? entry.viewState["prompt"] : null;
+  const active = isRecord(prompt?.["active"]) ? prompt["active"] : null;
+  if (!active) {
+    return null;
   }
-  return null;
+  return promptViewModelFromActivePromptPayload(active);
+}
+
+export function selectActivePrompt(messages: InboundMessage[]): PromptViewModel | null {
+  return selectBackendActivePrompt(messages);
 }
 
 export function selectLatestDecisionAck(messages: InboundMessage[], requestId: string): DecisionAckViewModel | null {
   if (!requestId.trim()) {
     return null;
   }
-  const backendAck = selectBackendLatestPromptFeedback(messages, requestId);
-  if (backendAck) {
-    return backendAck;
-  }
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.type !== "decision_ack") {
-      continue;
-    }
-    if (message.payload["request_id"] !== requestId) {
-      continue;
-    }
-    const status = message.payload["status"];
-    if (status !== "accepted" && status !== "rejected" && status !== "stale") {
-      return null;
-    }
-    return {
-      status,
-      reason: typeof message.payload["reason"] === "string" ? message.payload["reason"] : "",
-    };
-  }
-  return null;
+  return selectBackendLatestPromptFeedback(messages, requestId) ?? selectLatestRawDecisionAck(messages, requestId);
 }
 
 function selectBackendLatestPromptFeedback(messages: InboundMessage[], requestId: string): DecisionAckViewModel | null {
   const entry = latestBackendViewStateEntry(messages);
-  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+  if (!entry) {
     return null;
   }
   const prompt = isRecord(entry.viewState["prompt"]) ? entry.viewState["prompt"] : null;
@@ -1106,13 +879,39 @@ function selectBackendLatestPromptFeedback(messages: InboundMessage[], requestId
   };
 }
 
+function selectLatestRawDecisionAck(messages: InboundMessage[], requestId: string): DecisionAckViewModel | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.type !== "decision_ack") {
+      continue;
+    }
+    const payload = message.payload;
+    if (payload["request_id"] !== requestId) {
+      continue;
+    }
+    const status = payload["status"];
+    if (status !== "accepted" && status !== "rejected" && status !== "stale") {
+      continue;
+    }
+    return {
+      status,
+      reason: typeof payload["reason"] === "string" ? payload["reason"] : "",
+    };
+  }
+  return null;
+}
+
 function selectBackendHandTrayCards(messages: InboundMessage[]): HandTrayCardViewModel[] | null {
   const entry = latestBackendViewStateEntry(messages);
-  if (!entry || !isBackendProjectionCurrent(messages, entry.index)) {
+  if (!entry) {
     return null;
   }
   const handTray = isRecord(entry.viewState["hand_tray"]) ? entry.viewState["hand_tray"] : null;
-  const cards = Array.isArray(handTray?.["cards"]) ? handTray["cards"] : null;
+  const cards = Array.isArray(handTray?.["items"])
+    ? handTray["items"]
+    : Array.isArray(handTray?.["cards"])
+      ? handTray["cards"]
+      : null;
   if (!cards) {
     return null;
   }
@@ -1121,93 +920,18 @@ function selectBackendHandTrayCards(messages: InboundMessage[]): HandTrayCardVie
       return [];
     }
     const deckIndex = typeof item["deck_index"] === "number" ? item["deck_index"] : null;
-    const title = stringOrEmpty(item["name"]) || "Card";
+    const title = stringOrEmpty(item["title"]) || stringOrEmpty(item["name"]) || "Card";
     return [
       {
         key: stringOrEmpty(item["key"]) || `${deckIndex ?? index}-${title}`,
         title,
-        effect: stringOrEmpty(item["description"]),
-        serial: "",
-        hidden: item["is_hidden"] === true,
-        currentTarget: item["is_current_target"] === true,
+        effect: stringOrEmpty(item["effect"]) || stringOrEmpty(item["description"]),
+        serial: stringOrEmpty(item["serial"]),
+        hidden: item["is_hidden"] === true || item["hidden"] === true,
+        currentTarget: item["is_current_target"] === true || item["currentTarget"] === true,
       },
     ];
   });
-}
-
-function playerRecordFromPayload(payload: Record<string, unknown>, preferredPlayerId: number): Record<string, unknown> | null {
-  const viewState = isRecord(payload["view_state"]) ? payload["view_state"] : null;
-  const viewStatePlayers = isRecord(viewState?.["players"]) ? viewState["players"] : null;
-  const viewStateItems = Array.isArray(viewStatePlayers?.["items"]) ? viewStatePlayers["items"] : null;
-  const snapshot = isRecord(payload["snapshot"]) ? payload["snapshot"] : null;
-  const snapshotPlayers = Array.isArray(snapshot?.["players"]) ? snapshot["players"] : null;
-  const rootPlayers = Array.isArray(payload["players"]) ? payload["players"] : null;
-  const candidates = [viewStateItems, snapshotPlayers, rootPlayers];
-
-  for (const source of candidates) {
-    if (!source) {
-      continue;
-    }
-    const match = source.find((item) => {
-      if (!isRecord(item)) {
-        return false;
-      }
-      const rawPlayerId = numberOrNull(item["player_id"] ?? item["playerId"] ?? item["id"] ?? item["player"]);
-      return rawPlayerId === preferredPlayerId;
-    });
-    if (isRecord(match)) {
-      return match;
-    }
-  }
-  return null;
-}
-
-function handTrayCardsFromPlayerPublicState(
-  messages: InboundMessage[],
-  locale: string,
-  preferredPlayerId: number
-): HandTrayCardViewModel[] {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const payload = isRecord(messages[i].payload) ? messages[i].payload : null;
-    if (!payload) {
-      continue;
-    }
-    const player = playerRecordFromPayload(payload, preferredPlayerId);
-    if (!player) {
-      continue;
-    }
-    const publicTricks = stringList(player["public_tricks"]).slice(0, 5);
-    const rawHiddenTrickCount = Math.max(
-      typeof player["hidden_trick_count"] === "number" ? player["hidden_trick_count"] : 0,
-      typeof player["trick_count"] === "number" ? player["trick_count"] - publicTricks.length : 0
-    );
-    const hiddenTrickCount = Math.min(Math.max(0, 5 - publicTricks.length), rawHiddenTrickCount);
-    if (publicTricks.length + hiddenTrickCount <= 0) {
-      continue;
-    }
-    const publicEffect = isKoreanLocale(locale) ? "공개된 잔꾀입니다." : "Public trick card.";
-    const hiddenTitle = isKoreanLocale(locale) ? "비공개 잔꾀" : "Hidden trick";
-    const hiddenEffect = isKoreanLocale(locale) ? "아직 공개되지 않은 잔꾀입니다." : "This trick has not been revealed yet.";
-    return [
-      ...publicTricks.map((title, index) => ({
-        key: `public-${preferredPlayerId}-${index}-${title}`,
-        title,
-        effect: publicEffect,
-        serial: "",
-        hidden: false,
-        currentTarget: false,
-      })),
-      ...Array.from({ length: hiddenTrickCount }).map((_, index) => ({
-        key: `hidden-${preferredPlayerId}-${index}`,
-        title: hiddenTitle,
-        effect: hiddenEffect,
-        serial: "",
-        hidden: true,
-        currentTarget: false,
-      })),
-    ];
-  }
-  return [];
 }
 
 export function selectCurrentHandTrayCards(
@@ -1215,43 +939,13 @@ export function selectCurrentHandTrayCards(
   locale: string,
   preferredPlayerId: number | null
 ): HandTrayCardViewModel[] {
+  void locale;
+  void preferredPlayerId;
   const backendHandTray = selectBackendHandTrayCards(messages);
   if (backendHandTray) {
     return backendHandTray;
   }
-
-  if (preferredPlayerId === null) {
-    return [];
-  }
-
-  const activePrompt = selectActivePrompt(messages);
-  if (activePrompt && activePrompt.playerId === preferredPlayerId) {
-    const currentPromptCards = handTrayCardsFromPublicContext(activePrompt.publicContext, locale);
-    if (currentPromptCards.length > 0) {
-      return currentPromptCards;
-    }
-  }
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.type !== "prompt") {
-      continue;
-    }
-    const messagePlayerId = typeof message.payload["player_id"] === "number" ? message.payload["player_id"] : null;
-    if (messagePlayerId !== preferredPlayerId) {
-      continue;
-    }
-    const publicContext = isRecord(message.payload["public_context"]) ? message.payload["public_context"] : null;
-    if (!publicContext) {
-      continue;
-    }
-    const persistedCards = handTrayCardsFromPublicContext(publicContext, locale);
-    if (persistedCards.length > 0) {
-      return persistedCards;
-    }
-  }
-
-  return handTrayCardsFromPlayerPublicState(messages, locale, preferredPlayerId);
+  return [];
 }
 
 type SelectPromptInteractionArgs = {

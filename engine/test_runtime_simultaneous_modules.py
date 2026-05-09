@@ -8,7 +8,7 @@ import pytest
 from ai_policy import HeuristicPolicy
 from config import GameConfig
 from engine import GameEngine
-from runtime_modules.runner import ModuleRunner
+from runtime_modules.runner import ModuleRunner, ModuleRunnerError
 from runtime_modules.prompts import PromptApi, PromptContinuationError
 from runtime_modules.simultaneous import batch_is_ready_to_commit, build_resupply_frame
 from trick_cards import TrickCard
@@ -16,6 +16,18 @@ from trick_cards import TrickCard
 
 def _resupply_module(frame):
     return next(module for module in frame.module_queue if module.module_type == "ResupplyModule")
+
+
+def _focus_resupply_module(frame):
+    target = _resupply_module(frame)
+    for module in frame.module_queue:
+        if module is target:
+            module.status = "suspended"
+            break
+        module.status = "completed"
+    frame.status = "suspended"
+    frame.active_module_id = target.module_id
+    return target
 
 
 def _advance_until_waiting_or_committed(engine, state, decision_resume=None):
@@ -305,3 +317,117 @@ def test_resupply_module_uses_action_eligibility_snapshot_when_resuming() -> Non
     assert resupply_module.payload["resupply_state"][
         "eligible_burden_deck_indices_by_player"
     ] == {"0": [101]}
+
+
+def test_resupply_module_does_not_treat_hidden_trick_resume_as_batch_response(monkeypatch) -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config, HeuristicPolicy(), rng=random.Random(7), enable_logging=False)
+    engine._reset_run_trackers()
+    state = engine.create_initial_state(deal_initial_tricks=False)
+    state.runtime_runner_kind = "module"
+    frame = build_resupply_frame(
+        1,
+        1,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        participants=[0],
+    )
+    module = _focus_resupply_module(frame)
+    module.payload["resupply_state"] = {
+        "initialized": True,
+        "threshold": 3,
+        "participants": [0],
+        "eligible_burden_deck_indices_by_player": {"0": []},
+        "processed_burden_deck_indices_by_player": {},
+        "exchanged_by_player": {},
+        "batch_ordinal": 1,
+        "current_batch_targets_by_player": {},
+    }
+    state.runtime_frame_stack = [frame]
+    state.runtime_active_prompt_batch = None
+    state.runtime_active_prompt = SimpleNamespace(
+        request_id="sess:r1:t1:p1:hidden_trick_card:7",
+        request_type="hidden_trick_card",
+        player_id=0,
+        resume_token="resume_hidden",
+        frame_id=frame.frame_id,
+        module_id=module.module_id,
+        module_type=module.module_type,
+        module_cursor=module.cursor,
+    )
+    completed = {"called": False}
+
+    def fake_complete(self, engine_arg, state_arg, frame_arg, module_arg):
+        completed["called"] = True
+        return {"status": "committed", "module_type": module_arg.module_type, "frame_id": frame_arg.frame_id}
+
+    monkeypatch.setattr(ModuleRunner, "_complete_resupply_module", fake_complete)
+
+    result = ModuleRunner().advance_engine(
+        engine,
+        state,
+        decision_resume=SimpleNamespace(
+            request_id="sess:r1:t1:p1:hidden_trick_card:7",
+            player_id=1,
+            request_type="hidden_trick_card",
+            choice_id="200",
+            choice_payload={},
+            resume_token="resume_hidden",
+            frame_id=frame.frame_id,
+            module_id=module.module_id,
+            module_type=module.module_type,
+            module_cursor=module.cursor,
+            batch_id="",
+        ),
+    )
+
+    assert result["status"] == "committed"
+    assert completed["called"] is True
+
+
+def test_resupply_module_still_rejects_batch_resume_without_active_batch() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config, HeuristicPolicy(), rng=random.Random(7), enable_logging=False)
+    engine._reset_run_trackers()
+    state = engine.create_initial_state(deal_initial_tricks=False)
+    state.runtime_runner_kind = "module"
+    frame = build_resupply_frame(
+        1,
+        1,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:arrival",
+        participants=[0],
+    )
+    module = _focus_resupply_module(frame)
+    module.cursor = "await_resupply_batch:1"
+    module.payload["resupply_state"] = {
+        "initialized": True,
+        "threshold": 3,
+        "participants": [0],
+        "eligible_burden_deck_indices_by_player": {"0": [101]},
+        "processed_burden_deck_indices_by_player": {},
+        "exchanged_by_player": {},
+        "batch_ordinal": 1,
+        "current_batch_targets_by_player": {"0": 101},
+    }
+    state.runtime_frame_stack = [frame]
+    state.runtime_active_prompt_batch = None
+
+    with pytest.raises(ModuleRunnerError, match="resupply decision resume without active batch"):
+        ModuleRunner().advance_engine(
+            engine,
+            state,
+            decision_resume=SimpleNamespace(
+                request_id=f"batch:{frame.frame_id}:{module.module_id}:1:p0",
+                player_id=1,
+                request_type="burden_exchange",
+                choice_id="yes",
+                choice_payload={},
+                resume_token="resume_batch",
+                frame_id=frame.frame_id,
+                module_id=module.module_id,
+                module_type=module.module_type,
+                module_cursor=module.cursor,
+                batch_id=f"batch:{frame.frame_id}:{module.module_id}:1",
+            ),
+        )

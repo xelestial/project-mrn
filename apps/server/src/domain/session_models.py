@@ -4,11 +4,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
+from apps.server.src.domain.protocol_ids import new_public_player_id, new_seat_id, new_viewer_id
+
 
 class SessionStatus(str, Enum):
     WAITING = "waiting"
     IN_PROGRESS = "in_progress"
-    FINISHED = "finished"
+    COMPLETED = "completed"
     ABORTED = "aborted"
 
 
@@ -39,6 +41,9 @@ class SeatConfig:
     ai_profile: str | None = None
     participant_client: ParticipantClientType | None = None
     participant_config: dict = field(default_factory=dict)
+    seat_id: str = field(default_factory=new_seat_id)
+    public_player_id: str = field(default_factory=new_public_player_id)
+    viewer_id: str = field(default_factory=new_viewer_id)
     player_id: int | None = None
     display_name: str | None = None
     connected: bool = False

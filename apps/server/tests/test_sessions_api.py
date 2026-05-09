@@ -19,6 +19,20 @@ from apps.server.src.services.stream_service import StreamService
 from apps.server.tests.prompt_payloads import module_prompt
 
 
+class _CachedViewCommitStore:
+    def __init__(self) -> None:
+        self._commits: dict[tuple[str, str, int | None], dict] = {}
+
+    def apply_stream_message(self, _message: dict) -> None:
+        return None
+
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
+        return self._commits.get((session_id, viewer, player_id if viewer == "player" else None))
+
+    def save_view_commit(self, session_id: str, payload: dict, *, viewer: str, player_id: int | None = None) -> None:
+        self._commits[(session_id, viewer, player_id if viewer == "player" else None)] = dict(payload)
+
+
 def _reset_state() -> None:
     from apps.server.src import state
 
@@ -31,6 +45,54 @@ def _reset_state() -> None:
         stream_service=state.stream_service,
         prompt_service=state.prompt_service,
     )
+
+
+def _cached_store() -> _CachedViewCommitStore:
+    from apps.server.src import state
+
+    store = getattr(state.stream_service, "_game_state_store", None)
+    if not isinstance(store, _CachedViewCommitStore):
+        store = _CachedViewCommitStore()
+        state.stream_service._game_state_store = store
+    return store
+
+
+def _save_cached_view_commit(
+    session_id: str,
+    *,
+    commit_seq: int,
+    source_event_seq: int,
+    view_state: dict | None = None,
+    viewer: str = "spectator",
+    player_id: int | None = None,
+    seat: int | None = None,
+    runtime: dict | None = None,
+) -> dict:
+    role = "seat" if viewer == "player" else viewer
+    viewer_payload: dict = {"role": role}
+    if player_id is not None:
+        viewer_payload["player_id"] = player_id
+    if seat is not None:
+        viewer_payload["seat"] = seat
+    payload = {
+        "schema_version": 1,
+        "commit_seq": commit_seq,
+        "source_event_seq": source_event_seq,
+        "viewer": viewer_payload,
+        "runtime": runtime
+        or {
+            "status": "running",
+            "round_index": view_state.get("turn_stage", {}).get("round_index", 0) if isinstance(view_state, dict) else 0,
+            "turn_index": view_state.get("turn_stage", {}).get("turn_index", 0) if isinstance(view_state, dict) else 0,
+            "active_frame_id": "frame:test",
+            "active_module_id": "module:test",
+            "active_module_type": "TestModule",
+            "module_path": ["frame:test", "module:test"],
+        },
+        "view_state": dict(view_state or {}),
+    }
+    _cached_store().save_view_commit(session_id, payload, viewer=viewer, player_id=player_id)
+    return payload
 
 
 def _all_ai_payload() -> dict:
@@ -150,6 +212,14 @@ def _two_seat_matrix_payload() -> dict:
             "starting_shards": 7,
             "dice_values": [2, 4, 8],
             "dice_max_cards_per_turn": 1,
+            "rules": {
+                "end": {
+                    "f_threshold": 1,
+                    "monopolies_to_trigger_end": 0,
+                    "tiles_to_trigger_end": 1,
+                    "alive_players_at_most": 1,
+                }
+            },
         },
     }
 
@@ -311,7 +381,7 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(calls, [])
 
-    def test_authenticated_runtime_status_resumes_pending_command_before_plain_recovery(self) -> None:
+    def test_authenticated_runtime_status_defers_pending_command_before_plain_recovery(self) -> None:
         from apps.server.src import state
 
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
@@ -375,7 +445,114 @@ class SessionsApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(start_calls, [])
-        self.assertEqual(process_calls, [(session_id, 7, "runtime_wakeup", 120, None)])
+        self.assertEqual(process_calls, [])
+
+    def test_authenticated_runtime_status_does_not_start_recovery_for_waiting_checkpoint(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        original_status = state.runtime_service.runtime_status
+        original_pending = state.runtime_service.pending_resume_command
+        original_start = state.runtime_service.start_runtime
+        start_calls: list[tuple[str, int, str | None]] = []
+
+        def _fake_runtime_status(_session_id: str) -> dict:
+            return {
+                "status": "recovery_required",
+                "reason": "runtime_task_missing_after_restart",
+                "recovery_checkpoint": {
+                    "available": True,
+                    "checkpoint": {
+                        "waiting_prompt_request_id": f"{session_id}:r1:t1:p1:hidden_trick_card:65",
+                        "waiting_prompt_player_id": 1,
+                        "runtime_active_prompt": {
+                            "request_id": f"{session_id}:r1:t1:p1:hidden_trick_card:65",
+                            "request_type": "hidden_trick_card",
+                            "player_id": 1,
+                            "legal_choices": [{"choice_id": "use_trick"}],
+                        },
+                    },
+                    "current_state": {"tiles": [], "players": []},
+                },
+            }
+
+        async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
+            start_calls.append((session_id, seed, policy_mode))
+
+        state.runtime_service.runtime_status = _fake_runtime_status  # type: ignore[method-assign]
+        state.runtime_service.pending_resume_command = lambda _session_id: None  # type: ignore[method-assign]
+        state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
+        try:
+            response = self.client.get(
+                f"/api/v1/sessions/{session_id}/runtime-status",
+                params={"token": session_token},
+            )
+        finally:
+            state.runtime_service.runtime_status = original_status  # type: ignore[method-assign]
+            state.runtime_service.pending_resume_command = original_pending  # type: ignore[method-assign]
+            state.runtime_service.start_runtime = original_start  # type: ignore[assignment]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(start_calls, [])
+
+    def test_authenticated_runtime_status_defers_waiting_input_pending_command(self) -> None:
+        from apps.server.src import state
+
+        created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
+        self.assertEqual(created.status_code, 200)
+        data = created.json()["data"]
+        session_id = data["session_id"]
+        joined = self.client.post(
+            f"/api/v1/sessions/{session_id}/join",
+            json={"seat": 1, "join_token": data["join_tokens"]["1"], "display_name": "P1"},
+        )
+        self.assertEqual(joined.status_code, 200)
+        session_token = joined.json()["data"]["session_token"]
+
+        original_status = state.runtime_service.runtime_status
+        original_pending = state.runtime_service.pending_resume_command
+        original_process = state.runtime_service.process_command_once
+        process_calls: list[tuple[str, int, str, int, str | None]] = []
+
+        def _fake_runtime_status(_session_id: str) -> dict:
+            return {"status": "waiting_input", "reason": "pending_human_decision"}
+
+        async def _fake_process_command_once(
+            *,
+            session_id: str,
+            command_seq: int,
+            consumer_name: str,
+            seed: int,
+            policy_mode: str | None = None,
+        ) -> dict:
+            process_calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
+            return {"status": "committed"}
+
+        state.runtime_service.runtime_status = _fake_runtime_status  # type: ignore[method-assign]
+        state.runtime_service.pending_resume_command = lambda _session_id: {"seq": 9, "type": "decision_submitted"}  # type: ignore[method-assign]
+        state.runtime_service.process_command_once = _fake_process_command_once  # type: ignore[method-assign]
+        try:
+            response = self.client.get(
+                f"/api/v1/sessions/{session_id}/runtime-status",
+                params={"token": session_token},
+            )
+        finally:
+            state.runtime_service.runtime_status = original_status  # type: ignore[method-assign]
+            state.runtime_service.pending_resume_command = original_pending  # type: ignore[method-assign]
+            state.runtime_service.process_command_once = original_process  # type: ignore[method-assign]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(process_calls, [])
 
     def test_public_session_allows_spectator_replay_and_runtime_status(self) -> None:
         payload = _all_ai_payload()
@@ -497,20 +674,23 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(data["visibility"], "spectator")
         self.assertTrue(data["browser_safe"])
         self.assertEqual(data["event_count"], 4)
-        self.assertEqual(data["events"][-2]["seq"], 3)
-        self.assertEqual(data["events"][-1]["seq"], 4)
-        self.assertEqual(data["events"][-2].get("payload", {}).get("event_type"), "round_start")
-        self.assertEqual(data["events"][-1].get("payload", {}).get("event_type"), "turn_start")
+        source_events = [event for event in data["events"] if event.get("type") == "event"]
+        view_commits = [event for event in data["events"] if event.get("type") == "view_commit"]
+        self.assertEqual([event.get("payload", {}).get("event_type") for event in source_events], [
+            "session_created",
+            "turn_end_snapshot",
+            "round_start",
+            "turn_start",
+        ])
+        self.assertEqual(view_commits, [])
         self.assertIn("server_time_ms", data["events"][0])
-        self.assertIn("view_state", data["events"][-1].get("payload", {}))
-        self.assertIn("players", data["events"][-1].get("payload", {}).get("view_state", {}))
-        self.assertIn("view_state", data)
-        self.assertIn("players", data["view_state"])
+        self.assertNotIn("view_state", source_events[-1].get("payload", {}))
+        self.assertNotIn("view_state", data)
         self.assertNotIn("final_state", data)
         self.assertNotIn("streams", data)
         self.assertNotIn("analysis", data)
 
-    def test_replay_endpoint_projects_latest_view_state_for_authenticated_seat(self) -> None:
+    def test_view_commit_endpoint_returns_cached_view_state_for_authenticated_seat(self) -> None:
         payload = _two_seat_matrix_payload()
         payload["config"]["visibility"] = "public"
         created = self.client.post("/api/v1/sessions", json=payload)
@@ -524,43 +704,66 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(joined.status_code, 200)
         session_token = joined.json()["data"]["session_token"]
 
-        async def _seed_private_prompt() -> None:
-            from apps.server.src import state
+        _save_cached_view_commit(
+            session_id,
+            commit_seq=1,
+            source_event_seq=1,
+            view_state={"board": {"round": 1}},
+        )
+        _save_cached_view_commit(
+            session_id,
+            commit_seq=1,
+            source_event_seq=1,
+            viewer="player",
+            player_id=1,
+            seat=1,
+            view_state={
+                "board": {"round": 1},
+                "prompt": {
+                    "active": {
+                        "request_id": "req_trick",
+                        "request_type": "trick_to_use",
+                        "player_id": 1,
+                        "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
+                    }
+                },
+                "hand_tray": {"cards": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}]},
+            },
+            runtime={
+                "status": "waiting_input",
+                "round_index": 1,
+                "turn_index": 0,
+                "active_frame_id": "frame:prompt",
+                "active_module_id": "module:prompt",
+                "active_module_type": "TrickPromptModule",
+                "module_path": ["frame:prompt", "module:prompt"],
+            },
+        )
 
-            await state.stream_service.publish(
-                session_id,
-                "prompt",
-                module_prompt({
-                    "request_id": "req_trick",
-                    "request_type": "trick_to_use",
-                    "player_id": 1,
-                    "legal_choices": [{"choice_id": "card-11", "title": "재뿌리기"}],
-                    "public_context": {
-                        "full_hand": [{"deck_index": 11, "name": "재뿌리기", "is_usable": True}],
-                    },
-                }),
-            )
-
-        asyncio.run(_seed_private_prompt())
-
-        spectator = self.client.get(f"/api/v1/sessions/{session_id}/replay")
+        spectator = self.client.get(f"/api/v1/sessions/{session_id}/view-commit")
         self.assertEqual(spectator.status_code, 200)
         spectator_data = spectator.json()["data"]
-        self.assertEqual(spectator_data["visibility"], "spectator")
-        self.assertNotIn("final_state", spectator_data)
-        self.assertNotIn("streams", spectator_data)
-        self.assertNotIn("prompt", {event.get("type") for event in spectator_data["events"]})
+        self.assertEqual(spectator_data["viewer"]["role"], "spectator")
         self.assertNotIn("prompt", spectator_data["view_state"])
         self.assertNotIn("hand_tray", spectator_data["view_state"])
 
-        seat = self.client.get(f"/api/v1/sessions/{session_id}/replay?token={session_token}")
+        seat = self.client.get(f"/api/v1/sessions/{session_id}/view-commit?token={session_token}")
         self.assertEqual(seat.status_code, 200)
         seat_data = seat.json()["data"]
-        self.assertEqual(seat_data["visibility"], "player")
         self.assertEqual(seat_data["viewer"]["player_id"], 1)
-        self.assertIn("prompt", {event.get("type") for event in seat_data["events"]})
         self.assertEqual(seat_data["view_state"]["prompt"]["active"]["request_id"], "req_trick")
         self.assertEqual(seat_data["view_state"]["hand_tray"]["cards"][0]["name"], "재뿌리기")
+
+    def test_view_commit_endpoint_returns_404_without_cached_commit(self) -> None:
+        payload = _two_seat_matrix_payload()
+        payload["config"]["visibility"] = "public"
+        created = self.client.post("/api/v1/sessions", json=payload)
+        session_id = created.json()["data"]["session_id"]
+
+        response = self.client.get(f"/api/v1/sessions/{session_id}/view-commit")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "VIEW_COMMIT_NOT_FOUND")
 
     def test_replay_endpoint_uses_single_snapshot_projection_path(self) -> None:
         payload = _all_ai_payload()
@@ -607,10 +810,11 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(replay.status_code, 200)
         data = replay.json()["data"]
         self.assertEqual(data["event_count"], 22)
-        self.assertIn("view_state", data)
-        self.assertIn("view_state", data["events"][-1].get("payload", {}))
+        self.assertNotIn("view_state", data)
+        self.assertEqual(data["events"][-1].get("type"), "event")
+        self.assertNotIn("view_state", data["events"][-1].get("payload", {}))
 
-    def test_runtime_status_recovery_view_state_is_projected_for_authenticated_seat(self) -> None:
+    def test_runtime_status_does_not_return_live_view_state_for_authenticated_seat(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
         created_data = created.json()["data"]
         session_id = created_data["session_id"]
@@ -640,27 +844,14 @@ class SessionsApiTests(unittest.TestCase):
 
         asyncio.run(_seed_private_prompt())
 
-        from apps.server.src import state
-
-        state.runtime_service.public_runtime_status = lambda _session_id: {
-            "status": "recovery_required",
-            "recovery_checkpoint": {
-                "available": True,
-                "checkpoint": {},
-                "view_state": {"prompt": {"last_feedback": {"request_id": "old_public_feedback"}}},
-                "current_state_available": True,
-            },
-        }
-
         runtime = self.client.get(
             f"/api/v1/sessions/{session_id}/runtime-status",
             params={"token": session_token},
         )
 
         self.assertEqual(runtime.status_code, 200)
-        view_state = runtime.json()["data"]["runtime"]["recovery_checkpoint"]["view_state"]
-        self.assertEqual(view_state["prompt"]["active"]["request_id"], "req_runtime_trick")
-        self.assertEqual(view_state["hand_tray"]["cards"][0]["name"], "재뿌리기")
+        recovery = runtime.json()["data"]["runtime"].get("recovery_checkpoint", {})
+        self.assertNotIn("view_state", recovery)
 
     def test_replay_endpoint_rejects_invalid_session_token(self) -> None:
         created = self.client.post("/api/v1/sessions", json=_two_seat_matrix_payload())
@@ -831,6 +1022,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(manifest["resources"]["starting_shards"], 7)
         self.assertEqual(manifest["dice"]["values"], [2, 4, 8])
         self.assertEqual(manifest["dice"]["max_cards_per_turn"], 1)
+        self.assertEqual(manifest["rules"]["end"]["f_threshold"], 1.0)
+        self.assertEqual(manifest["rules"]["end"]["tiles_to_trigger_end"], 1)
         join_token = created_data["join_tokens"]["1"]
         joined = self.client.post(
             f"/api/v1/sessions/{session_id}/join",
@@ -860,6 +1053,8 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(started_manifest["resources"]["starting_shards"], 7)
         self.assertEqual(started_manifest["dice"]["values"], [2, 4, 8])
         self.assertEqual(started_manifest["dice"]["max_cards_per_turn"], 1)
+        self.assertEqual(started_manifest["rules"]["end"]["f_threshold"], 1.0)
+        self.assertEqual(started_manifest["rules"]["end"]["tiles_to_trigger_end"], 1)
         self.assertEqual(len(started_active_by_card), 8)
         self.assertTrue(
             all(str(started_active_by_card.get(str(slot)) or started_active_by_card.get(slot) or "").strip() for slot in range(1, 9))

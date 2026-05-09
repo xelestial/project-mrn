@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from types import SimpleNamespace
 
 from ai_policy import HeuristicPolicy
 from config import CellKind, GameConfig
@@ -52,6 +53,23 @@ def _checkpoint_pending_action_types(state: GameState) -> list[str]:
     return [action.type for action in _checkpoint_pending_actions(state)]
 
 
+def _start_reward_cash_decision():
+    return SimpleNamespace(choice="cash", cash_units=10, shard_units=0, coin_units=0)
+
+
+_NO_HIDDEN_TRICK_SELECTION = object()
+
+
+def _hidden_trick_selection_for_test(request):  # noqa: ANN001
+    if request.decision_name != "choose_hidden_trick_card":
+        return _NO_HIDDEN_TRICK_SELECTION
+    fallback = getattr(request, "fallback", None)
+    if callable(fallback):
+        return fallback()
+    hand = request.args[2] if len(request.args) > 2 else []
+    return hand[0] if hand else None
+
+
 def _assert_core_move_state_matches(action_state: GameState, legacy_state: GameState, player_index: int = 0) -> None:
     action_player = action_state.players[player_index]
     legacy_player = legacy_state.players[player_index]
@@ -97,23 +115,23 @@ def test_engine_next_transition_commits_one_turn_boundary() -> None:
     step = engine.run_next_transition(state)
     payload = state.to_checkpoint_payload()
 
-    assert step["status"] in {"committed", "finished"}
+    assert step["status"] in {"committed", "completed"}
     assert payload["schema_version"] == 1
     assert (
         payload["turn_index"] >= 1
         or payload["pending_actions"]
         or payload["pending_turn_completion"]
         or payload["runtime_frame_stack"]
-        or step["status"] == "finished"
+        or step["status"] == "completed"
     )
     assert len(payload["players"]) == 2
 
     for _ in range(50):
-        if step["status"] == "finished" or state.turn_index >= 1:
+        if step["status"] == "completed" or state.turn_index >= 1:
             break
         step = engine.run_next_transition(state)
 
-    assert state.turn_index >= 1 or step["status"] == "finished"
+    assert state.turn_index >= 1 or step["status"] == "completed"
 
 
 def test_engine_next_transition_drains_one_pending_action_before_turn() -> None:
@@ -191,6 +209,164 @@ def test_scheduled_turn_start_mark_materializes_before_target_turn() -> None:
     assert _checkpoint_pending_action_types(state) == []
     assert state.scheduled_actions == []
     assert target.turns_taken == 0
+
+
+def test_stale_resolve_mark_action_is_skipped_once() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(120))
+    state = engine.prepare_run()
+    source = state.players[0]
+    target = state.players[1]
+    source.shards = 3
+    target.cash = 10
+    mark = {"type": "bandit_tax", "source_pid": source.player_id, "idempotency_key": "mark:dup"}
+    action = ActionEnvelope(
+        action_id="resolve_mark:dup",
+        type="resolve_mark",
+        actor_player_id=source.player_id,
+        source="mark:bandit_tax",
+        target_player_id=target.player_id,
+        phase="turn_start",
+        priority=10,
+        payload={"mark": dict(mark), "target_player_id": target.player_id},
+        idempotency_key="mark:dup",
+    )
+
+    result = engine._resolve_mark_action(state, action)
+
+    assert result == {"type": "MARK_SKIPPED", "reason": "mark_not_pending", "target_player_id": 2}
+    assert target.cash == 10
+    assert target.pending_marks == []
+
+
+def test_resolve_mark_action_skips_invalid_target_without_exception() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(121))
+    state = engine.prepare_run()
+    source = state.players[0]
+    action = ActionEnvelope(
+        action_id="resolve_mark:bad_target",
+        type="resolve_mark",
+        actor_player_id=source.player_id,
+        source="mark:bandit_tax",
+        target_player_id=99,
+        phase="turn_start",
+        priority=10,
+        payload={"mark": {"type": "bandit_tax", "source_pid": source.player_id}, "target_player_id": 99},
+    )
+
+    result = engine._resolve_mark_action(state, action)
+
+    assert result == {"type": "MARK_SKIPPED", "reason": "invalid_target", "target_player_id": 100}
+
+
+def test_resolve_mark_action_removes_mark_when_target_is_dead() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(122))
+    state = engine.prepare_run()
+    source = state.players[0]
+    target = state.players[1]
+    mark = {"type": "bandit_tax", "source_pid": source.player_id, "idempotency_key": "mark:dead_target"}
+    target.pending_marks.append(dict(mark))
+    target.alive = False
+    action = ActionEnvelope(
+        action_id="resolve_mark:dead_target",
+        type="resolve_mark",
+        actor_player_id=source.player_id,
+        source="mark:bandit_tax",
+        target_player_id=target.player_id,
+        phase="turn_start",
+        priority=10,
+        payload={"mark": dict(mark), "target_player_id": target.player_id},
+        idempotency_key="mark:dead_target",
+    )
+
+    result = engine._resolve_mark_action(state, action)
+
+    assert result == {"type": "MARK_SKIPPED", "reason": "target_not_alive", "target_player_id": 2}
+    assert target.pending_marks == []
+
+
+def test_resolve_mark_action_removes_mark_when_source_is_dead() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(123))
+    state = engine.prepare_run()
+    source = state.players[0]
+    target = state.players[1]
+    mark = {"type": "bandit_tax", "source_pid": source.player_id, "idempotency_key": "mark:dead_source"}
+    target.pending_marks.append(dict(mark))
+    source.alive = False
+    action = ActionEnvelope(
+        action_id="resolve_mark:dead_source",
+        type="resolve_mark",
+        actor_player_id=source.player_id,
+        source="mark:bandit_tax",
+        target_player_id=target.player_id,
+        phase="turn_start",
+        priority=10,
+        payload={"mark": dict(mark), "target_player_id": target.player_id},
+        idempotency_key="mark:dead_source",
+    )
+
+    result = engine._resolve_mark_action(state, action)
+
+    assert result == {"type": "MARK_SKIPPED", "reason": "source_not_alive", "target_player_id": 2}
+    assert target.pending_marks == []
+
+
+def test_resolve_mark_action_removes_mark_when_source_is_invalid() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(124))
+    state = engine.prepare_run()
+    source = state.players[0]
+    target = state.players[1]
+    mark = {"type": "bandit_tax", "source_pid": 99, "idempotency_key": "mark:bad_source"}
+    target.pending_marks.append(dict(mark))
+    action = ActionEnvelope(
+        action_id="resolve_mark:bad_source",
+        type="resolve_mark",
+        actor_player_id=source.player_id,
+        source="mark:bandit_tax",
+        target_player_id=target.player_id,
+        phase="turn_start",
+        priority=10,
+        payload={"mark": dict(mark), "target_player_id": target.player_id},
+        idempotency_key="mark:bad_source",
+    )
+
+    result = engine._resolve_mark_action(state, action)
+
+    assert result == {"type": "MARK_SKIPPED", "reason": "invalid_source", "target_player_id": 2}
+    assert target.pending_marks == []
+
+
+def test_resolve_mark_action_removes_mark_when_target_is_immune() -> None:
+    config = GameConfig(player_count=2)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), rng=random.Random(125))
+    state = engine.prepare_run()
+    source = state.players[0]
+    target = state.players[1]
+    mark = {"type": "bandit_tax", "source_pid": source.player_id, "idempotency_key": "mark:immune_target"}
+    target.pending_marks.append(dict(mark))
+    target.immune_to_marks_this_round = True
+    target.cash = 10
+    action = ActionEnvelope(
+        action_id="resolve_mark:immune_target",
+        type="resolve_mark",
+        actor_player_id=source.player_id,
+        source="mark:bandit_tax",
+        target_player_id=target.player_id,
+        phase="turn_start",
+        priority=10,
+        payload={"mark": dict(mark), "target_player_id": target.player_id},
+        idempotency_key="mark:immune_target",
+    )
+
+    result = engine._resolve_mark_action(state, action)
+
+    assert result == {"type": "MARK_SKIPPED", "reason": "immune_to_marks", "target_player_id": 2}
+    assert target.cash == 10
+    assert target.pending_marks == []
 
 
 def test_scheduled_hunter_mark_queues_move_before_target_turn() -> None:
@@ -590,10 +766,15 @@ def test_fortune_forced_trade_prompt_keeps_action_queued() -> None:
 def test_prompt_action_remains_queued_when_decision_waits() -> None:
     class WaitingDecisionPort:
         def request(self, request):  # noqa: ANN001
+            hidden_selection = _hidden_trick_selection_for_test(request)
+            if hidden_selection is not _NO_HIDDEN_TRICK_SELECTION:
+                return hidden_selection
             if request.decision_name == "choose_draft_card":
                 return request.args[0][0]
             if request.decision_name == "choose_final_character":
                 return request.state.active_by_card[request.args[0][0]]
+            if request.decision_name == "choose_start_reward":
+                return _start_reward_cash_decision()
             raise RuntimeError("prompt_required_for_test")
 
     config = GameConfig(player_count=2)
@@ -733,10 +914,15 @@ def test_trick_tile_rent_modifier_prompt_keeps_action_queued() -> None:
 def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
     class YesDecisionPort:
         def request(self, request):  # noqa: ANN001
+            hidden_selection = _hidden_trick_selection_for_test(request)
+            if hidden_selection is not _NO_HIDDEN_TRICK_SELECTION:
+                return hidden_selection
             if request.decision_name == "choose_draft_card":
                 return request.args[0][0]
             if request.decision_name == "choose_final_character":
                 return request.state.active_by_card[request.args[0][0]]
+            if request.decision_name == "choose_start_reward":
+                return _start_reward_cash_decision()
             return True
 
     config = GameConfig(player_count=2)
@@ -775,10 +961,15 @@ def test_request_purchase_tile_action_can_resume_and_purchase() -> None:
 def test_purchase_resolution_queues_score_token_placement() -> None:
     class YesDecisionPort:
         def request(self, request):  # noqa: ANN001
+            hidden_selection = _hidden_trick_selection_for_test(request)
+            if hidden_selection is not _NO_HIDDEN_TRICK_SELECTION:
+                return hidden_selection
             if request.decision_name == "choose_draft_card":
                 return request.args[0][0]
             if request.decision_name == "choose_final_character":
                 return request.state.active_by_card[request.args[0][0]]
+            if request.decision_name == "choose_start_reward":
+                return _start_reward_cash_decision()
             return True
 
     config = GameConfig(player_count=2)

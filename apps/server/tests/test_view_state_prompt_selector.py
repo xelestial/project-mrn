@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from apps.server.src.domain.visibility import ViewerContext
+from apps.server.src.domain.view_state import project_replay_view_state
 from apps.server.src.domain.view_state.prompt_selector import build_prompt_feedback_view_state, build_prompt_view_state
 from apps.server.src.services.stream_service import StreamService
 from apps.server.tests.prompt_payloads import module_prompt
@@ -149,12 +150,15 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                         "player_id": 1,
                         "timeout_ms": 30000,
                         "runner_kind": "module",
+                        "prompt_instance_id": 42,
                         "resume_token": "tok_move_1",
                         "frame_id": "turn:1:p1",
                         "module_id": "mod:move",
                         "module_type": "MapMoveModule",
                         "module_cursor": "movement:await_choice",
                         "batch_id": "batch_move_1",
+                        "missing_player_ids": [1, 3],
+                        "resume_tokens_by_player_id": {"1": "tok_p1", "3": "tok_p3"},
                         "legal_choices": [{"choice_id": "roll", "title": "Roll"}],
                         "public_context": {"round_index": 1},
                     },
@@ -163,12 +167,16 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         )
 
         active = view_state["active"]
+        self.assertEqual(active["runner_kind"], "module")
+        self.assertEqual(active["prompt_instance_id"], 42)
         self.assertEqual(active["resume_token"], "tok_move_1")
         self.assertEqual(active["frame_id"], "turn:1:p1")
         self.assertEqual(active["module_id"], "mod:move")
         self.assertEqual(active["module_type"], "MapMoveModule")
         self.assertEqual(active["module_cursor"], "movement:await_choice")
         self.assertEqual(active["batch_id"], "batch_move_1")
+        self.assertEqual(active["missing_player_ids"], [1, 3])
+        self.assertEqual(active["resume_tokens_by_player_id"], {"1": "tok_p1", "3": "tok_p3"})
 
     def test_build_prompt_view_state_projects_effect_context(self) -> None:
         view_state = build_prompt_view_state(
@@ -323,11 +331,11 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
 
         self.assertIsNone(view_state)
 
-    def test_stream_service_projects_prompt_view_state_for_target_viewer(self) -> None:
+    def test_stream_service_keeps_prompt_view_state_projection_out_of_live_publish(self) -> None:
         stream = StreamService()
 
-        async def _publish() -> tuple[dict, dict | None]:
-            prompt = await stream.publish(
+        async def _publish() -> tuple[dict, dict | None, dict]:
+            await stream.publish(
                 "sess_1",
                 "prompt",
                 module_prompt({
@@ -340,20 +348,24 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                 }, module_type="MapMoveModule", frame_id="turn:test:p0"),
             )
             snapshot = await stream.snapshot("sess_1")
-            projected = await stream.project_message_for_viewer(
-                prompt.to_dict(),
+            latest_commit = await stream.latest_view_commit_message_for_viewer(
+                "sess_1",
                 ViewerContext(role="seat", session_id="sess_1", player_id=1),
             )
-            return [message.to_dict() for message in snapshot][-1], projected
+            messages = [message.to_dict() for message in snapshot]
+            replay_view_state = project_replay_view_state(
+                messages,
+                viewer=ViewerContext(role="seat", session_id="sess_1", player_id=1),
+            )
+            return messages[-1], latest_commit, replay_view_state
 
-        stored_message, projected_message = asyncio.run(_publish())
+        stored_message, latest_commit, replay_view_state = asyncio.run(_publish())
         latest_payload = stored_message["payload"]
 
-        self.assertIn("view_state", latest_payload)
-        self.assertNotIn("prompt", latest_payload["view_state"])
-        self.assertIsNotNone(projected_message)
+        self.assertNotIn("view_state", latest_payload)
+        self.assertIsNone(latest_commit)
         self.assertEqual(
-            projected_message["payload"]["view_state"]["prompt"]["active"]["request_id"],
+            replay_view_state["prompt"]["active"]["request_id"],
             "req_turn7_move",
         )
 
@@ -489,6 +501,63 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         fixture = _load_selector_prompt_fixture("selector.prompt.lap_reward_surface.json")
         view_state = build_prompt_view_state(fixture["messages"])
         self.assertEqual(view_state["active"]["surface"], fixture["expected"]["prompt"]["active"]["surface"])
+
+    def test_build_prompt_view_state_projects_start_reward_as_reward_allocation_surface(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_start_reward_1",
+                        "request_type": "start_reward",
+                        "player_id": 1,
+                        "public_context": {
+                            "budget": 20,
+                            "pools": {"cash": 30, "shards": 18, "coins": 18},
+                            "cash_point_cost": 2,
+                            "shards_point_cost": 3,
+                            "coins_point_cost": 3,
+                        },
+                        "legal_choices": [
+                            {
+                                "choice_id": "cash:10|shards:0|coins:0",
+                                "value": {
+                                    "cash_units": 10,
+                                    "shard_units": 0,
+                                    "coin_units": 0,
+                                    "spent_points": 20,
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(
+            view_state["active"]["surface"]["lap_reward"],
+            {
+                "budget": 20,
+                "cash_pool": 30,
+                "shards_pool": 18,
+                "coins_pool": 18,
+                "cash_point_cost": 2,
+                "shards_point_cost": 3,
+                "coins_point_cost": 3,
+                "options": [
+                    {
+                        "choice_id": "cash:10|shards:0|coins:0",
+                        "cash_units": 10,
+                        "shard_units": 0,
+                        "coin_units": 0,
+                        "spent_points": 20,
+                    }
+                ],
+            },
+        )
 
     def test_build_prompt_view_state_matches_shared_burden_exchange_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.burden_exchange_surface.json")

@@ -28,7 +28,7 @@ import {
 import type { QuarterviewFacing } from "./boardProjection";
 import type { QuarterviewTilePolygon } from "./boardProjection";
 import type { QuarterviewPosition } from "./boardProjection";
-import { computeBoardHudFrame, sameBoardHudFrame } from "./boardHudLayout";
+import { boardHudFrameToCssVars, computeBoardHudFrame, sameBoardHudFrame } from "./boardHudLayout";
 import { computeBoardHudScale } from "./boardHudScale";
 
 type BoardPanelProps = {
@@ -52,6 +52,7 @@ type BoardPanelProps = {
   >;
   weather: Pick<TurnStageViewModel, "weatherName" | "weatherEffect">;
   revealFocus?: Pick<CurrentTurnRevealItem, "seq" | "eventCode" | "label" | "detail" | "tone" | "focusTileIndex"> | null;
+  historyFocusPlayerIds?: number[];
   turnBanner: {
     text: string;
     detail: string;
@@ -168,6 +169,10 @@ function playerWalkSprite(playerId: number, facing: QuarterviewFacing): Characte
   return PLAYER_SPRITE_SETS[playerId]?.walkSprites?.[facing] ?? null;
 }
 
+function playerSpriteVisualScale(playerId: number): number {
+  return PLAYER_SPRITE_SETS[playerId]?.visualScale ?? 1;
+}
+
 function standeeBoardInwardOffset(position: Pick<QuarterviewPosition, "xPercent" | "yPercent" | "lane">): { x: number; y: number } {
   if (position.lane === "line") {
     return { x: 0, y: 0 };
@@ -239,6 +244,7 @@ export function BoardPanel({
   stageFocus,
   weather,
   revealFocus = null,
+  historyFocusPlayerIds = [],
   turnBanner,
   showTurnOverlay,
   minimalHeader = false,
@@ -283,18 +289,7 @@ export function BoardPanel({
     "--board-qv-tile-angle": `${quarterviewGeometry.tileAngleDeg}deg`,
     "--board-qv-tile-inline": `${quarterviewGeometry.tileInlinePercent}%`,
     "--board-qv-tile-block": `${quarterviewGeometry.tileBlockPercent}%`,
-    ...(hudFrame
-      ? {
-          "--board-overlay-safe-top": `${hudFrame.safeTop}px`,
-          "--board-overlay-safe-bottom-gap": `${hudFrame.safeBottomGap}px`,
-          "--board-overlay-safe-left": `${hudFrame.safeLeft}px`,
-          "--board-overlay-safe-right-gap": `${hudFrame.safeRightGap}px`,
-          "--board-hud-prompt-top-inset": `${hudFrame.promptTopInset}px`,
-          "--board-hud-hand-tray-top-inset": `${hudFrame.handTrayTopInset}px`,
-          "--board-hud-hand-tray-bottom-gap": `${hudFrame.handTrayBottomGap}px`,
-          "--board-hud-hand-tray-height": `${hudFrame.handTrayHeight}px`,
-        }
-      : {}),
+    ...boardHudFrameToCssVars(hudFrame),
     "--board-scene-scale": String(hudScale.sceneScale),
     "--board-hud-gap": `${hudScale.overlayGap}px`,
     "--board-hud-gap-tight": `${hudScale.overlayGapTight}px`,
@@ -419,6 +414,7 @@ export function BoardPanel({
   }
 
   const movedPlayerId = lastMove?.playerId ?? null;
+  const historyFocusPlayerIdSet = new Set(historyFocusPlayerIds);
   const movedTileIndex = lastMove?.toTileIndex ?? null;
   if (movedPlayerId !== null && movedTileIndex !== null) {
     const moved = pawnFallback.get(movedTileIndex) ?? [];
@@ -518,6 +514,7 @@ export function BoardPanel({
         assetUrl: playerSpriteUrl(player.playerId, facing),
         walkSprite,
         walkFrameDelayMs: walkSprite ? -Math.max(0, animStepIndex) * BOARD_STANDEE_WALK_STEP_MS : 0,
+        spriteVisualScale: playerSpriteVisualScale(player.playerId),
         isAnimating,
       };
     });
@@ -556,7 +553,7 @@ export function BoardPanel({
         })?.tileIndex ?? null
       : null;
   const showBoardRevealPanel =
-    Boolean(revealFocus) && revealFocus?.focusTileIndex === null && actorRevealFallbackTileIndex === null;
+    Boolean(revealFocus) && (useQuarterview || (revealFocus?.focusTileIndex === null && actorRevealFallbackTileIndex === null));
   const tilesByIndex = new Map(tiles.map((tile) => [tile.tileIndex, tile]));
   const projectedTilePolygons = useQuarterview
     ? quarterviewTilePolygons(tiles.length, normalizedTopology).filter((polygon) => tilesByIndex.has(polygon.tileIndex))
@@ -640,9 +637,6 @@ export function BoardPanel({
               </div>
               <div className="board-projected-main">
                 {renderTilePrice(tile.purchaseCost, board, "board-projected-cost")}
-                <span className={`board-projected-owner ${ownerPlayerId === null ? "board-projected-owner-empty" : ""}`}>
-                  {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
-                </span>
               </div>
               <div className={`board-projected-stamp ${hasOwner ? "" : "board-projected-stamp-empty"}`}>
                 <span>{hasOwner ? `P${ownerPlayerId}` : ""}</span>
@@ -876,7 +870,7 @@ export function BoardPanel({
                     {board.activeTurnTag(stageFocus.actorPlayerId ?? 0)}
                   </div>
                 ) : null}
-                {isRevealFocus ? (
+                {!useQuarterview && isRevealFocus ? (
                   <div
                     className={`tile-reveal-spotlight tile-reveal-spotlight-${revealFocus?.tone ?? "effect"}`}
                     data-testid={`board-reveal-spotlight-${revealFocus?.eventCode ?? "event"}`}
@@ -934,11 +928,6 @@ export function BoardPanel({
                     </div>
                   )}
                   <div className="tile-foot">
-                    <div className="tile-badge-row">
-                      <small className={`tile-owner-badge ${ownerPlayerId === null ? "tile-owner-badge-empty" : ""}`}>
-                        {ownerPlayerId === null ? board.ownerNone : board.owner(ownerPlayerId)}
-                      </small>
-                    </div>
                     <div className="pawn-chips">
                       {tilePawns.filter((id) => !useQuarterview || !standeePlayerIds.has(id)).length > 0 ? (
                         tilePawns.filter((id) => !useQuarterview || !standeePlayerIds.has(id)).map((id) => (
@@ -946,7 +935,7 @@ export function BoardPanel({
                             key={`${tile.tileIndex}-p${id}`}
                             className={`pawn-token ${isMoveTo ? "pawn-arrived" : ""} ${
                               isStageFocus && stageFocus.actorPlayerId === id ? "pawn-active-turn" : ""
-                            }`}
+                            } ${historyFocusPlayerIdSet.has(id) ? "pawn-history-focus" : ""}`}
                             style={
                               {
                                 "--pawn-player-color": playerColor(id),
@@ -992,13 +981,16 @@ export function BoardPanel({
                     ? `${(placement.walkSprite.frameCount - 1) * placement.walkSprite.frameStepMs}ms`
                     : undefined,
                   "--board-standee-walk-delay": placement.walkSprite ? `${placement.walkFrameDelayMs}ms` : undefined,
+                  "--character-sprite-scale": String(placement.spriteVisualScale),
                 } as CSSProperties;
                 return (
                   <div
                     key={`standee-${placement.animationKey}`}
                     className={`board-character-standee ${
                       placement.playerId === stageFocus.actorPlayerId ? "board-character-standee-active" : ""
-                    } ${placement.isAnimating ? "board-character-standee-moving" : ""}`}
+                    } ${placement.isAnimating ? "board-character-standee-moving" : ""} ${
+                      historyFocusPlayerIdSet.has(placement.playerId) ? "board-character-standee-history-focus" : ""
+                    }`}
                     data-facing={placement.facing}
                     style={style}
                     title={`P${placement.playerId} ${placement.character}`}

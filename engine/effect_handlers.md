@@ -9,6 +9,7 @@ Handlers keep rule effects behind event boundaries so the engine can emit semant
 - marker flip resolution
 - weather and end-condition effects
 - purchase, rent, force-sale, takeover, and token placement helpers
+- LAP and start reward allocation resolution
 - fortune card action production
 - trick tile-rent modifier production
 - semantic/action log enrichment

@@ -214,7 +214,7 @@ class _GameStateStoreStub:
             "private_hands": {"1": ["hidden-card"]},
         }
 
-    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
         del session_id, player_id
         if viewer == "public":
             return {"players": {"items": []}}

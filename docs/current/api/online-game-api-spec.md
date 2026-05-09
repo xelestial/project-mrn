@@ -63,7 +63,15 @@ Request:
   "config": {
     "seed": 42,
     "seat_limits": { "min": 1, "max": 4, "allowed": [1, 2, 3, 4] },
-    "board_topology": "ring"
+    "board_topology": "ring",
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      }
+    }
   }
 }
 ```
@@ -77,6 +85,7 @@ Current v1 supported session `config` keys (baseline):
 - `starting_shards`
 - `dice_values`
 - `dice_max_cards_per_turn`
+- `rules.end` (`f_threshold`, `monopolies_to_trigger_end`, `tiles_to_trigger_end`, `alive_players_at_most`)
 - `labels`
 
 Response `data`:
@@ -95,7 +104,24 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 }
+    "resources": { "starting_shards": 2 },
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      },
+      "start_reward": {
+        "points_budget": 20,
+        "cash_point_cost": 2,
+        "shards_point_cost": 3,
+        "coins_point_cost": 3,
+        "cash_pool": 30,
+        "shards_pool": 18,
+        "coins_pool": 18
+      }
+    }
   },
   "initial_active_by_card": {
     "1": "어사",
@@ -158,7 +184,24 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 }
+    "resources": { "starting_shards": 2 },
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      },
+      "start_reward": {
+        "points_budget": 20,
+        "cash_point_cost": 2,
+        "shards_point_cost": 3,
+        "coins_point_cost": 3,
+        "cash_pool": 30,
+        "shards_pool": 18,
+        "coins_pool": 18
+      }
+    }
   },
   "initial_active_by_card": {
     "1": "어사",
@@ -222,7 +265,24 @@ Response `data`:
     "manifest_hash": "hash_x",
     "board": { "topology": "ring", "tile_count": 40 },
     "economy": { "starting_cash": 20 },
-    "resources": { "starting_shards": 4 }
+    "resources": { "starting_shards": 2 },
+    "rules": {
+      "end": {
+        "f_threshold": 15,
+        "monopolies_to_trigger_end": 3,
+        "tiles_to_trigger_end": 9,
+        "alive_players_at_most": 2
+      },
+      "start_reward": {
+        "points_budget": 20,
+        "cash_point_cost": 2,
+        "shards_point_cost": 3,
+        "coins_point_cost": 3,
+        "cash_pool": 30,
+        "shards_pool": 18,
+        "coins_pool": 18
+      }
+    }
   },
   "initial_active_by_card": {
     "1": "어사",
@@ -237,9 +297,37 @@ Response `data`:
 }
 ```
 
-## 6) Replay Export
+## 6) View Commit
+
+`GET /api/v1/sessions/{session_id}/view-commit?token=...`
+
+Response `data` is the latest Redis-cached `ViewCommit.payload` for the
+authenticated viewer. This is the live UI recovery endpoint.
+
+```json
+{
+  "schema_version": 1,
+  "commit_seq": 42,
+  "source_event_seq": 1042,
+  "viewer": { "role": "seat", "player_id": 1, "seat": 1 },
+  "runtime": {
+    "status": "waiting_input",
+    "round_index": 2,
+    "turn_index": 5,
+    "active_frame_id": "frame_...",
+    "active_module_id": "module_...",
+    "active_module_type": "MovementChoiceModule",
+    "module_path": ["RoundFrame", "TurnFrame", "MovementChoiceModule"]
+  },
+  "view_state": {}
+}
+```
+
+## 7) Replay Export
 
 `GET /api/v1/sessions/{session_id}/replay`
+
+Replay export is debug/archive data. It is not a live UI recovery source.
 
 Response `data`:
 
@@ -251,7 +339,7 @@ Response `data`:
 }
 ```
 
-## 7) Runtime Status
+## 8) Runtime Status
 
 `GET /api/v1/sessions/{session_id}/runtime-status`
 
@@ -270,7 +358,7 @@ Possible runtime status:
 
 - `idle`
 - `running`
-- `finished`
+- `completed`
 - `failed`
 - `stop_requested`
 - `recovery_required` (session is `in_progress` but runtime task is missing after restart; requires recovery/abort decision)
@@ -333,21 +421,12 @@ Common envelope:
 }
 ```
 
-Additive view-model channel:
+Live view-model channel:
 
-- stream/replay payloads may include a renderer-agnostic `payload.view_state` object
-- current first migrated slice is `payload.view_state.players`
-- current additive slices are:
-  - `view_state.players`
-  - `view_state.player_cards`
-  - `view_state.active_slots`
-  - `view_state.mark_target`
-  - `view_state.reveals`
-  - `view_state.board`
-  - `view_state.prompt`
-  - `view_state.hand_tray`
-  - `view_state.turn_stage`
-  - `view_state.scene`
+- only `type="view_commit"` carries live render state
+- UI freshness is determined by `payload.commit_seq`, not stream `seq`
+- `payload.view_state` contains board, players, hand, prompt, turn, runtime, and scene state
+- event, prompt, decision_ack, heartbeat, and replay messages are debug/audit inputs only; the live UI must not synthesize state from them
 - `view_state.players` currently contains:
   - `ordered_player_ids`
   - `marker_owner_player_id`
@@ -751,9 +830,12 @@ Notes:
 ```json
 {
   "type": "resume",
-  "last_seq": 1041
+  "last_commit_seq": 42
 }
 ```
+
+The server responds with the latest cached `view_commit` when the client is
+missing or behind. It must not replay event gaps for live UI recovery.
 
 ## `decision`
 
@@ -764,7 +846,9 @@ Notes:
   "player_id": 1,
   "choice_id": "roll",
   "choice_payload": {},
-  "client_seq": 1045
+  "prompt_instance_id": 17,
+  "resume_token": "resume_...",
+  "view_commit_seq_seen": 42
 }
 ```
 
@@ -773,6 +857,8 @@ Server-side validation:
 - spectator decision submission => `UNAUTHORIZED_SEAT`
 - seat decision with mismatched `player_id` => `PLAYER_MISMATCH`
 - stale/missing prompt request => `decision_ack.status=stale`
+- missing/stale/future `view_commit_seq_seen` => `decision_ack.status=stale`
+- stale `prompt_instance_id` or `resume_token` => `decision_ack.status=stale`
 
 ## Timeout and Idempotency Rules
 
@@ -780,7 +866,7 @@ Server-side validation:
 - First valid decision wins.
 - Duplicate decisions for accepted request return `decision_ack.status=stale`.
 - Timeout triggers server fallback once.
-- Fallback result is emitted as public events.
+- Fallback result is recorded in debug/audit events and reflected in the next authoritative `view_commit`.
 - Recommended fallback trace event payload:
   - `event_type=decision_timeout_fallback`
   - `request_id`, `player_id`, `fallback_policy`, `round_index`, `turn_index`
@@ -790,8 +876,9 @@ Server-side validation:
 ## Resume Rules
 
 - Client must send `resume` after reconnect.
-- If `last_seq` is within server buffer, replay starts at `last_seq + 1`.
-- If too old, server returns error code `RESUME_GAP_TOO_OLD` and sends latest snapshot + current stream.
+- Payload shape is `{ "type": "resume", "last_commit_seq": number }`.
+- Server does not replay gaps for live recovery.
+- If the client is stale or missing state, the server sends the latest cached `view_commit` for that viewer.
 
 ## Security Rules (v1)
 
@@ -813,7 +900,7 @@ Server-side validation:
 | `DECISION_REJECTED` | WS | Invalid choice payload or seat mismatch | depends |
 | `RUNTIME_EXECUTION_FAILED` | WS | Background engine execution failed | no |
 | `RUNTIME_STALLED_WARN` | WS | Runtime inactivity watchdog warning | yes |
-| `RESUME_GAP_TOO_OLD` | WS | Replay buffer cannot satisfy last_seq | yes |
+| `VIEW_COMMIT_NOT_FOUND` | REST/WS | Cached authoritative ViewCommit is unavailable | yes |
 | `INTERNAL_SERVER_ERROR` | REST/WS | Unexpected server fault | yes |
 
 ## API Change Management
@@ -839,6 +926,7 @@ Implemented baseline fields:
 - `parameter_manifest.board` (tile topology + tile metadata)
 - `parameter_manifest.seats` (seat limits/model)
 - `parameter_manifest.dice` (values, per-turn limits)
+- `parameter_manifest.rules.end` (session-scoped engine end condition values)
 - `parameter_manifest.labels` (event/tile/prompt display labels)
 
 Implemented delivery points:

@@ -55,7 +55,7 @@ type SpectatorTrainItem = {
 };
 
 function payoffToneForEventCode(eventCode: string): PayoffTone {
-  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen") {
+  if (eventCode === "tile_purchased" || eventCode === "rent_paid" || eventCode === "lap_reward_chosen" || eventCode === "start_reward_chosen") {
     return "economy";
   }
   if (eventCode === "fortune_drawn" || eventCode === "fortune_resolved" || eventCode === "trick_used") {
@@ -174,7 +174,7 @@ export function SpectatorTurnPanel({ actorPlayerId, model, latestAction }: Spect
   const fortuneResolvedEventLabel = eventLabel.events.fortune_resolved ?? app.spectatorFields.effect;
   const landingEventLabel = eventLabel.events.landing_resolved ?? app.spectatorFields.landing;
   const lapRewardEventLabel = eventLabel.events.lap_reward_chosen ?? app.spectatorFields.economy;
-  const markEventCode = model.currentBeatEventCode === "mark_queued" ? "mark_queued" : "mark_resolved";
+  const markEventCode = model.currentBeatEventCode.startsWith("mark_") ? model.currentBeatEventCode : "mark_resolved";
   const markEventLabel =
     (eventLabel.events as Record<string, string>)[markEventCode] ??
     app.spectatorFields.effect;

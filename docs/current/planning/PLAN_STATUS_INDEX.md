@@ -1,7 +1,7 @@
 # PLAN Status Index
 
 Status: ACTIVE  
-Updated: 2026-05-04
+Updated: 2026-05-08
 Owner: Engine runtime
 
 ## Purpose
@@ -16,12 +16,14 @@ The broad architecture migration era is closed enough. Current work should start
 from the runtime contracts, current gameplay rules, and the short priority board
 instead of reopening broad umbrella plans.
 
-Current repo-side work has four active tracks:
+Current repo-side work has five active tracks:
 
 1. Runtime contract and modular-runtime stabilization
 2. Redis-authoritative game state and visibility projection hardening
 3. UI/UX readability follow-up from the current canonical frontend baseline
 4. Real human/local-AI/external-AI playtest stabilization
+5. Runtime protocol identity, prompt lifecycle, viewer outbox, and WebSocket
+   recovery stabilization
 
 The 2026-05-02 modular runtime migration plans are implemented and no longer
 kept as active execution context.
@@ -39,13 +41,14 @@ Read and maintain these:
 1. `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 2. `docs/current/Game-Rules.md`
 3. `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
-4. `docs/current/runtime/end-to-end-contract.md`
-5. `docs/current/runtime/round-action-control-matrix.md`
-6. `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
-7. `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
-8. `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
-9. `docs/current/engineering/[PLAN]_VISIBILITY_PROJECTION_REDIS.md`
-10. `docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`
+4. `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
+5. `docs/current/runtime/end-to-end-contract.md`
+6. `docs/current/runtime/round-action-control-matrix.md`
+7. `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
+8. `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+9. `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
+10. `docs/current/engineering/[PLAN]_VISIBILITY_PROJECTION_REDIS.md`
+11. `docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`
 
 ## Current Reference Sets
 
@@ -99,12 +102,13 @@ Those themes should reopen only if a concrete regression or rollout need appears
    pass confirmed that the local manifest validates and that
    `--require-external-topology` correctly rejects local-only evidence. See
    `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
-2. Runtime contract stabilization. The current baseline is guarded by the
-   module-runtime matrix, native module/semantic-guard/continuation/idempotency
-   tests, and frontend decision/prompt contract tests. Keep end-to-end payload
-   shape, round/action control, prompt lifecycle, and modular-runtime frame
-   semantics synchronized between `engine/`, `apps/server/`, and `apps/web/` as
-   new rule changes land.
+2. Runtime protocol and contract stabilization. The current baseline is guarded
+   by `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`,
+   the module-runtime matrix, native module/semantic-guard/continuation and
+   idempotency tests, and frontend decision/prompt contract tests. Keep
+   end-to-end payload shape, round/action control, prompt lifecycle, and
+   modular-runtime frame semantics synchronized between `engine/`,
+   `apps/server/`, and `apps/web/` as new rule changes land.
 3. UI/UX follow-up. Effect cause visibility now preserves backend
    `effect_context` source player, source family, source name, and resource
    delta through the prompt overlay. The 2026-05-04 automated evidence pass

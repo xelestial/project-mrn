@@ -92,10 +92,13 @@ class RestartPersistenceTests(unittest.TestCase):
             async def _check() -> None:
                 latest = await second.latest_seq("sess_replay_1")
                 snap = await second.snapshot("sess_replay_1")
+                source = [message for message in snap if message.type != "view_commit"]
+                commits = [message for message in snap if message.type == "view_commit"]
                 self.assertEqual(latest, 2)
-                self.assertEqual(len(snap), 2)
-                self.assertEqual(snap[0].payload.get("event_type"), "round_start")
-                self.assertEqual(snap[1].payload.get("event_type"), "turn_start")
+                self.assertEqual([message.seq for message in source], [1, 2])
+                self.assertEqual([message.seq for message in commits], [])
+                self.assertEqual(source[0].payload.get("event_type"), "round_start")
+                self.assertEqual(source[1].payload.get("event_type"), "turn_start")
 
             asyncio.run(_check())
 
@@ -142,7 +145,7 @@ class RestartPersistenceTests(unittest.TestCase):
 
             asyncio.run(_check())
 
-    def test_redis_restart_recovers_stream_status_checkpoint_and_commands(self) -> None:
+    def test_redis_restart_recovers_stream_status_and_commands_without_debug_checkpoint(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(url="redis://127.0.0.1:6379/10", key_prefix="mrn-restart", socket_timeout_ms=250),
             client_factory=_FakeRedis,
@@ -209,15 +212,16 @@ class RestartPersistenceTests(unittest.TestCase):
         async def _verify() -> None:
             self.assertEqual(await second_streams.latest_seq(session.session_id), 2)
             replay = await second_streams.replay_from(session.session_id, 0)
-            self.assertEqual([item.seq for item in replay], [1, 2])
+            self.assertEqual([item.seq for item in replay if item.type != "view_commit"], [1, 2])
+            self.assertEqual([item.seq for item in replay if item.type == "view_commit"], [])
 
         asyncio.run(_verify())
         status = second_runtime.runtime_status(session.session_id)
         commands = command_store.list_commands(session.session_id)
 
         self.assertEqual(status["status"], "recovery_required")
-        self.assertTrue(status["recovery_checkpoint"]["available"])
-        self.assertEqual(status["recovery_checkpoint"]["checkpoint"]["turn_index"], 4)
+        self.assertNotIn("recovery_checkpoint", status)
+        self.assertIsNone(game_state.load_checkpoint(session.session_id))
         self.assertEqual(commands[0]["payload"]["request_id"], "req_restart_ai")
 
     def test_pending_resume_command_rejects_nested_decision_module_mismatch(self) -> None:

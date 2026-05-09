@@ -53,7 +53,7 @@ def test_rejects_simultaneous_module_prompt_without_batch_id() -> None:
                 "resume_token": "resume:1",
                 "frame_id": "simul:resupply:1:0",
                 "module_id": "mod:simul:resupply:1:0:processing",
-                "module_type": "SimultaneousProcessingModule",
+                "module_type": "ResupplyModule",
                 "module_cursor": "await_resupply_batch:1",
                 "legal_choices": [{"choice_id": "yes"}],
             },
@@ -73,12 +73,31 @@ def test_rejects_simultaneous_module_prompt_without_batch_wire_state() -> None:
                 "resume_token": "resume:1",
                 "frame_id": "simul:resupply:1:0",
                 "module_id": "mod:simul:resupply:1:0:processing",
-                "module_type": "SimultaneousProcessingModule",
+                "module_type": "ResupplyModule",
                 "module_cursor": "await_resupply_batch:1",
                 "batch_id": "batch:simul:resupply:1:0",
                 "legal_choices": [{"choice_id": "yes"}],
             },
         )
+
+
+def test_allows_single_player_prompt_inside_simultaneous_frame_without_batch_state() -> None:
+    validate_stream_payload(
+        history=[],
+        msg_type="prompt",
+        payload={
+            "runner_kind": "module",
+            "request_id": "req_hidden_p1",
+            "request_type": "hidden_trick_card",
+            "player_id": 1,
+            "resume_token": "resume:1",
+            "frame_id": "simul:resupply:1:0",
+            "module_id": "mod:simul:resupply:1:0:processing",
+            "module_type": "ResupplyModule",
+            "module_cursor": "hidden_trick_card:await_choice",
+            "legal_choices": [{"choice_id": "0"}],
+        },
+    )
 
 
 def test_semantic_guard_derives_module_and_action_catalogs_from_engine_runtime_modules() -> None:
@@ -359,6 +378,54 @@ def test_checkpoint_rejects_round_card_flip_with_suspended_player_turn() -> None
                         "module_queue": [
                             {"module_id": "mod:p0", "module_type": "PlayerTurnModule", "status": "suspended"},
                             {"module_id": "mod:flip", "module_type": "RoundEndCardFlipModule", "status": "running"},
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_checkpoint_rejects_active_module_id_pointing_to_queued_module() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="active_module_id.*queued"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "turn:4:p3",
+                        "frame_type": "turn",
+                        "status": "running",
+                        "active_module_id": "mod:turn:4:p3:trickwindow",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:turn:4:p3:trickwindow",
+                                "module_type": "TrickWindowModule",
+                                "status": "queued",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_checkpoint_rejects_missing_active_module_reference() -> None:
+    with pytest.raises(RuntimeSemanticViolation, match="active_module_id.*not found"):
+        validate_checkpoint_payload(
+            {
+                "runtime_runner_kind": "module",
+                "runtime_frame_stack": [
+                    {
+                        "frame_id": "turn:4:p3",
+                        "frame_type": "turn",
+                        "status": "running",
+                        "active_module_id": "mod:turn:4:p3:missing",
+                        "module_queue": [
+                            {
+                                "module_id": "mod:turn:4:p3:targetjudicator",
+                                "module_type": "TargetJudicatorModule",
+                                "status": "completed",
+                            }
                         ],
                     }
                 ],

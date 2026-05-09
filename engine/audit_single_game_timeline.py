@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import random
 from pathlib import Path
 from typing import Any
@@ -77,7 +78,9 @@ def _check_turn_index_monotonic(action_log: list[dict[str, Any]]) -> bool:
     turns = [int(row.get("turn_index_global")) for row in action_log if row.get("event") == "turn"]
     if not turns:
         return True
-    return all(turns[i] < turns[i + 1] for i in range(len(turns) - 1))
+    if any(turn <= 0 for turn in turns):
+        return False
+    return all(turns[i] <= turns[i + 1] for i in range(len(turns) - 1))
 
 
 def _fmt_fortune_draw(row: dict[str, Any]) -> str:
@@ -318,18 +321,28 @@ def build_timeline_report(seed: int, result: GameResult, action_log: list[dict[s
 
     lines.append("")
     lines.append(f"TOTAL_TURN_ROWS={game_turn_counter} / result.total_turns={result.total_turns}")
-    lines.append("NOTE result.total_turns counts global turn index progression; turn rows can be fewer when players are already dead/skipped.")
+    lines.append(
+        "NOTE result.total_turns counts global turn index progression; turn rows can differ when "
+        "a base turn emits extra movement rows or skipped/dead players advance the cursor without a turn row."
+    )
     return "\n".join(lines)
 
 
-def run_single_game(seed: int, policy_mode: str, lap_policy_mode: str) -> tuple[GameResult, str]:
+def run_single_game(
+    seed: int,
+    policy_mode: str,
+    lap_policy_mode: str,
+    player_count: int = DEFAULT_CONFIG.player_count,
+) -> tuple[GameResult, str]:
     rng = random.Random(seed)
     policy = PolicyFactory.create_runtime_policy(
         policy_mode=policy_mode,
         lap_policy_mode=lap_policy_mode,
         rng=rng,
     )
-    engine = GameEngine(DEFAULT_CONFIG, policy, rng=rng, enable_logging=True)
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    config.player_count = player_count
+    engine = GameEngine(config, policy, rng=rng, enable_logging=True)
     result = engine.run()
     report = build_timeline_report(seed, result, result.action_log)
     return result, report
@@ -358,12 +371,14 @@ def main() -> None:
             / "strict_timeline_seed424242.txt"
         ),
     )
+    parser.add_argument("--player-count", type=int, default=DEFAULT_CONFIG.player_count)
     args = parser.parse_args()
 
     _, report = run_single_game(
         seed=args.seed,
         policy_mode=args.policy_mode,
         lap_policy_mode=args.lap_policy_mode,
+        player_count=args.player_count,
     )
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)

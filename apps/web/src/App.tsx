@@ -25,6 +25,7 @@ import {
   selectMarkerOrderedPlayers,
   selectSituation,
   selectTimeline,
+  selectTurnHistory,
   selectTurnStage,
 } from "./domain/selectors/streamSelectors";
 import {
@@ -37,6 +38,7 @@ import {
 import { effectCharacterFromPayload } from "./domain/events/effectCharacter";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { GameEventOverlay } from "./features/board/GameEventOverlay";
+import { TurnHistoryTabs } from "./features/history/TurnHistoryTabs";
 import privateCharacterSealUrl from "./assets/private-character-seal.svg";
 import {
   type GameEventEffectIntent,
@@ -45,7 +47,7 @@ import {
 } from "./features/board/useEventQueue";
 import { LobbyView, type LobbySeatType } from "./features/lobby/LobbyView";
 import { PlayerTrickPeek } from "./features/players/PlayerTrickPeek";
-import { PromptOverlay } from "./features/prompt/PromptOverlay";
+import { PromptOverlay, type PromptWidthPercent } from "./features/prompt/PromptOverlay";
 import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
 import { CoreActionPanel } from "./features/theater/CoreActionPanel";
 import { useGameStream } from "./hooks/useGameStream";
@@ -70,12 +72,15 @@ import {
   setApiBaseUrl,
   setRoomReady,
   resumeRoom,
+  ApiRequestError,
   type ParameterManifest,
   type PublicSessionResult,
   type RuntimeStatusResult,
 } from "./infra/http/sessionApi";
 
 type ViewRoute = "lobby" | "match";
+type SpectatorPanelMode = "current" | "history";
+type SpectatorPanelWidthPercent = 50 | 75 | 100;
 
 const LOBBY_HASH = "#/lobby";
 const MATCH_HASH = "#/match";
@@ -314,8 +319,22 @@ function rentOverlayKindForPlayer(
   }
   const playerToken = `P${playerId}`;
   const escapedToken = playerToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const payerPattern = new RegExp(`\\b${escapedToken}\\b\\s*(?:->|paid\\b)`);
-  const receiverPattern = new RegExp(`(?:->|paid\\s+P\\d+\\s+to\\s+)\\s*\\b${escapedToken}\\b|\\bpaid\\s+\\b${escapedToken}\\b`);
+  const arrowPattern = /\bP(\d+)\b\s*->\s*\bP(\d+)\b/;
+  const arrowMatch = arrowPattern.exec(detail);
+  if (arrowMatch) {
+    if (arrowMatch[1] === String(playerId)) {
+      return "rent_pay";
+    }
+    if (arrowMatch[2] === String(playerId)) {
+      return "rent_receive";
+    }
+  }
+  const paidToPattern = new RegExp(`\\bpaid\\s+P\\d+\\s+to\\s+\\b${escapedToken}\\b`);
+  const payerPattern = new RegExp(`\\b${escapedToken}\\b\\s+paid\\b`);
+  const receiverPattern = new RegExp(`\\bpaid\\s+\\b${escapedToken}\\b`);
+  if (paidToPattern.test(detail)) {
+    return "rent_receive";
+  }
   if (payerPattern.test(detail)) {
     return "rent_pay";
   }
@@ -456,7 +475,7 @@ function eventEffectForReveal(args: {
     }
     return { effectIntent: "loss", effectSource: "economy", effectEnhanced: false };
   }
-  if (args.eventCode === "mark_resolved" || args.eventCode === "mark_queued") {
+  if (args.eventCode.startsWith("mark_")) {
     return { effectIntent: "mystic", effectSource: "mark", effectEnhanced: true };
   }
   if (args.eventCode === "ability_suppressed") {
@@ -489,6 +508,9 @@ function eventOverlayKindForFeedItem(eventCode: string): EventOverlayEffectKind 
       return "trick";
     case "mark_resolved":
     case "mark_queued":
+    case "mark_target_none":
+    case "mark_target_missing":
+    case "mark_blocked":
       return "mark_success";
     case "ability_suppressed":
       return "economy";
@@ -721,6 +743,7 @@ export function App() {
   const [debugTurnSelectionKey, setDebugTurnSelectionKey] = useState(DEBUG_TURN_SELECTION_LATEST);
   const [publicEventFeedOpen, setPublicEventFeedOpen] = useState(false);
   const [promptCollapsed, setPromptCollapsed] = useState(false);
+  const [promptWidthPercent, setPromptWidthPercent] = useState<PromptWidthPercent>(75);
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptRequestId, setPromptRequestId] = useState("");
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
@@ -728,6 +751,10 @@ export function App() {
   const [burdenExchangeQueuedDeckIndexes, setBurdenExchangeQueuedDeckIndexes] = useState<number[]>([]);
   const [burdenExchangeQueuedPlayerId, setBurdenExchangeQueuedPlayerId] = useState<number | null>(null);
   const [spectatorPanelOffset, setSpectatorPanelOffset] = useState({ x: 0, y: 0 });
+  const [spectatorPanelMode, setSpectatorPanelMode] = useState<SpectatorPanelMode>("current");
+  const [spectatorPanelWidthPercent, setSpectatorPanelWidthPercent] = useState<SpectatorPanelWidthPercent>(75);
+  const [turnHistoryPinnedKey, setTurnHistoryPinnedKey] = useState<string | null>(null);
+  const [turnHistorySelectedEventSeq, setTurnHistorySelectedEventSeq] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [turnBanner, setTurnBanner] = useState<{
     seq: number;
@@ -748,7 +775,8 @@ export function App() {
     originY: number;
   } | null>(null);
 
-  const stream = useGameStream({ sessionId, token, baseUrl: serverBaseUrl });
+  const activeStreamSessionId = route === "match" ? sessionId : "";
+  const stream = useGameStream({ sessionId: activeStreamSessionId, token, baseUrl: serverBaseUrl });
   const debugMessages = stream.debugMessages;
   const eventQueue = useEventQueue();
 
@@ -791,6 +819,56 @@ export function App() {
       ),
     [currentTurnRevealItems]
   );
+  const turnHistory = useMemo(
+    () => selectTurnHistory(stream.messages, effectivePlayerId, selectorText),
+    [stream.messages, effectivePlayerId, selectorText]
+  );
+  const turnHistoryActiveKey = turnHistoryPinnedKey ?? turnHistory.currentKey;
+  const activeTurnHistoryTurn = useMemo(
+    () => turnHistory.turns.find((turn) => turn.key === turnHistoryActiveKey) ?? turnHistory.latestTurn,
+    [turnHistory, turnHistoryActiveKey]
+  );
+  const selectedTurnHistoryEvent = useMemo(() => {
+    if (turnHistorySelectedEventSeq !== null) {
+      const selectedEvent =
+        turnHistory.turns.flatMap((turn) => turn.events).find((event) => event.seq === turnHistorySelectedEventSeq) ?? null;
+      if (selectedEvent) {
+        return selectedEvent;
+      }
+    }
+    if (!activeTurnHistoryTurn || activeTurnHistoryTurn.events.length === 0) {
+      return null;
+    }
+    return activeTurnHistoryTurn.events[activeTurnHistoryTurn.events.length - 1];
+  }, [activeTurnHistoryTurn, turnHistory.turns, turnHistorySelectedEventSeq]);
+  const selectedHistoryPlayerIds = useMemo(
+    () => new Set(selectedTurnHistoryEvent?.participantPlayerIds ?? []),
+    [selectedTurnHistoryEvent]
+  );
+  const historyRevealFocus = useMemo(() => {
+    if (!selectedTurnHistoryEvent || selectedTurnHistoryEvent.focusTileIndices.length === 0) {
+      return null;
+    }
+    return {
+      seq: selectedTurnHistoryEvent.seq,
+      eventCode: selectedTurnHistoryEvent.eventCode,
+      label: selectedTurnHistoryEvent.label,
+      detail: selectedTurnHistoryEvent.detail,
+      tone: selectedTurnHistoryEvent.tone === "move" || selectedTurnHistoryEvent.tone === "economy" ? selectedTurnHistoryEvent.tone : "effect",
+      focusTileIndex: selectedTurnHistoryEvent.focusTileIndices[0],
+    } satisfies Pick<CurrentTurnRevealItem, "seq" | "eventCode" | "label" | "detail" | "tone" | "focusTileIndex">;
+  }, [selectedTurnHistoryEvent]);
+  useEffect(() => {
+    if (turnHistoryPinnedKey !== null && !turnHistory.turns.some((turn) => turn.key === turnHistoryPinnedKey)) {
+      setTurnHistoryPinnedKey(null);
+      setTurnHistorySelectedEventSeq(null);
+    }
+  }, [turnHistory.turns, turnHistoryPinnedKey]);
+  useEffect(() => {
+    if (turnHistoryPinnedKey === null) {
+      setTurnHistorySelectedEventSeq(null);
+    }
+  }, [turnHistory.currentKey, turnHistoryPinnedKey]);
   const latestCurrentRoundReveal = currentRoundRevealItems[currentRoundRevealItems.length - 1] ?? null;
   const fallbackRevealSpotlight = useMemo(() => {
     if (currentTurnRevealItems.length > 0) {
@@ -806,6 +884,10 @@ export function App() {
         "landing_resolved",
         "trick_used",
         "mark_resolved",
+        "mark_queued",
+        "mark_target_none",
+        "mark_target_missing",
+        "mark_blocked",
         "marker_flip",
         "marker_transferred",
       ].includes(item.eventCode)
@@ -832,6 +914,7 @@ export function App() {
 
   const currentActorId =
     turnStage.currentBeatEventCode === "game_end" ? null : selectCurrentActorPlayerId(stream.messages);
+  const gameEnded = turnStage.currentBeatEventCode === "game_end";
   const markerOwnerPlayerId = snapshot?.markerOwnerPlayerId ?? null;
   const isMyTurn = currentActorId !== null && effectivePlayerId !== null && currentActorId === effectivePlayerId;
   const actorLabel = currentActorId !== null ? `P${currentActorId}` : turnStage.actor;
@@ -986,10 +1069,14 @@ export function App() {
       }));
   }, [derivedPlayers, markerOrderedPlayers, sessionSeats]);
 
-  const joinSeatOptions = (sessionManifest?.seats?.allowed ?? [])
-    .slice()
-    .sort((a, b) => a - b)
-    .map((seat) => String(seat));
+  const joinSeatOptions = useMemo(
+    () =>
+      (sessionManifest?.seats?.allowed ?? [])
+        .slice()
+        .sort((a, b) => a - b)
+        .map((seat) => String(seat)),
+    [sessionManifest?.seats?.allowed]
+  );
   const manifestTiles = (sessionManifest?.board?.tiles ?? []).map((tile) => ({
     tileIndex: tile.tile_index,
     tileKind: tile.tile_kind,
@@ -1125,6 +1212,14 @@ export function App() {
       resourceDelta: null,
     };
   }, [locale, promptEffectContextItem, turnStage.weatherEffect, turnStage.weatherName, visibleActionablePrompt?.effectContext]);
+
+  const matchPromptWidthStyle = useMemo(
+    () =>
+      ({
+        "--match-prompt-width-user": `${promptWidthPercent}vw`,
+      }) as CSSProperties,
+    [promptWidthPercent]
+  );
   const playerStageFallbackLabel =
     currentPromptLabel && currentPromptLabel !== "-"
       ? currentPromptLabel
@@ -1157,6 +1252,16 @@ export function App() {
     [visibleActionablePrompt?.requestType, stream.messages, markTargetActorName, effectivePlayerId, selectorText]
   );
 
+  function clearActiveMatchState() {
+    setSessionId("");
+    setToken("");
+    setLocalPlayerId(null);
+    setRuntime({ status: "-" });
+    setSessionManifest(null);
+    setSessionInitialActiveByCard(null);
+    setSessionSeats(null);
+  }
+
   useEffect(() => {
     setApiBaseUrl(serverBaseUrl);
     saveStoredRoomServer(serverBaseUrl);
@@ -1166,6 +1271,10 @@ export function App() {
     const onHashChange = () => {
       const parsed = parseHashState(window.location.hash);
       setRoute(parsed.route);
+      if (parsed.route === "lobby") {
+        clearActiveMatchState();
+        return;
+      }
       if (parsed.sessionId) {
         setSessionInput(parsed.sessionId);
         setSessionId(parsed.sessionId);
@@ -1215,7 +1324,7 @@ export function App() {
           setTokenInput(room.session_token);
           setToken(room.session_token);
           setLocalPlayerId(inferPlayerIdFromSessionToken(room.session_token));
-          navigateRoute("match");
+          navigateRoute("match", { sessionId: room.session_id, token: room.session_token });
         }
       })
       .catch(() => {
@@ -1252,7 +1361,7 @@ export function App() {
           setTokenInput(room.session_token);
           setToken(room.session_token);
           setLocalPlayerId(inferPlayerIdFromSessionToken(room.session_token));
-          navigateRoute("match");
+          navigateRoute("match", { sessionId: room.session_id, token: room.session_token });
         }
       } catch {
         // ignore transient room refresh failures
@@ -1283,6 +1392,16 @@ export function App() {
   }, [joinSeatInput, joinSeatOptions]);
 
   useEffect(() => {
+    if (joinSeatOptions.length === 0) {
+      return;
+    }
+    setSeatCountInput(String(joinSeatOptions.length));
+    if (!joinSeatOptions.includes(hostSeatInput)) {
+      setHostSeatInput(joinSeatOptions[0]);
+    }
+  }, [hostSeatInput, joinSeatOptions]);
+
+  useEffect(() => {
     const parsed = Number(seatCountInput);
     if (!Number.isFinite(parsed)) {
       return;
@@ -1305,7 +1424,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId.trim()) {
+    if (route !== "match" || !sessionId.trim()) {
       return;
     }
     let active = true;
@@ -1315,7 +1434,15 @@ export function App() {
         if (active) {
           setRuntime(runtimeState.runtime);
         }
-      } catch {
+      } catch (e) {
+        if (active && e instanceof ApiRequestError && (e.status === 404 || e.code === "SESSION_NOT_FOUND")) {
+          clearActiveMatchState();
+          if (window.location.hash !== LOBBY_HASH) {
+            window.location.hash = LOBBY_HASH;
+          }
+          setRoute("lobby");
+          return;
+        }
         // ignore transient polling errors
       }
     };
@@ -1325,7 +1452,7 @@ export function App() {
       active = false;
       window.clearInterval(id);
     };
-  }, [sessionId, token]);
+  }, [route, sessionId, token]);
 
   useEffect(() => {
     if (!sessionId.trim()) {
@@ -1525,8 +1652,9 @@ export function App() {
     if (pendingRevealItems.length === 0) return;
 
     for (const item of pendingRevealItems) {
-      const { eventCode, label, detail, seq } = item;
+      const { eventCode, label, detail, seq, effectCharacter } = item;
       const sourcePayload = appRecordOrNull(stream.messages.find((message) => message.seq === seq)?.payload);
+      const authoritativeEffectCharacter = effectCharacter ?? effectCharacterFromPayload(sourcePayload);
       const effect = (kind: EventOverlayEffectKind) =>
         eventEffectForReveal({
           eventCode,
@@ -1558,7 +1686,7 @@ export function App() {
           label,
           detail,
           ...effect("purchase"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload),
+          effectCharacter: authoritativeEffectCharacter,
         });
       } else if (eventCode === "rent_paid") {
         const kind = rentOverlayKindForPlayer(detail, effectivePlayerId);
@@ -1577,7 +1705,7 @@ export function App() {
           eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "잔꾀 이동" : "Trick move", detail: moveDetail });
         }
         eventQueue.enqueue({ kind: "trick", label, detail, ...effect("trick") });
-      } else if (eventCode === "mark_resolved" || eventCode === "mark_queued") {
+      } else if (eventCode.startsWith("mark_")) {
         const moveDetail = sourcePayload ? movementOverlayDetail(sourcePayload, locale) : null;
         if (moveDetail) {
           eventQueue.enqueue({ kind: "move", label: locale === "ko" ? "지목 이동" : "Mark move", detail: moveDetail });
@@ -1587,7 +1715,7 @@ export function App() {
           label,
           detail,
           ...effect("mark_success"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload),
+          effectCharacter: authoritativeEffectCharacter,
         });
       } else if (eventCode === "ability_suppressed") {
         eventQueue.enqueue({
@@ -1595,7 +1723,7 @@ export function App() {
           label,
           detail,
           ...effect("economy"),
-          effectCharacter: effectCharacterFromPayload(sourcePayload),
+          effectCharacter: authoritativeEffectCharacter,
         });
       } else if (eventCode === "bankruptcy") {
         eventQueue.enqueue({ kind: "bankruptcy", label, detail, ...effect("bankruptcy") });
@@ -1866,9 +1994,12 @@ export function App() {
     saveStoredSessionToken(sessionId, token);
   }, [sessionId, token]);
 
-  const navigateRoute = (next: ViewRoute) => {
+  const navigateRoute = (next: ViewRoute, matchState?: { sessionId?: string; token?: string }) => {
     if (next === "match") {
-      window.location.hash = buildMatchHash(sessionInput || sessionId, tokenInput || token);
+      window.location.hash = buildMatchHash(
+        matchState?.sessionId ?? (sessionInput || sessionId),
+        matchState?.token ?? (tokenInput || token)
+      );
     } else {
       window.location.hash = LOBBY_HASH;
     }
@@ -2049,7 +2180,7 @@ export function App() {
         setTokenInput(roomSessionToken);
         setToken(roomSessionToken);
         setLocalPlayerId(inferPlayerIdFromSessionToken(roomSessionToken));
-        navigateRoute("match");
+        navigateRoute("match", { sessionId: started.session_id, token: roomSessionToken });
       }
       setNotice(locale === "ko" ? `방 #${activeRoomNo} 게임 시작` : `Started room #${activeRoomNo}`);
       await refreshRooms();
@@ -2071,8 +2202,7 @@ export function App() {
     setToken(nextToken);
     setLocalPlayerId(inferPlayerIdFromSessionToken(nextToken));
     if (normalized) {
-      window.location.hash = buildMatchHash(normalized, nextToken);
-      navigateRoute("match");
+      navigateRoute("match", { sessionId: normalized, token: nextToken });
     }
   };
 
@@ -2157,7 +2287,7 @@ export function App() {
       setJoinSeatInput("1");
       setJoinTokenInput("");
       setNotice(app.notices.startAiSession(created.session_id));
-      navigateRoute("match");
+      navigateRoute("match", { sessionId: created.session_id });
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : app.errors.startAiSession);
@@ -2214,7 +2344,7 @@ export function App() {
       setJoinSeatInput("1");
       setJoinTokenInput(seat1Token);
       setNotice(app.notices.quickStart(created.session_id, joined.player_id));
-      navigateRoute("match");
+      navigateRoute("match", { sessionId: created.session_id, token: joined.session_token });
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : app.errors.quickStart);
@@ -2282,7 +2412,7 @@ export function App() {
       setToken(joined.session_token);
       setLocalPlayerId(joined.player_id);
       setNotice(app.notices.joinSeat(joined.player_id));
-      navigateRoute("match");
+      navigateRoute("match", { sessionId: current, token: joined.session_token });
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : app.errors.joinSeatFailed);
@@ -2440,6 +2570,9 @@ export function App() {
     if (event.button !== 0 || window.innerWidth < 981) {
       return;
     }
+    if (!(event.target instanceof Element) || !event.target.closest(".match-table-spectator-drag-handle")) {
+      return;
+    }
     spectatorPanelDragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -2482,7 +2615,6 @@ export function App() {
       {route === "lobby" ? (
         <header className="header">
           <h1>{app.title}</h1>
-          <p>{app.subtitle}</p>
           <div className="route-tabs">
             <button
               type="button"
@@ -2668,12 +2800,13 @@ export function App() {
               lastMove={lastMove}
               stageFocus={turnStage}
               weather={turnStage}
-              revealFocus={latestCurrentTurnReveal}
+              revealFocus={historyRevealFocus ?? latestCurrentTurnReveal}
+              historyFocusPlayerIds={Array.from(selectedHistoryPlayerIds)}
               turnBanner={boardTurnOverlay}
               showTurnOverlay={false}
               minimalHeader
               overlayContent={
-                <div className="match-table-overlay">
+                <div className="match-table-overlay" style={matchPromptWidthStyle}>
                   <div className="match-table-overlay-top">
                     <section className="match-table-stage-header">
                       <section className="match-table-topline">
@@ -2723,6 +2856,7 @@ export function App() {
                               playerId !== null && currentActorId !== null && playerId === currentActorId;
                             const isLocalPlayer =
                               playerId !== null && effectivePlayerId !== null && playerId === effectivePlayerId;
+                            const isHistoryFocusedPlayer = playerId !== null && selectedHistoryPlayerIds.has(playerId);
                             const isPromptActive = isCurrentActor && hasReadableValue(playerStageFallbackLabel);
                             const hideCharacterEmblem = shouldHideCharacterForPrompt(turnStage.promptRequestType);
                             const knownCharacterName =
@@ -2745,7 +2879,9 @@ export function App() {
                                   ? `AI ${seatEntry.seat}`
                                   : `Player ${seatEntry.seat}`;
                             const characterStatus =
-                              isCurrentActor && hasReadableValue(playerStageFallbackLabel)
+                              gameEnded && hasReadableValue(turnStage.currentBeatLabel)
+                                ? turnStage.currentBeatLabel
+                                : isCurrentActor && hasReadableValue(playerStageFallbackLabel)
                                 ? stageInProgressLabel(playerStageFallbackLabel, locale)
                                 : seatType === "ai"
                                   ? waitingPlayerLabel(locale)
@@ -2780,7 +2916,9 @@ export function App() {
                                 data-testid={`match-player-card-${seatEntry.seat}`}
                                 className={`match-table-player-card ${isCurrentActor ? "match-table-player-card-actor" : ""} ${
                                   isPromptActive ? "match-table-player-card-active-prompt" : ""
-                                } ${isLocalPlayer ? "match-table-player-card-local" : ""}`}
+                                } ${isLocalPlayer ? "match-table-player-card-local" : ""} ${
+                                  isHistoryFocusedPlayer ? "match-table-player-card-history-focus" : ""
+                                }`}
                                 tabIndex={shouldShowTrickPeek ? 0 : undefined}
                                 style={{ "--player-accent": playerColor(playerId ?? seatEntry.seat) } as CSSProperties}
                               >
@@ -2876,45 +3014,48 @@ export function App() {
                           </span>
                         </div>
                         <div className="match-table-active-character-grid">
-                          {activeCharacterSlots.map((card) => (
-                            <article
-                              key={card.slot}
-                              data-testid={`active-character-slot-${card.slot}`}
-                              data-character-name={card.character ?? undefined}
-                              data-inactive-character={card.inactiveCharacter ?? undefined}
-                              data-slot-label={card.label ?? undefined}
-                              data-player-id={card.playerId !== null ? String(card.playerId) : undefined}
-                              data-is-current-actor={card.isCurrentActor ? "true" : undefined}
-                              className={`match-table-active-character-card ${
-                                card.isCurrentActor ? "match-table-active-character-card-actor" : ""
-                              } ${card.isLocalPlayer ? "match-table-active-character-card-local" : ""} ${
-                                card.character ? "" : "match-table-active-character-card-empty"
-                              }`}
-                              style={
-                                {
-                                  "--player-accent": playerColor(card.playerId ?? card.slot),
-                                } as CSSProperties
-                              }
-                            >
-                              <div className="match-table-active-character-body">
-                                <div className="match-table-active-character-heading">
-                                  <span className="match-table-active-character-slot">{`#${card.slot}`}</span>
-                                  <strong className="match-table-active-character-name">
-                                    {card.character ?? "-"}
-                                  </strong>
+                          {activeCharacterSlots.map((card) => {
+                            const isHistoryFocusedCharacter = card.playerId !== null && selectedHistoryPlayerIds.has(card.playerId);
+                            return (
+                              <article
+                                key={card.slot}
+                                data-testid={`active-character-slot-${card.slot}`}
+                                data-character-name={card.character ?? undefined}
+                                data-inactive-character={card.inactiveCharacter ?? undefined}
+                                data-slot-label={card.label ?? undefined}
+                                data-player-id={card.playerId !== null ? String(card.playerId) : undefined}
+                                data-is-current-actor={card.isCurrentActor ? "true" : undefined}
+                                className={`match-table-active-character-card ${
+                                  card.isCurrentActor ? "match-table-active-character-card-actor" : ""
+                                } ${card.isLocalPlayer ? "match-table-active-character-card-local" : ""} ${
+                                  card.character ? "" : "match-table-active-character-card-empty"
+                                } ${isHistoryFocusedCharacter ? "match-table-active-character-card-history-focus" : ""}`}
+                                style={
+                                  {
+                                    "--player-accent": playerColor(card.playerId ?? card.slot),
+                                  } as CSSProperties
+                                }
+                              >
+                                <div className="match-table-active-character-body">
+                                  <div className="match-table-active-character-heading">
+                                    <span className="match-table-active-character-slot">{`#${card.slot}`}</span>
+                                    <strong className="match-table-active-character-name">
+                                      {card.character ?? "-"}
+                                    </strong>
+                                  </div>
+                                  <span
+                                    className={`match-table-active-character-meta ${
+                                      card.character ? "match-table-active-character-meta-active" : ""
+                                    }`}
+                                  >
+                                    {[card.inactiveCharacter, card.label, card.isCurrentActor ? currentTurnBadgeLabel(locale) : null]
+                                      .filter(Boolean)
+                                      .join(" · ") || "-"}
+                                  </span>
                                 </div>
-                                <span
-                                  className={`match-table-active-character-meta ${
-                                    card.character ? "match-table-active-character-meta-active" : ""
-                                  }`}
-                                >
-                                  {[card.inactiveCharacter, card.label, card.isCurrentActor ? currentTurnBadgeLabel(locale) : null]
-                                    .filter(Boolean)
-                                    .join(" · ") || "-"}
-                                </span>
-                              </div>
-                            </article>
-                          ))}
+                              </article>
+                            );
+                          })}
                         </div>
                       </section>
                     </section>
@@ -2959,6 +3100,8 @@ export function App() {
                                   compactChoices={compactDensity}
                                   presentationMode="decision-focus"
                                   effectContext={promptEffectContext}
+                                  widthPercent={promptWidthPercent}
+                                  onWidthPercentChange={setPromptWidthPercent}
                                   onToggleCollapse={() => setPromptCollapsed((prev) => !prev)}
                                   onSelectChoice={onSelectPromptChoice}
                                 />
@@ -2980,6 +3123,7 @@ export function App() {
                         {
                           "--spectator-panel-drag-x": `${spectatorPanelOffset.x}px`,
                           "--spectator-panel-drag-y": `${spectatorPanelOffset.y}px`,
+                          "--spectator-panel-width-percent": `${spectatorPanelWidthPercent}vw`,
                         } as CSSProperties
                       }
                       onPointerDown={onSpectatorPanelDragStart}
@@ -3006,11 +3150,88 @@ export function App() {
                         <span aria-hidden="true" />
                         <span aria-hidden="true" />
                       </button>
-                      <SpectatorTurnPanel
-                        actorPlayerId={currentActorId}
-                        model={turnStage}
-                        latestAction={latestCoreAction}
-                      />
+                      <div className="match-table-spectator-toolbar">
+                        <div
+                          className="match-table-spectator-mode-tabs"
+                          role="tablist"
+                          aria-label={locale === "ko" ? "관전자 패널 보기" : "Spectator panel view"}
+                        >
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={spectatorPanelMode === "current"}
+                            className={
+                              spectatorPanelMode === "current"
+                                ? "match-table-spectator-mode-tab match-table-spectator-mode-tab-active"
+                                : "match-table-spectator-mode-tab"
+                            }
+                            onClick={() => {
+                              setSpectatorPanelMode("current");
+                              setTurnHistorySelectedEventSeq(null);
+                            }}
+                          >
+                            {locale === "ko" ? "현재 상태" : "Current"}
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={spectatorPanelMode === "history"}
+                            className={
+                              spectatorPanelMode === "history"
+                                ? "match-table-spectator-mode-tab match-table-spectator-mode-tab-active"
+                                : "match-table-spectator-mode-tab"
+                            }
+                            onClick={() => setSpectatorPanelMode("history")}
+                          >
+                            {locale === "ko" ? "히스토리" : "History"}
+                          </button>
+                        </div>
+                        <div
+                          className="match-table-spectator-width-control"
+                          role="group"
+                          aria-label={locale === "ko" ? "관전자 패널 폭 선택" : "Spectator panel width"}
+                        >
+                          {([50, 75, 100] as SpectatorPanelWidthPercent[]).map((option) => (
+                            <button
+                              type="button"
+                              key={option}
+                              className={
+                                option === spectatorPanelWidthPercent
+                                  ? "match-table-spectator-width-button match-table-spectator-width-button-active"
+                                  : "match-table-spectator-width-button"
+                              }
+                              aria-pressed={option === spectatorPanelWidthPercent}
+                              onClick={() => setSpectatorPanelWidthPercent(option)}
+                            >
+                              {option}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {spectatorPanelMode === "history" ? (
+                        <TurnHistoryTabs
+                          history={turnHistory}
+                          activeKey={turnHistoryActiveKey}
+                          pinned={turnHistoryPinnedKey !== null}
+                          selectedEventSeq={selectedTurnHistoryEvent?.seq ?? null}
+                          locale={locale}
+                          onSelectTurn={(key) => {
+                            setTurnHistoryPinnedKey(key);
+                            setTurnHistorySelectedEventSeq(null);
+                          }}
+                          onSelectEvent={setTurnHistorySelectedEventSeq}
+                          onReturnLive={() => {
+                            setTurnHistoryPinnedKey(null);
+                            setTurnHistorySelectedEventSeq(null);
+                          }}
+                        />
+                      ) : (
+                        <SpectatorTurnPanel
+                          actorPlayerId={currentActorId}
+                          model={turnStage}
+                          latestAction={latestCoreAction}
+                        />
+                      )}
                       <div className="match-table-core-action-contract">
                         <CoreActionPanel items={coreActionFeed} latest={latestCoreAction} />
                       </div>

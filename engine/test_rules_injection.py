@@ -50,6 +50,44 @@ class RuleInjectionTest(unittest.TestCase):
         state.players[1].alive = False
         self.assertEqual(engine._evaluate_end_rules(state), 'ALIVE_THRESHOLD')
 
+    def test_max_rounds_end_rule_triggers_after_completed_rounds(self):
+        rules = GameRules(
+            end=EndConditionRules(
+                f_threshold=None,
+                monopolies_to_trigger_end=0,
+                tiles_to_trigger_end=None,
+                alive_players_at_most=1,
+                max_rounds=2,
+            )
+        )
+        cfg = GameConfig(rules=rules)
+        state = GameState.create(cfg)
+        engine = GameEngine(cfg, BasePolicy(), rng=random.Random(1), enable_logging=False)
+
+        state.rounds_completed = 1
+        self.assertIsNone(engine._evaluate_end_rules(state))
+        state.rounds_completed = 2
+        self.assertEqual(engine._evaluate_end_rules(state), 'MAX_ROUNDS')
+
+    def test_max_turns_end_rule_triggers_after_completed_turns(self):
+        rules = GameRules(
+            end=EndConditionRules(
+                f_threshold=None,
+                monopolies_to_trigger_end=0,
+                tiles_to_trigger_end=None,
+                alive_players_at_most=1,
+                max_turns=3,
+            )
+        )
+        cfg = GameConfig(rules=rules)
+        state = GameState.create(cfg)
+        engine = GameEngine(cfg, BasePolicy(), rng=random.Random(1), enable_logging=False)
+
+        state.turn_index = 2
+        self.assertIsNone(engine._evaluate_end_rules(state))
+        state.turn_index = 3
+        self.assertEqual(engine._evaluate_end_rules(state), 'MAX_TURNS')
+
     def test_custom_force_sale_rules_disable_refund_and_repurchase_block(self):
         rules = GameRules(force_sale=ForceSaleRules(refund_purchase_cost=False, return_tile_coins_to_original_owner=False, block_repurchase_until_next_turn=False))
         cfg = GameConfig(rules=rules)

@@ -22,18 +22,25 @@ CORE_EVENT_CODES = {
     "trick_used",
     "player_move",
     "action_move",
+    "fortune_move",
+    "forced_move",
+    "chain_move",
     "landing_resolved",
     "rent_paid",
     "tile_purchased",
     "marker_transferred",
     "marker_flip",
     "lap_reward_chosen",
+    "start_reward_chosen",
     "fortune_drawn",
     "fortune_resolved",
+    "mark_resolved",
     "mark_queued",
     "mark_target_none",
     "mark_target_missing",
     "mark_blocked",
+    "f_value_change",
+    "ability_suppressed",
     "bankruptcy",
     "game_end",
     "turn_end_snapshot",
@@ -47,9 +54,11 @@ ECONOMY_EVENT_CODES = {
     "landing_resolved",
     "rent_paid",
     "marker_transferred",
+    "start_reward_chosen",
     "lap_reward_chosen",
     "fortune_drawn",
     "fortune_resolved",
+    "f_value_change",
 }
 CRITICAL_EVENT_CODES = {"bankruptcy", "game_end", "trick_used"}
 
@@ -307,6 +316,7 @@ def build_scene_view_state(
                 "actor_player_id": _message_actor_player_id(message),
                 "round_index": round_index,
                 "turn_index": turn_index,
+                "payload": dict(payload),
             }
         )
         if len(core_items) >= safe_core_limit:

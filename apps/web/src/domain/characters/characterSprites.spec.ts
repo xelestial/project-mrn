@@ -13,6 +13,10 @@ describe("character sprite roster", () => {
     expect(characterSpriteSetForPlayer(4).name).toBe("지아");
   });
 
+  it("normalizes the visible standee height across characters", () => {
+    expect(CHARACTER_SPRITE_ROSTER.map((character) => character.visualScale)).toEqual([1.05, 1.04, 0.97, 1, 1.04]);
+  });
+
   it("provides real directional art for every board facing", () => {
     const minseo = characterSpriteSetForPlayer(1);
 

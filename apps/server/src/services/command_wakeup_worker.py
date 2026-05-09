@@ -22,6 +22,7 @@ class CommandStreamWakeupWorker:
         self._consumer_name = str(consumer_name or "runtime_wakeup")
         self._sleeper = sleeper
         self._last_processed_seq: dict[str, int] = {}
+        self._reprocessed_consumed_commands: set[tuple[str, int, str]] = set()
 
     async def run_once(self, *, session_id: str | None = None) -> list[dict]:
         self._refresh_sessions()
@@ -34,12 +35,29 @@ class CommandStreamWakeupWorker:
             for command in self._command_store.list_commands(current_session_id):
                 seq = int(command.get("seq", 0))
                 if seq <= last_seq:
+                    if self._is_runtime_resume_command(command):
+                        status = self._runtime_service.runtime_status(current_session_id)
+                        if self._is_waiting_for_resume_command(status, command):
+                            request_id = self._command_request_id(command)
+                            reprocess_key = (current_session_id, seq, request_id)
+                            if reprocess_key in self._reprocessed_consumed_commands:
+                                continue
+                            await self._process_or_start_runtime(current_session_id, seq)
+                            self._reprocessed_consumed_commands.add(reprocess_key)
+                            wakeups.append(
+                                {
+                                    "session_id": current_session_id,
+                                    "command_seq": seq,
+                                    "command_type": command.get("type"),
+                                    "runtime_status": status.get("status"),
+                                    "reprocessed_consumed": True,
+                                }
+                            )
+                            break
                     continue
                 status = self._runtime_service.runtime_status(current_session_id)
-                if status.get("status") in {"recovery_required", "idle", "running_elsewhere", "waiting_input"}:
+                if self._should_process_resume_command(status, command):
                     if self._is_stale_waiting_command(status, command):
-                        if self._is_runtime_resume_command(command) and self._has_waiting_request_id_mismatch(status, command):
-                            break
                         self._save_offset(current_session_id, seq)
                         last_seq = seq
                         continue
@@ -140,6 +158,17 @@ class CommandStreamWakeupWorker:
         return str(command.get("type") or "").strip() == "decision_submitted"
 
     @staticmethod
+    def _should_process_resume_command(status: dict, command: dict) -> bool:
+        status_value = str(status.get("status") or "")
+        if status_value in {"recovery_required", "idle", "running_elsewhere", "waiting_input"}:
+            return True
+        if status_value != "running":
+            return False
+        if not CommandStreamWakeupWorker._is_runtime_resume_command(command):
+            return False
+        return CommandStreamWakeupWorker._is_waiting_for_resume_command(status, command)
+
+    @staticmethod
     def _is_stale_waiting_command(status: dict, command: dict) -> bool:
         if status.get("status") != "waiting_input":
             return False
@@ -148,22 +177,78 @@ class CommandStreamWakeupWorker:
         return CommandStreamWakeupWorker._module_identity_mismatch(status, command)
 
     @staticmethod
-    def _has_waiting_request_id_mismatch(status: dict, command: dict) -> bool:
-        waiting_request_id = CommandStreamWakeupWorker._waiting_prompt_request_id(status)
+    def _is_waiting_for_resume_command(status: dict, command: dict) -> bool:
+        if status.get("status") not in {"waiting_input", "running"}:
+            return False
+        waiting_request_ids = CommandStreamWakeupWorker._waiting_prompt_request_ids(status)
         command_request_id = CommandStreamWakeupWorker._command_request_id(command)
-        if waiting_request_id and command_request_id and command_request_id != waiting_request_id:
+        if not waiting_request_ids or not command_request_id or command_request_id not in waiting_request_ids:
+            return False
+        return not CommandStreamWakeupWorker._module_identity_mismatch(status, command)
+
+    @staticmethod
+    def _has_waiting_request_id_mismatch(status: dict, command: dict) -> bool:
+        waiting_request_ids = CommandStreamWakeupWorker._waiting_prompt_request_ids(status)
+        command_request_id = CommandStreamWakeupWorker._command_request_id(command)
+        if waiting_request_ids and command_request_id and command_request_id not in waiting_request_ids:
             return True
         return False
 
     @staticmethod
     def _waiting_prompt_request_id(status: dict) -> str:
+        request_ids = sorted(CommandStreamWakeupWorker._waiting_prompt_request_ids(status))
+        return request_ids[0] if request_ids else ""
+
+    @staticmethod
+    def _waiting_prompt_request_ids(status: dict) -> set[str]:
         recovery = status.get("recovery_checkpoint")
         if not isinstance(recovery, dict):
-            return ""
+            return set()
         checkpoint = recovery.get("checkpoint")
         if not isinstance(checkpoint, dict):
-            return ""
-        return str(checkpoint.get("waiting_prompt_request_id") or "").strip()
+            return set()
+        request_ids: set[str] = set()
+        request_id = str(checkpoint.get("waiting_prompt_request_id") or "").strip()
+        if request_id:
+            request_ids.add(request_id)
+        active_prompt = checkpoint.get("runtime_active_prompt")
+        if isinstance(active_prompt, dict):
+            active_request_id = str(active_prompt.get("request_id") or "").strip()
+            if active_request_id:
+                request_ids.add(active_request_id)
+
+        batch = checkpoint.get("runtime_active_prompt_batch")
+        if not isinstance(batch, dict):
+            return request_ids
+        prompts_by_player_id = batch.get("prompts_by_player_id")
+        if not isinstance(prompts_by_player_id, dict):
+            return request_ids
+
+        missing_filter: set[int] | None = None
+        missing_player_ids = batch.get("missing_player_ids")
+        if isinstance(missing_player_ids, list):
+            missing_filter = set()
+            for raw_player_id in missing_player_ids:
+                try:
+                    missing_filter.add(int(raw_player_id))
+                except (TypeError, ValueError):
+                    continue
+
+        for raw_player_id, prompt in prompts_by_player_id.items():
+            if missing_filter is not None:
+                try:
+                    internal_player_id = int(raw_player_id)
+                except (TypeError, ValueError):
+                    continue
+                if internal_player_id not in missing_filter:
+                    continue
+            if isinstance(prompt, dict):
+                prompt_request_id = str(prompt.get("request_id") or "").strip()
+            else:
+                prompt_request_id = str(getattr(prompt, "request_id", "") or "").strip()
+            if prompt_request_id:
+                request_ids.add(prompt_request_id)
+        return request_ids
 
     @staticmethod
     def _command_request_id(command: dict) -> str:

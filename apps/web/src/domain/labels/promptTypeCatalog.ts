@@ -5,6 +5,7 @@ export const KNOWN_PROMPT_TYPES = [
   "movement",
   "runaway_step_choice",
   "lap_reward",
+  "start_reward",
   "draft_card",
   "final_character",
   "final_character_choice",

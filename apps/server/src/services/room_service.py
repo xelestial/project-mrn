@@ -193,7 +193,7 @@ class RoomService:
             },
         }
 
-    def handle_session_finished(self, session_id: str) -> None:
+    def handle_session_completed(self, session_id: str) -> None:
         room_no = self._session_to_room.get(session_id)
         if room_no is None:
             return

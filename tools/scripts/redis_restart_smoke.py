@@ -183,7 +183,7 @@ def _poll_runtime_advanced_from_request(
         last_status = runtime
         status = str(runtime.get("status") or "")
         waiting_request_id = _runtime_waiting_request_id(runtime)
-        if status in {"finished", "unavailable", "aborted"}:
+        if status in {"completed", "unavailable", "aborted"}:
             return runtime
         if status == "waiting_input" and waiting_request_id and waiting_request_id != previous_request_id:
             return runtime

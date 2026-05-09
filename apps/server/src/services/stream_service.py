@@ -6,13 +6,10 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 
+from apps.server.src.domain.protocol_ids import new_event_id
 from apps.server.src.domain.runtime_semantic_guard import validate_stream_payload
 from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer
-from apps.server.src.domain.view_state import project_view_state
 from apps.server.src.services.persistence import StreamStore
-
-
-_PROJECTION_SCHEMA_VERSION = 1
 
 
 @dataclass(slots=True)
@@ -66,7 +63,7 @@ class StreamService:
         async with self._lock:
             enriched_payload = dict(payload)
             self._inject_display_names(session_id, enriched_payload)
-            history = self._history_records_no_lock(session_id)
+            history = self._source_history_records_no_lock(session_id)
             validate_stream_payload(history=history, msg_type=msg_type, payload=enriched_payload)
             duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
             if duplicate is None:
@@ -75,66 +72,65 @@ class StreamService:
                 duplicate = self._duplicate_round_setup_event_no_lock(history, msg_type, enriched_payload)
             if duplicate is not None:
                 return duplicate
-            pending_record = {
-                "type": msg_type,
-                "seq": self._seq[session_id] + 1,
-                "session_id": session_id,
-                "server_time_ms": int(time.time() * 1000),
-                "payload": enriched_payload,
-            }
-            projected = project_view_state([*history, pending_record], viewer=ViewerContext(role="spectator", session_id=session_id))
-            if projected:
-                enriched_payload["view_state"] = projected
+            enriched_payload = self._with_source_event_id(msg_type, enriched_payload)
             server_time_ms = int(time.time() * 1000)
-            if self._stream_backend is not None:
-                backend_record = self._stream_backend.publish(
-                    session_id,
-                    msg_type,
-                    enriched_payload,
-                    server_time_ms=server_time_ms,
-                    max_buffer=self._max_buffer,
-                )
-                item = StreamMessage(
-                    type=str(backend_record["type"]),
-                    seq=int(backend_record["seq"]),
-                    session_id=str(backend_record["session_id"]),
-                    server_time_ms=int(backend_record["server_time_ms"]),
-                    payload=dict(backend_record["payload"]),
-                )
-            else:
-                self._seq[session_id] += 1
-                item = StreamMessage(
-                    type=msg_type,
-                    seq=self._seq[session_id],
-                    session_id=session_id,
-                    server_time_ms=server_time_ms,
-                    payload=enriched_payload,
-                )
-                buf = self._buffers[session_id]
-                buf.append(item)
-                if len(buf) > self._max_buffer:
-                    del buf[: len(buf) - self._max_buffer]
-            for queue in self._subscribers.get(session_id, {}).values():
-                dropped = self._offer_latest(queue, item.to_dict())
-                if dropped:
-                    if self._stream_backend is not None:
-                        self._stream_backend.increment_drop_count(session_id, 1)
-                    else:
-                        self._drop_counts[session_id] += 1
-            if self._stream_backend is None:
-                self._persist_stream_state()
-            if self._game_state_store is not None:
-                self._game_state_store.apply_stream_message(item.to_dict())
-                if projected:
-                    self._cache_projected_view_state_no_lock(
-                        session_id,
-                        ViewerContext(role="spectator", session_id=session_id),
-                        projected,
-                        latest_seq=item.seq,
-                        server_time_ms=item.server_time_ms,
-                    )
+            item = self._append_stream_message_no_lock(
+                session_id,
+                msg_type,
+                enriched_payload,
+                server_time_ms=server_time_ms,
+            )
+            self._broadcast_no_lock(session_id, item)
             if self._command_store is not None:
                 self._maybe_append_command(item)
+            if self._stream_backend is None:
+                self._persist_stream_state()
+            return item
+
+    async def publish_view_commit(self, session_id: str, payload: dict) -> StreamMessage:
+        async with self._lock:
+            server_time_ms = int(time.time() * 1000)
+            item = self._append_stream_message_no_lock(
+                session_id,
+                "view_commit",
+                dict(payload),
+                server_time_ms=server_time_ms,
+            )
+            self._broadcast_no_lock(session_id, item)
+            if self._stream_backend is None:
+                self._persist_stream_state()
+            return item
+
+    async def emit_snapshot_pulse(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        target_player_id: int | None = None,
+    ) -> StreamMessage | None:
+        async with self._lock:
+            viewer = (
+                ViewerContext(role="seat", session_id=session_id, player_id=target_player_id)
+                if target_player_id is not None
+                else ViewerContext(role="spectator", session_id=session_id)
+            )
+            if self._load_cached_view_commit_no_lock(session_id, viewer) is None:
+                return None
+            payload = {
+                "reason": str(reason or "snapshot_guardrail"),
+                "scope": "player" if target_player_id is not None else "all",
+            }
+            if target_player_id is not None:
+                payload["target_player_id"] = int(target_player_id)
+            item = self._append_stream_message_no_lock(
+                session_id,
+                "snapshot_pulse",
+                payload,
+                server_time_ms=int(time.time() * 1000),
+            )
+            self._broadcast_no_lock(session_id, item)
+            if self._stream_backend is None:
+                self._persist_stream_state()
             return item
 
     async def snapshot(self, session_id: str) -> list[StreamMessage]:
@@ -150,6 +146,10 @@ class StreamService:
             buf = self._buffers.get(session_id, [])
             return [item for item in buf if item.seq > last_seq]
 
+    async def source_snapshot(self, session_id: str, through_seq: int | None = None) -> list[dict]:
+        async with self._lock:
+            return self._source_history_records_no_lock(session_id, through_seq=through_seq)
+
     async def replay_window(self, session_id: str) -> tuple[int, int]:
         async with self._lock:
             if self._stream_backend is not None:
@@ -161,68 +161,49 @@ class StreamService:
 
     async def project_message_for_viewer(self, message: dict, viewer: ViewerContext) -> dict | None:
         async with self._lock:
+            msg_type = str(message.get("type") or "")
+            if msg_type == "view_commit":
+                return self._view_commit_message_for_viewer_no_lock(message, viewer)
+            if msg_type == "snapshot_pulse":
+                return self._snapshot_pulse_message_for_viewer_no_lock(message, viewer)
             filtered = project_stream_message_for_viewer(message, viewer)
             if filtered is None:
                 return None
-            session_id = str(message.get("session_id") or viewer.session_id or "").strip()
-            records = self._history_records_no_lock(session_id) if session_id else [message]
-            seq = self._message_seq(message)
-            if seq > 0:
-                records = [record for record in records if 0 < self._message_seq(record) <= seq]
-            if not any(self._message_seq(record) == seq and seq > 0 for record in records):
-                records.append(message)
-            projected = project_view_state(records, viewer=viewer)
-            if projected:
-                filtered_payload = filtered.get("payload")
-                if isinstance(filtered_payload, dict):
-                    filtered_payload["view_state"] = projected
-                if self._game_state_store is not None:
-                    self._cache_projected_view_state_no_lock(
-                        session_id,
-                        viewer,
-                        projected,
-                        latest_seq=seq,
-                        server_time_ms=int(message.get("server_time_ms", 0) or 0),
-                    )
             return filtered
 
     async def latest_seq(self, session_id: str) -> int:
         async with self._lock:
             return self._latest_seq_no_lock(session_id)
 
-    async def latest_view_state_for_viewer(self, session_id: str, viewer: ViewerContext) -> dict:
+    async def latest_view_commit_message_for_viewer(self, session_id: str, viewer: ViewerContext) -> dict | None:
         async with self._lock:
-            cached = self._load_cached_projected_view_state_no_lock(
-                session_id,
-                viewer,
-                latest_seq=self._latest_seq_no_lock(session_id),
-            )
-            if isinstance(cached, dict):
-                return cached
-            projected = project_view_state(self._history_records_no_lock(session_id), viewer=viewer)
-            if projected:
-                self._cache_projected_view_state_no_lock(
-                    session_id,
-                    viewer,
-                    projected,
-                    latest_seq=self._latest_seq_no_lock(session_id),
-                    server_time_ms=int(time.time() * 1000),
-                )
-            return projected or {}
+            return self._latest_view_commit_message_for_viewer_no_lock(session_id, viewer)
 
-    async def rebuild_latest_view_state_for_viewer(self, session_id: str, viewer: ViewerContext) -> dict:
+    async def emit_latest_view_commit(self, session_id: str) -> StreamMessage | None:
         async with self._lock:
-            latest_seq = self._latest_seq_no_lock(session_id)
-            projected = project_view_state(self._history_records_no_lock(session_id), viewer=viewer)
-            if projected:
-                self._cache_projected_view_state_no_lock(
-                    session_id,
-                    viewer,
-                    projected,
-                    latest_seq=latest_seq,
-                    server_time_ms=int(time.time() * 1000),
-                )
-            return projected or {}
+            cached = self._load_cached_view_commit_no_lock(
+                session_id,
+                ViewerContext(role="spectator", session_id=session_id),
+            )
+            if cached is None:
+                return None
+            payload = cached.get("payload")
+            if not isinstance(payload, dict):
+                return None
+            emitted_payload = dict(payload)
+            outbox_scopes = self._view_commit_outbox_scopes_no_lock(session_id)
+            if outbox_scopes:
+                emitted_payload["viewer_outbox_scopes"] = outbox_scopes
+            item = self._append_stream_message_no_lock(
+                session_id,
+                "view_commit",
+                emitted_payload,
+                server_time_ms=int(time.time() * 1000),
+            )
+            self._broadcast_no_lock(session_id, item)
+            if self._stream_backend is None:
+                self._persist_stream_state()
+            return item
 
     async def delete_session_data(self, session_id: str) -> None:
         async with self._lock:
@@ -346,6 +327,16 @@ class StreamService:
                 self._buffers[str(session_id)] = restored[-self._max_buffer :]
 
     @staticmethod
+    def _with_source_event_id(msg_type: str, payload: dict) -> dict:
+        if msg_type in {"view_commit", "snapshot_pulse"}:
+            return payload
+        if payload.get("event_id"):
+            return payload
+        next_payload = dict(payload)
+        next_payload["event_id"] = new_event_id()
+        return next_payload
+
+    @staticmethod
     def _message_from_payload(message: dict) -> StreamMessage:
         return StreamMessage(
             type=str(message.get("type", "event")),
@@ -355,10 +346,63 @@ class StreamService:
             payload=dict(message.get("payload", {})),
         )
 
+    def _append_stream_message_no_lock(
+        self,
+        session_id: str,
+        msg_type: str,
+        payload: dict,
+        *,
+        server_time_ms: int,
+    ) -> StreamMessage:
+        if self._stream_backend is not None:
+            backend_record = self._stream_backend.publish(
+                session_id,
+                msg_type,
+                payload,
+                server_time_ms=server_time_ms,
+                max_buffer=self._max_buffer,
+            )
+            return self._message_from_payload(backend_record)
+        self._seq[session_id] += 1
+        item = StreamMessage(
+            type=msg_type,
+            seq=self._seq[session_id],
+            session_id=session_id,
+            server_time_ms=server_time_ms,
+            payload=payload,
+        )
+        buf = self._buffers[session_id]
+        buf.append(item)
+        if len(buf) > self._max_buffer:
+            del buf[: len(buf) - self._max_buffer]
+        return item
+
+    def _broadcast_no_lock(self, session_id: str, item: StreamMessage) -> None:
+        for queue in self._subscribers.get(session_id, {}).values():
+            dropped = self._offer_latest(queue, item.to_dict())
+            if not dropped:
+                continue
+            if self._stream_backend is not None:
+                self._stream_backend.increment_drop_count(session_id, 1)
+            else:
+                self._drop_counts[session_id] += 1
+
     def _history_records_no_lock(self, session_id: str) -> list[dict]:
         if self._stream_backend is not None:
             return [message.to_dict() for message in self._messages_from_backend(session_id)]
         return [item.to_dict() for item in self._buffers.get(session_id, [])]
+
+    def _source_history_records_no_lock(self, session_id: str, *, through_seq: int | None = None) -> list[dict]:
+        if self._stream_backend is not None and callable(getattr(self._stream_backend, "source_snapshot", None)):
+            return list(self._stream_backend.source_snapshot(session_id, through_seq=through_seq))
+        records = [
+            record
+            for record in self._history_records_no_lock(session_id)
+            if str(record.get("type") or "") not in {"view_commit", "snapshot_pulse"}
+        ]
+        if through_seq is None:
+            return records
+        return [record for record in records if 0 < self._message_seq(record) <= through_seq]
 
     def _messages_from_backend(self, session_id: str) -> list[StreamMessage]:
         return [self._message_from_payload(message) for message in self._stream_backend.snapshot(session_id)]
@@ -496,6 +540,162 @@ class StreamService:
         except Exception:
             return 0
 
+    @staticmethod
+    def _commit_seq_from_payload(payload: dict) -> int:
+        try:
+            return int(payload.get("commit_seq", 0) or 0)
+        except Exception:
+            return 0
+
+    def _latest_view_commit_record_no_lock(self, session_id: str, *, commit_seq: int) -> dict | None:
+        if commit_seq <= 0:
+            return None
+        for message in reversed(self._history_records_no_lock(session_id)):
+            if str(message.get("type") or "") != "view_commit":
+                continue
+            payload = message.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if self._commit_seq_from_payload(payload) == commit_seq:
+                return message
+        return None
+
+    def _view_commit_message_for_viewer_no_lock(self, message: dict, viewer: ViewerContext) -> dict | None:
+        session_id = str(message.get("session_id") or viewer.session_id or "").strip()
+        payload = message.get("payload")
+        if not session_id or not isinstance(payload, dict):
+            return None
+        cached = self._load_cached_view_commit_no_lock(session_id, viewer)
+        if cached is not None:
+            cached["seq"] = self._message_seq(message)
+            cached["server_time_ms"] = int(message.get("server_time_ms", 0) or cached.get("server_time_ms") or 0)
+            return cached
+        return None
+
+    def _latest_view_commit_message_for_viewer_no_lock(self, session_id: str, viewer: ViewerContext) -> dict | None:
+        cached = self._load_cached_view_commit_no_lock(session_id, viewer)
+        if cached is None:
+            return None
+        payload = cached.get("payload")
+        payload = payload if isinstance(payload, dict) else {}
+        emitted = self._latest_view_commit_record_no_lock(
+            session_id,
+            commit_seq=self._commit_seq_from_payload(payload),
+        )
+        if emitted is not None:
+            cached["seq"] = self._message_seq(emitted)
+            cached["server_time_ms"] = int(emitted.get("server_time_ms", 0) or cached.get("server_time_ms") or 0)
+        return cached
+
+    def _snapshot_pulse_message_for_viewer_no_lock(self, message: dict, viewer: ViewerContext) -> dict | None:
+        session_id = str(message.get("session_id") or viewer.session_id or "").strip()
+        pulse_payload = message.get("payload")
+        if not session_id or not isinstance(pulse_payload, dict):
+            return None
+        target_player_id = self._optional_int(pulse_payload.get("target_player_id"))
+        if target_player_id is not None and not (
+            viewer.is_admin or viewer.is_backend or (viewer.is_seat and viewer.player_id == target_player_id)
+        ):
+            return None
+        cached = self._load_cached_view_commit_no_lock(session_id, viewer)
+        if cached is None:
+            return None
+        payload = cached.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        payload = dict(payload)
+        pulse = {
+            "reason": str(pulse_payload.get("reason") or "snapshot_guardrail"),
+            "scope": "player" if target_player_id is not None else "all",
+        }
+        if target_player_id is not None:
+            pulse["target_player_id"] = target_player_id
+        payload["snapshot_pulse"] = pulse
+        return {
+            "type": "snapshot_pulse",
+            "seq": self._message_seq(message),
+            "session_id": session_id,
+            "server_time_ms": int(message.get("server_time_ms", 0) or cached.get("server_time_ms") or 0),
+            "payload": payload,
+        }
+
+    def _load_cached_view_commit_no_lock(self, session_id: str, viewer: ViewerContext) -> dict | None:
+        if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_view_commit", None)):
+            return None
+        expected_commit_seq = 0
+        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
+            index = self._game_state_store.load_view_commit_index(session_id)
+            if isinstance(index, dict):
+                expected_commit_seq = self._commit_seq_from_payload({"commit_seq": index.get("latest_commit_seq")})
+        candidates: list[tuple[str, int | None]] = []
+        if viewer.is_seat and viewer.player_id is not None:
+            candidates.append(("player", viewer.player_id))
+            candidates.append(("spectator", None))
+        elif viewer.is_admin:
+            candidates.append(("admin", None))
+            candidates.append(("spectator", None))
+        else:
+            candidates.append(("spectator", None))
+            candidates.append(("public", None))
+        payload = None
+        for candidate_viewer, candidate_player_id in candidates:
+            candidate = self._game_state_store.load_view_commit(
+                session_id,
+                candidate_viewer,
+                player_id=candidate_player_id,
+            )
+            if not isinstance(candidate, dict):
+                continue
+            candidate_commit_seq = self._commit_seq_from_payload(candidate)
+            if expected_commit_seq > 0 and candidate_commit_seq < expected_commit_seq:
+                continue
+            payload = candidate
+            break
+        if not isinstance(payload, dict):
+            return None
+        return {
+            "type": "view_commit",
+            "seq": int(payload.get("commit_seq") or 0),
+            "session_id": session_id,
+            "server_time_ms": int(time.time() * 1000),
+            "payload": payload,
+        }
+
+    def _view_commit_outbox_scopes_no_lock(self, session_id: str) -> list[str]:
+        if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_view_commit_index", None)):
+            return []
+        index = self._game_state_store.load_view_commit_index(session_id)
+        if not isinstance(index, dict):
+            return []
+        viewers = index.get("view_commit_viewers")
+        if not isinstance(viewers, list):
+            return []
+        scopes = [self._normalize_view_commit_scope(viewer) for viewer in viewers]
+        return sorted({scope for scope in scopes if scope})
+
+    @staticmethod
+    def _normalize_view_commit_scope(value: object) -> str | None:
+        raw = str(value or "").strip().lower()
+        if not raw:
+            return None
+        if raw in {"spectator", "admin", "public"}:
+            return raw
+        if raw.startswith("player:"):
+            player_id = StreamService._optional_int(raw.split(":", 1)[1])
+            return f"player:{player_id}" if player_id is not None and player_id > 0 else None
+        if raw.isdigit():
+            return f"player:{int(raw)}"
+        return None
+
+    @staticmethod
+    def _optional_int(value: object) -> int | None:
+        try:
+            if value is None or value == "":
+                return None
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     def _maybe_append_command(self, item: StreamMessage) -> None:
         payload = item.payload
         if not isinstance(payload, dict):
@@ -521,114 +721,6 @@ class StreamService:
             request_id=request_id,
             server_time_ms=item.server_time_ms,
         )
-
-    def _cache_projected_view_state_no_lock(
-        self,
-        session_id: str,
-        viewer: ViewerContext,
-        view_state: dict,
-        *,
-        latest_seq: int,
-        server_time_ms: int,
-    ) -> None:
-        if not session_id or not isinstance(view_state, dict) or not view_state:
-            return
-        save_projected = getattr(self._game_state_store, "save_projected_view_state", None)
-        save_checkpoint = getattr(self._game_state_store, "save_projection_checkpoint", None)
-        load_checkpoint = getattr(self._game_state_store, "load_projection_checkpoint", None)
-        if not callable(save_projected):
-            return
-        viewer_label = self._projection_viewer_label(viewer)
-        if not viewer_label:
-            return
-        try:
-            if viewer_label.startswith("player:"):
-                save_projected(session_id, "player", view_state, player_id=viewer.player_id)
-            else:
-                save_projected(session_id, viewer_label, view_state)
-        except Exception:
-            return
-        if not callable(save_checkpoint):
-            return
-        previous = load_checkpoint(session_id) if callable(load_checkpoint) else None
-        projected_viewers = set()
-        projected_viewer_seqs: dict[str, int] = {}
-        if isinstance(previous, dict) and isinstance(previous.get("projected_viewers"), list):
-            projected_viewers.update(str(item) for item in previous["projected_viewers"])
-        if isinstance(previous, dict) and isinstance(previous.get("projected_viewer_seqs"), dict):
-            for key, value in previous["projected_viewer_seqs"].items():
-                try:
-                    projected_viewer_seqs[str(key)] = int(value)
-                except Exception:
-                    continue
-        projected_viewers.add(viewer_label)
-        projected_viewer_seqs[viewer_label] = int(latest_seq or 0)
-        checkpoint = {
-            "schema_version": 1,
-            "session_id": session_id,
-            "latest_seq": int(latest_seq or 0),
-            "generated_at_ms": int(server_time_ms or 0),
-            "projection_schema_version": _PROJECTION_SCHEMA_VERSION,
-            "projected_viewers": sorted(projected_viewers),
-            "projected_viewer_seqs": projected_viewer_seqs,
-        }
-        try:
-            save_checkpoint(session_id, checkpoint)
-        except Exception:
-            return
-
-    def _load_cached_projected_view_state_no_lock(
-        self,
-        session_id: str,
-        viewer: ViewerContext,
-        *,
-        latest_seq: int,
-    ) -> dict | None:
-        if not session_id:
-            return None
-        load_projected = getattr(self._game_state_store, "load_projected_view_state", None)
-        load_checkpoint = getattr(self._game_state_store, "load_projection_checkpoint", None)
-        if not callable(load_projected):
-            return None
-        viewer_label = self._projection_viewer_label(viewer)
-        if not viewer_label:
-            return None
-        if callable(load_checkpoint):
-            checkpoint = load_checkpoint(session_id)
-            if not self._projection_cache_is_fresh(checkpoint, viewer_label, latest_seq):
-                return None
-        try:
-            if viewer_label.startswith("player:"):
-                cached = load_projected(session_id, "player", player_id=viewer.player_id)
-            else:
-                cached = load_projected(session_id, viewer_label)
-        except Exception:
-            return None
-        return cached if isinstance(cached, dict) else None
-
-    @staticmethod
-    def _projection_cache_is_fresh(checkpoint: object, viewer_label: str, latest_seq: int) -> bool:
-        if not isinstance(checkpoint, dict):
-            return False
-        viewer_seqs = checkpoint.get("projected_viewer_seqs")
-        if isinstance(viewer_seqs, dict):
-            try:
-                return int(viewer_seqs.get(viewer_label, -1)) >= int(latest_seq or 0)
-            except Exception:
-                return False
-        if int(latest_seq or 0) == 0 and isinstance(checkpoint.get("projected_viewers"), list):
-            return viewer_label in {str(item) for item in checkpoint["projected_viewers"]}
-        return False
-
-    @staticmethod
-    def _projection_viewer_label(viewer: ViewerContext) -> str | None:
-        if viewer.is_admin:
-            return "admin"
-        if viewer.is_seat and viewer.player_id is not None:
-            return f"player:{int(viewer.player_id)}"
-        if viewer.is_spectator:
-            return "spectator"
-        return None
 
     def _latest_seq_no_lock(self, session_id: str) -> int:
         if self._stream_backend is not None:

@@ -20,6 +20,9 @@ class DummyPolicy(BasePolicy):
     def choose_lap_reward(self, state, player):
         return LapRewardDecision("cash")
 
+    def choose_start_reward(self, state, player):
+        return LapRewardDecision("cash", cash_units=10)
+
     def choose_coin_placement_tile(self, state, player):
         return None
 
@@ -61,6 +64,7 @@ class EventEffectIntegrationTests(unittest.TestCase):
         self.assertIn('marker.management.apply', names)
         self.assertIn('marker.flip.resolve', names)
         self.assertIn('lap.reward.resolve', names)
+        self.assertIn('start.reward.resolve', names)
         self.assertIn('payment.resolve', names)
         self.assertIn('bankruptcy.resolve', names)
         self.assertIn('trick.card.resolve', names)
@@ -86,6 +90,17 @@ class EventEffectIntegrationTests(unittest.TestCase):
         result = self.engine._try_purchase_tile(self.state, self.player, land_pos, cell)
         self.assertEqual(result['type'], 'PURCHASE')
         self.assertEqual(self.state.tile_owner[land_pos], self.player.player_id)
+
+    def test_start_reward_handler_grants_initial_allocation_from_start_pool(self):
+        before_cash = self.player.cash
+        before_pool = self.state.start_reward_cash_pool_remaining
+
+        result = self.engine._apply_start_reward(self.state, self.player)
+
+        self.assertEqual(result['choice'], 'cash')
+        self.assertEqual(result['cash_delta'], 10)
+        self.assertEqual(self.player.cash, before_cash + 10)
+        self.assertEqual(self.state.start_reward_cash_pool_remaining, before_pool - 10)
 
 
     def test_unowned_landing_can_be_overridden(self):

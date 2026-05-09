@@ -1,4 +1,4 @@
-import { VIEW_STATE_RESTORED_EVENT, type InboundMessage } from "../../core/contracts/stream";
+import type { InboundMessage } from "../../core/contracts/stream";
 
 export const DEBUG_TURN_SELECTION_LATEST = "__latest";
 export const DEBUG_TURN_SELECTION_ALL = "__all";
@@ -26,13 +26,8 @@ function debugPayloadRecord(message: InboundMessage): Record<string, unknown> | 
   return isRecord(message.payload) ? message.payload : null;
 }
 
-function isSyntheticViewStateRestoreMessage(message: InboundMessage): boolean {
-  const payload = debugPayloadRecord(message);
-  return message.type === "event" && payload?.["event_type"] === VIEW_STATE_RESTORED_EVENT;
-}
-
 export function selectUserVisibleDebugMessages(messages: InboundMessage[]): InboundMessage[] {
-  return messages.filter((message) => !isSyntheticViewStateRestoreMessage(message));
+  return messages;
 }
 
 function nestedRecord(root: Record<string, unknown> | null, key: string): Record<string, unknown> | null {

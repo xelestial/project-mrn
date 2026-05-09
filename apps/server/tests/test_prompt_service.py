@@ -23,6 +23,83 @@ class PromptServiceTests(unittest.TestCase):
         result = self.service.submit_decision({"request_id": "r1", "player_id": 1, "choice_id": "roll"})
         self.assertEqual(result["status"], "accepted")
 
+    def test_records_prompt_lifecycle_from_create_to_accept(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r1_lifecycle",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                "public_context": {"round_index": 2, "turn_index": 5},
+            },
+        )
+
+        created = self.service.get_prompt_lifecycle("r1_lifecycle")
+        self.assertIsNotNone(created)
+        assert created is not None
+        self.assertEqual(created["state"], "created")
+        self.assertEqual(created["session_id"], "s1")
+        self.assertEqual(created["player_id"], 1)
+        self.assertEqual(created["request_type"], "movement")
+        self.assertEqual(created["prompt"]["legal_choice_ids"], ["roll"])
+        self.assertEqual(created["prompt"]["public_context"], {"round_index": 2, "turn_index": 5})
+
+        delivered = self.service.mark_prompt_delivered("r1_lifecycle", stream_seq=12, commit_seq=7)
+        self.assertIsNotNone(delivered)
+        assert delivered is not None
+        self.assertEqual(delivered["state"], "delivered")
+        self.assertEqual(delivered["stream_seq"], 12)
+        self.assertEqual(delivered["commit_seq"], 7)
+
+        result = self.service.submit_decision(
+            {
+                "request_id": "r1_lifecycle",
+                "player_id": 1,
+                "choice_id": "roll",
+                "view_commit_seq_seen": 7,
+            }
+        )
+        self.assertEqual(result["status"], "accepted")
+
+        accepted = self.service.get_prompt_lifecycle("r1_lifecycle")
+        self.assertIsNotNone(accepted)
+        assert accepted is not None
+        self.assertEqual(accepted["state"], "accepted")
+        self.assertEqual(accepted["decision"]["choice_id"], "roll")
+        self.assertEqual(accepted["decision"]["view_commit_seq_seen"], 7)
+
+    def test_records_rejected_and_expired_prompt_lifecycle(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r1_lifecycle_reject",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
+        )
+
+        rejected = self.service.submit_decision(
+            {"request_id": "r1_lifecycle_reject", "player_id": 2, "choice_id": "roll"}
+        )
+        self.assertEqual(rejected["status"], "rejected")
+        lifecycle = self.service.get_prompt_lifecycle("r1_lifecycle_reject")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["state"], "rejected")
+        self.assertEqual(lifecycle["reason"], "player_mismatch")
+
+        expired = self.service.expire_prompt("r1_lifecycle_reject", reason="manual_cleanup")
+        self.assertIsNotNone(expired)
+        lifecycle = self.service.get_prompt_lifecycle("r1_lifecycle_reject")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["state"], "expired")
+        self.assertEqual(lifecycle["reason"], "manual_cleanup")
+
     def test_attaches_prompt_fingerprint_to_accepted_decision(self) -> None:
         pending = self.service.create_prompt(
             "s1",
@@ -140,6 +217,42 @@ class PromptServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.create_prompt("s1", payload)
 
+    def test_allows_same_pending_request_id_across_sessions(self) -> None:
+        payload = {
+            "request_id": "shared_pending_batch:p0",
+            "request_type": "burden_exchange",
+            "player_id": 1,
+            "timeout_ms": 30000,
+            "legal_choices": [{"choice_id": "yes"}],
+        }
+        first = self.service.create_prompt("s1", payload)
+        second = self.service.create_prompt("s2", payload)
+
+        self.assertEqual(first.session_id, "s1")
+        self.assertEqual(second.session_id, "s2")
+
+        accepted = self.service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "shared_pending_batch:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertFalse(self.service.has_pending_for_session("s1"))
+        self.assertTrue(self.service.has_pending_for_session("s2"))
+        remaining = self.service.submit_decision(
+            {
+                "session_id": "s2",
+                "request_id": "shared_pending_batch:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+        self.assertEqual(remaining["status"], "accepted")
+
     def test_get_pending_prompt_returns_copy(self) -> None:
         self.service.create_prompt(
             "s1",
@@ -182,6 +295,37 @@ class PromptServiceTests(unittest.TestCase):
         )
         self.assertEqual(stale["status"], "stale")
         self.assertEqual(stale["reason"], "already_resolved")
+
+    def test_resolved_request_id_is_scoped_by_session(self) -> None:
+        payload = {
+            "request_id": "shared_batch_prompt:p0",
+            "request_type": "burden_exchange",
+            "player_id": 1,
+            "timeout_ms": 30000,
+            "legal_choices": [{"choice_id": "yes"}],
+        }
+        self.service.create_prompt("s1", payload)
+        first = self.service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "shared_batch_prompt:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+        self.assertEqual(first["status"], "accepted")
+
+        recreated = self.service.create_prompt("s2", payload)
+        self.assertEqual(recreated.session_id, "s2")
+        second = self.service.submit_decision(
+            {
+                "session_id": "s2",
+                "request_id": "shared_batch_prompt:p0",
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+        self.assertEqual(second["status"], "accepted")
 
     def test_timeout_pending_is_idempotent_per_request(self) -> None:
         self.service.create_prompt(

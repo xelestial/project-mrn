@@ -291,19 +291,74 @@ def test_batch_prompt_payload_contains_batch_and_module_ids() -> None:
     assert pending.payload["module_type"] == "ResupplyModule"
 
 
+def test_timeout_fallback_decision_preserves_batch_continuation_inside_decision() -> None:
+    commands: list[dict] = []
+
+    class _CommandStore:
+        def append_command(self, session_id, command_type, payload, **kwargs):  # noqa: ANN001
+            commands.append({"session_id": session_id, "type": command_type, "payload": dict(payload)})
+
+    service = PromptService(command_store=_CommandStore())
+    prompt = {
+        **_module_prompt(),
+        "request_id": "batch:simul:resupply:2:107:mod:simul:resupply:2:107:resupply:1:p1",
+        "player_id": 2,
+        "request_type": "burden_exchange",
+        "frame_id": "simul:resupply:2:107",
+        "module_id": "mod:simul:resupply:2:107:resupply",
+        "module_type": "ResupplyModule",
+        "module_cursor": "await_resupply_batch:1",
+        "batch_id": "batch:simul:resupply:2:107:mod:simul:resupply:2:107:resupply:1",
+        "missing_player_ids": [2],
+        "resume_tokens_by_player_id": {"2": "token_1"},
+        "legal_choices": [{"choice_id": "yes"}, {"choice_id": "no"}],
+    }
+    pending = service.create_prompt("s1", prompt)
+
+    decision = service.record_timeout_fallback_decision(pending, choice_id="yes", submitted_at_ms=123)
+
+    assert decision["batch_id"] == prompt["batch_id"]
+    assert decision["frame_id"] == prompt["frame_id"]
+    assert decision["module_id"] == prompt["module_id"]
+    assert decision["module_type"] == prompt["module_type"]
+    assert decision["module_cursor"] == prompt["module_cursor"]
+    command_payload = commands[0]["payload"]
+    assert command_payload["batch_id"] == prompt["batch_id"]
+    assert command_payload["decision"]["batch_id"] == prompt["batch_id"]
+
+
 def test_simultaneous_module_prompt_requires_batch_id() -> None:
     service = PromptService()
     prompt = {
         **_module_prompt(),
         "request_id": "resupply_1:p1",
-        "request_type": "resupply_choice",
+        "request_type": "burden_exchange",
         "frame_id": "simul:resupply:1:0",
         "module_id": "mod:simul:resupply:1:0:resupply",
         "module_type": "ResupplyModule",
+        "module_cursor": "await_resupply_batch:1",
     }
 
     with pytest.raises(ValueError, match="missing_batch_id"):
         service.create_prompt("s1", prompt)
+
+
+def test_single_player_prompt_inside_simultaneous_frame_does_not_require_batch_state() -> None:
+    service = PromptService()
+    prompt = {
+        **_module_prompt(),
+        "request_id": "hidden_1",
+        "request_type": "hidden_trick_card",
+        "frame_id": "simul:resupply:1:0",
+        "module_id": "mod:simul:resupply:1:0:resupply",
+        "module_type": "ResupplyModule",
+        "module_cursor": "hidden_trick_card:await_choice",
+    }
+
+    pending = service.create_prompt("s1", prompt)
+
+    assert pending.payload["request_type"] == "hidden_trick_card"
+    assert "batch_id" not in pending.payload
 
 
 def test_simultaneous_module_prompt_requires_batch_wire_state() -> None:
@@ -315,6 +370,7 @@ def test_simultaneous_module_prompt_requires_batch_wire_state() -> None:
         "frame_id": "simul:resupply:1:0",
         "module_id": "mod:simul:resupply:1:0:resupply",
         "module_type": "ResupplyModule",
+        "module_cursor": "await_resupply_batch:1",
         "batch_id": "batch:simul:resupply:1:0",
     }
 
@@ -408,10 +464,11 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
     client._gateway = _Gateway()
     client._active_call = call
 
-    result = client._ask({"legal_choices": [{"choice_id": "defer"}]}, None, lambda: "fallback")
+    result = client._ask({"player_id": 0, "legal_choices": [{"choice_id": "defer"}]}, None, lambda: "fallback")
 
     assert result == "defer"
     assert captured["runner_kind"] == "module"
+    assert captured["player_id"] == 1
     assert captured["request_id"] == "s1:r1:t2:p1:trick:4"
     assert captured["resume_token"]
     assert captured["frame_id"] == "seq:trick:1:p0"

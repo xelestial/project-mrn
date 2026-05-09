@@ -2631,6 +2631,10 @@ def choose_lap_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
     return decision
 
 
+def choose_start_reward_runtime(policy: Any, state: Any, player: Any) -> Any:
+    return policy._start_reward_bundle(state, 1.0, 0.75, 0.75, preferred="cash")
+
+
 # NOTE:
 # This module previously contained mojibake-corrupted card labels in trick-choice paths.
 # Keep the latest definitions at file end so runtime always resolves to canonical Korean labels.

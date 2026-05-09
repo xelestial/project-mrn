@@ -7,6 +7,7 @@ from typing import Any
 
 ROUND_EVENT_MODULES = {
     "round_start": ("round", "RoundStartModule", "round_start"),
+    "start_reward_chosen": ("round", "InitialRewardModule", "initial_reward"),
     "weather_reveal": ("round", "WeatherModule", "weather"),
     "draft_pick": ("round", "DraftModule", "draft"),
     "final_character_choice": ("round", "DraftModule", "draft"),

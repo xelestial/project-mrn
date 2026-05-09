@@ -5,15 +5,16 @@ import json
 import random
 import inspect
 import uuid
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, List, Optional
 import math
 
-from ai_policy import BasePolicy, MovementDecision
+from ai_policy import MovementDecision
 from characters import CHARACTERS, CARD_TO_NAMES, randomized_active_by_card
 from config import CellKind, GameConfig
+from decision_port import DecisionPort, DecisionRequest, EngineDecisionResume
 from policy_mark_utils import ordered_public_mark_targets
+from result import GameResult
 from state import ActionEnvelope, GameState, PlayerState
 from tile_effects import (
     build_purchase_context,
@@ -95,68 +96,6 @@ from rule_script_engine import RuleScriptEngine
 from viewer.events import Phase, VisEvent
 from viewer.public_state import build_player_public_state, build_turn_end_snapshot
 from viewer.stream import VisEventStream
-
-
-@dataclass(slots=True)
-class GameResult:
-    winner_ids: List[int]
-    end_reason: str
-    total_turns: int
-    rounds_completed: int
-    alive_count: int
-    bankrupt_players: int
-    final_f_value: float
-    total_placed_coins: int
-    player_summary: List[dict] = field(default_factory=list)
-    strategy_summary: List[dict] = field(default_factory=list)
-    weather_history: List[str] = field(default_factory=list)
-    action_log: List[dict] = field(default_factory=list)
-    ai_decision_log: List[dict] = field(default_factory=list)
-    bankruptcy_events: List[dict] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class DecisionRequest:
-    decision_name: str
-    request_type: str
-    state: GameState
-    player: PlayerState
-    player_id: int
-    round_index: int | None
-    turn_index: int | None
-    public_context: dict[str, Any] = field(default_factory=dict)
-    fallback_policy: str = "engine_default"
-    args: tuple[Any, ...] = ()
-    kwargs: dict[str, Any] = field(default_factory=dict)
-    fallback: Callable[[], Any] | None = None
-
-
-class DecisionPort:
-    def __init__(self, policy: BasePolicy) -> None:
-        self._policy = policy
-
-    def request(self, request: DecisionRequest) -> Any:
-        decision_fn = getattr(self._policy, request.decision_name, None)
-        if decision_fn is None:
-            if request.fallback is not None:
-                return request.fallback()
-            raise AttributeError(request.decision_name)
-        return decision_fn(request.state, request.player, *request.args, **request.kwargs)
-
-
-@dataclass(frozen=True, slots=True)
-class EngineDecisionResume:
-    request_id: str
-    player_id: int
-    request_type: str
-    choice_id: str
-    choice_payload: dict
-    resume_token: str
-    frame_id: str
-    module_id: str
-    module_type: str
-    module_cursor: str
-    batch_id: str = ""
 
 
 class GameEngine:
@@ -353,14 +292,14 @@ class GameEngine:
         state = self.prepare_run(initial_state=initial_state)
         while True:
             step = self.run_next_transition(state)
-            if step["status"] == "finished":
+            if step["status"] == "completed":
                 break
             if step["status"] == "waiting_input":
                 for resume in self._auto_resume_waiting_input(state):
                     step = self.run_next_transition(state, decision_resume=resume)
-                    if step["status"] == "finished":
+                    if step["status"] == "completed":
                         break
-                if step["status"] == "finished":
+                if step["status"] == "completed":
                     break
         result = self._build_result(state)
         self._emit_vis(
@@ -509,7 +448,7 @@ class GameEngine:
                 return self._complete_pending_turn_transition(state)
             if not state.current_round_order:
                 if self._check_end(state):
-                    return {"status": "finished", "reason": "end_rule"}
+                    return {"status": "completed", "reason": "end_rule"}
                 initial_round = (
                     state.rounds_completed == 0
                     and state.turn_index == 0
@@ -518,7 +457,7 @@ class GameEngine:
                 )
                 self._start_new_round(state, initial=initial_round)
                 if not state.current_round_order:
-                    return {"status": "finished", "reason": "empty_round_order"}
+                    return {"status": "completed", "reason": "empty_round_order"}
             current_pid = state.current_round_order[state.turn_index % len(state.current_round_order)]
             player = state.players[current_pid]
             if self._materialize_scheduled_actions(state, phase="turn_start", player_id=current_pid):
@@ -529,7 +468,7 @@ class GameEngine:
                 if state.pending_actions or state.pending_turn_completion:
                     return {"status": "committed", "player_id": current_pid + 1, "turn_index": state.turn_index, "pending_actions": len(state.pending_actions)}
                 if self._check_end(state):
-                    return {"status": "finished", "reason": "end_rule", "player_id": current_pid + 1}
+                    return {"status": "completed", "reason": "end_rule", "player_id": current_pid + 1}
             round_ending = self._is_advancing_past_round_end(state)
             if round_ending:
                 self._apply_round_end_marker_management(state)
@@ -577,7 +516,7 @@ class GameEngine:
             snapshot=build_turn_end_snapshot(state),
         )
         if self._check_end(state):
-            return {"status": "finished", "reason": "end_rule", "player_id": player_id + 1}
+            return {"status": "completed", "reason": "end_rule", "player_id": player_id + 1}
         return self._advance_turn_cursor_after_completion(state, player_id)
 
     def _reset_run_trackers(self) -> None:
@@ -877,7 +816,13 @@ class GameEngine:
             return
         chosen = None
         if hasattr(self.policy, "choose_hidden_trick_card"):
-            chosen = self.policy.choose_hidden_trick_card(state, player, list(player.trick_hand))
+            chosen = self._request_decision(
+                "choose_hidden_trick_card",
+                state,
+                player,
+                list(player.trick_hand),
+                fallback=lambda: self.policy.choose_hidden_trick_card(state, player, list(player.trick_hand)),
+            )
             hidden_debug = self.policy.pop_debug("hide_trick", player.player_id) if hasattr(self.policy, "pop_debug") else None
             if hidden_debug is not None:
                 self._record_ai_decision(
@@ -2368,6 +2313,10 @@ class GameEngine:
 
     def _start_new_round(self, state: GameState, initial: bool) -> None:
         self._prepare_round_start_state(state, initial)
+        if initial:
+            for player in state.players:
+                if player.alive:
+                    self._apply_start_reward(state, player)
         self._reveal_round_weather(state)
         self._run_round_draft_module(state, initial)
         self._schedule_round_turn_order(state, initial)
@@ -2792,21 +2741,60 @@ class GameEngine:
         player.pending_marks = remaining
 
     def _remove_pending_mark(self, target: PlayerState, mark: dict) -> None:
+        index = self._pending_mark_index(target, mark)
+        if index is not None:
+            del target.pending_marks[index]
+
+    def _pending_mark_index(self, target: PlayerState, mark: dict) -> int | None:
+        mark_payload = dict(mark or {})
+        mark_idempotency_key = str(mark_payload.get("idempotency_key") or "")
         for index, current in enumerate(list(target.pending_marks)):
-            if dict(current) == dict(mark):
-                del target.pending_marks[index]
-                return
+            current_payload = dict(current)
+            if current_payload == mark_payload:
+                return index
+            if mark_idempotency_key and str(current_payload.get("idempotency_key") or "") == mark_idempotency_key:
+                return index
+        return None
 
     def _resolve_mark_action(self, state: GameState, action: ActionEnvelope, *, queue_followups: bool = False) -> dict:
-        target_id = action.target_player_id if action.target_player_id is not None else int(action.payload.get("target_player_id", action.actor_player_id))
+        target_id = (
+            action.target_player_id
+            if action.target_player_id is not None
+            else action.payload.get("target_player_id", action.actor_player_id)
+        )
+        try:
+            target_id = int(target_id)
+        except (TypeError, ValueError):
+            return {"type": "MARK_SKIPPED", "reason": "invalid_target", "target_player_id": None}
+        if target_id < 0 or target_id >= len(state.players):
+            return {"type": "MARK_SKIPPED", "reason": "invalid_target", "target_player_id": target_id + 1}
         target = state.players[int(target_id)]
         mark = dict(action.payload.get("mark") or {})
+        pending_mark_index = self._pending_mark_index(target, mark)
+        if pending_mark_index is None:
+            return {"type": "MARK_SKIPPED", "reason": "mark_not_pending", "target_player_id": target.player_id + 1}
+        pending_mark = dict(target.pending_marks[pending_mark_index])
+        source_id = pending_mark.get("source_pid", mark.get("source_pid", action.actor_player_id))
+        try:
+            source_id = int(source_id)
+        except (TypeError, ValueError):
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "invalid_source", "target_player_id": target.player_id + 1}
+        if source_id < 0 or source_id >= len(state.players):
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "invalid_source", "target_player_id": target.player_id + 1}
+        if not target.alive:
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "target_not_alive", "target_player_id": target.player_id + 1}
+        if not state.players[source_id].alive:
+            self._remove_pending_mark(target, pending_mark)
+            return {"type": "MARK_SKIPPED", "reason": "source_not_alive", "target_player_id": target.player_id + 1}
         if target.immune_to_marks_this_round:
-            self._remove_pending_mark(target, mark)
+            self._remove_pending_mark(target, pending_mark)
             return {"type": "MARK_SKIPPED", "reason": "immune_to_marks", "target_player_id": target.player_id + 1}
-        result = self._resolve_mark_effect(state, target, mark, queue_followups=queue_followups)
+        result = self._resolve_mark_effect(state, target, pending_mark, queue_followups=queue_followups)
         if result.get("type") != "UNKNOWN_MARK":
-            self._remove_pending_mark(target, mark)
+            self._remove_pending_mark(target, pending_mark)
         return result
 
     def _resolve_mark_effect(self, state: GameState, player: PlayerState, eff: dict, *, queue_followups: bool = False) -> dict:
@@ -4288,7 +4276,7 @@ class GameEngine:
         return build_rent_context(state, payer, pos, owner_player_id, include_waivers=False).final_rent
 
     def _is_trick_phase_usable(self, card: TrickCard) -> bool:
-        return True
+        return not bool(getattr(card, "is_burden", False))
 
     def _trick_hand_context(self, player: PlayerState) -> list[dict[str, object]]:
         hidden_deck_index = getattr(player, "hidden_trick_deck_index", None)
@@ -4848,6 +4836,10 @@ class GameEngine:
 
     def _apply_lap_reward(self, state: GameState, player: PlayerState) -> dict:
         result = self.events.emit_first_non_none("lap.reward.resolve", state, player)
+        return result if result is not None else {"choice": "blocked"}
+
+    def _apply_start_reward(self, state: GameState, player: PlayerState) -> dict:
+        result = self.events.emit_first_non_none("start.reward.resolve", state, player)
         return result if result is not None else {"choice": "blocked"}
 
     def _draw_fortune_card(self, state: GameState) -> FortuneCard:

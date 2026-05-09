@@ -28,6 +28,9 @@ const EFFECT_EVENT_CODES = new Set([
   "marker_transferred",
   "mark_queued",
   "mark_resolved",
+  "mark_target_none",
+  "mark_target_missing",
+  "mark_blocked",
   "landing_resolved",
 ]);
 const DECISION_EVENT_CODES = new Set(["decision_requested", "decision_resolved", "decision_timeout_fallback"]);

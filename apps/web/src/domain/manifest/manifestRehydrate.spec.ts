@@ -38,7 +38,7 @@ function createLatest(overrides?: Partial<ParameterManifestViewModel>): Paramete
       startingCash: 20,
     },
     resources: {
-      startingShards: 4,
+      startingShards: 2,
     },
     ...overrides,
   };
@@ -78,7 +78,7 @@ describe("mergeSessionManifest", () => {
     expect(merged.board?.tiles?.[0]?.tile_kind).toBe("F1");
     expect(merged.seats?.allowed).toEqual([1, 2, 3]);
     expect(merged.economy?.starting_cash).toBe(20);
-    expect(merged.resources?.starting_shards).toBe(4);
+    expect(merged.resources?.starting_shards).toBe(2);
     expect(merged.labels).toEqual({
       tile_kind_labels: {
         F1: "End - 1",

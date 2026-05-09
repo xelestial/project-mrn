@@ -80,7 +80,27 @@ def validate_checkpoint_payload(payload: dict[str, Any]) -> None:
         for module in frame.get("module_queue") or []:
             if isinstance(module, dict):
                 _validate_runtime_module({**module, "frame_type": frame_type, "frame_id": frame.get("frame_id")})
+        _validate_active_module_reference(frame)
         _validate_card_flip_not_before_turns_complete(frame)
+
+
+def _validate_active_module_reference(frame: dict[str, Any]) -> None:
+    active_module_id = str(frame.get("active_module_id") or "").strip()
+    if not active_module_id:
+        return
+    modules = [module for module in frame.get("module_queue") or [] if isinstance(module, dict)]
+    active = next(
+        (module for module in modules if str(module.get("module_id") or "").strip() == active_module_id),
+        None,
+    )
+    frame_id = str(frame.get("frame_id") or "").strip()
+    if active is None:
+        raise RuntimeSemanticViolation(f"active_module_id {active_module_id} not found in frame {frame_id}")
+    status = str(active.get("status") or "").strip()
+    if status not in {"running", "suspended"}:
+        raise RuntimeSemanticViolation(
+            f"active_module_id {active_module_id} points to {status or 'unknown'} module in frame {frame_id}"
+        )
 
 
 def _validate_runtime_module(module: dict[str, Any]) -> None:
@@ -196,10 +216,7 @@ def _validate_prompt_payload(payload: dict[str, Any]) -> None:
     frame_type = _frame_type_from_frame_id(frame_id)
     if frame_type:
         _validate_runtime_module({"module_type": module_type, "frame_type": frame_type, "frame_id": frame_id})
-    if (
-        module_type in {"ResupplyModule", "SimultaneousPromptBatchModule"}
-        or frame_id.startswith("simul:")
-    ):
+    if _is_simultaneous_batch_prompt(payload):
         if not str(payload.get("batch_id") or "").strip():
             raise RuntimeSemanticViolation("simultaneous prompt missing batch_id")
         if not isinstance(payload.get("missing_player_ids"), list) or not isinstance(
@@ -207,6 +224,19 @@ def _validate_prompt_payload(payload: dict[str, Any]) -> None:
             dict,
         ):
             raise RuntimeSemanticViolation("simultaneous prompt missing batch state")
+
+
+def _is_simultaneous_batch_prompt(payload: dict[str, Any]) -> bool:
+    module_type = str(payload.get("module_type") or "").strip()
+    request_type = str(payload.get("request_type") or "").strip()
+    module_cursor = str(payload.get("module_cursor") or "").strip()
+    if module_type == "SimultaneousPromptBatchModule":
+        return True
+    return (
+        module_type == "ResupplyModule"
+        and request_type in {"burden_exchange", "resupply_choice"}
+        and module_cursor.startswith("await_resupply_batch")
+    )
 
 
 def _validate_card_flip_not_before_turns_complete(frame: dict[str, Any]) -> None:

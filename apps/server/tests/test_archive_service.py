@@ -54,8 +54,8 @@ class ArchiveServiceTests(unittest.TestCase):
                 await streams.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
                 await streams.publish(session.session_id, "event", {"event_type": "turn_start", "turn_index": 1})
                 sessions.finish_session(session.session_id)
-                await archive.handle_session_finished(session.session_id)
-                rooms.handle_session_finished(session.session_id)
+                await archive.handle_session_completed(session.session_id)
+                rooms.handle_session_completed(session.session_id)
                 await asyncio.sleep(0)
 
             asyncio.run(_exercise())
@@ -71,6 +71,7 @@ class ArchiveServiceTests(unittest.TestCase):
             self.assertEqual(payload["session"]["room_no"], 1)
             self.assertEqual(payload["session"]["room_title"], "Archive Room")
             self.assertEqual(payload["counts"]["event_count"], 2)
+            self.assertEqual(payload["counts"]["view_commit_count"], 0)
             self.assertEqual(payload["exporter"]["redis_prefix"], "mrn-test")
             self.assertEqual(payload["final_state"]["host_token"], "")
             self.assertEqual(payload["final_state"]["session_tokens"], {})
@@ -117,7 +118,7 @@ class ArchiveServiceTests(unittest.TestCase):
             async def _exercise() -> None:
                 await streams.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
                 sessions.finish_session(session.session_id)
-                await archive.handle_session_finished(session.session_id)
+                await archive.handle_session_completed(session.session_id)
                 await asyncio.sleep(0)
 
             asyncio.run(_exercise())
@@ -127,7 +128,7 @@ class ArchiveServiceTests(unittest.TestCase):
             self.assertEqual(payload["streams"]["commands"][0]["type"], "decision_submitted")
             self.assertEqual(payload["streams"]["commands"][0]["payload"]["request_id"], "req_archive_1")
 
-    def test_archive_final_view_state_prefers_public_projection_cache(self) -> None:
+    def test_archive_final_view_state_prefers_latest_view_commit(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             sessions = SessionService(restart_recovery_policy="keep")
             streams = StreamService()
@@ -150,13 +151,13 @@ class ArchiveServiceTests(unittest.TestCase):
             async def _exercise() -> None:
                 await streams.publish(session.session_id, "event", {"event_type": "round_start", "round_index": 1})
                 sessions.finish_session(session.session_id)
-                await archive.handle_session_finished(session.session_id)
+                await archive.handle_session_completed(session.session_id)
                 await asyncio.sleep(0)
 
             asyncio.run(_exercise())
 
             payload = json.loads((Path(temp_dir) / f"{session.session_id}.json").read_text(encoding="utf-8"))
-            self.assertEqual(payload["final_view_state"], {"public_projection": True})
+            self.assertEqual(payload["final_view_state"], {"view_commit": True})
             self.assertEqual(payload["final_state"], {"canonical": True})
 
 class _CommandStoreStub:
@@ -181,6 +182,10 @@ class _CommandStoreStub:
 
 
 class _GameStateStoreStub:
+    def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+        del session_id, viewer, player_id
+        return {"view_state": {"view_commit": True}}
+
     def load_checkpoint(self, session_id: str) -> dict:
         return {"session_id": session_id, "latest_seq": 1}
 
@@ -188,7 +193,7 @@ class _GameStateStoreStub:
         del session_id
         return {"canonical": True}
 
-    def load_projected_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
+    def load_cached_view_state(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict:
         del session_id, player_id
         if viewer == "public":
             return {"public_projection": True}

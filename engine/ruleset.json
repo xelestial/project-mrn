@@ -22,6 +22,15 @@
       "shards_pool": 18,
       "coins_pool": 18
     },
+    "start_reward": {
+      "points_budget": 20,
+      "cash_point_cost": 2,
+      "shards_point_cost": 3,
+      "coins_point_cost": 3,
+      "cash_pool": 30,
+      "shards_pool": 18,
+      "coins_pool": 18
+    },
     "takeover": {
       "blocked_by_monopoly": true,
       "transfer_tile_coins": true
@@ -55,7 +64,7 @@
       }
     },
     "resources": {
-      "starting_shards": 4
+      "starting_shards": 2
     },
     "dice": {
       "enabled": true,

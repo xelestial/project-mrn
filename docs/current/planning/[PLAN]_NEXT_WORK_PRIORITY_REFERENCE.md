@@ -1,7 +1,7 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-05-04
+Updated: 2026-05-08
 Owner: Engine runtime
 
 ## Purpose
@@ -30,6 +30,7 @@ canonical decision/selector correctness.
 
 Use:
 
+- `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
 - `docs/current/runtime/end-to-end-contract.md`
 - `docs/current/runtime/round-action-control-matrix.md`
 - `docs/current/engineering/[PLAN]_FAST_CHECK_GAME_RULE_HARNESS.md`
@@ -39,6 +40,8 @@ Current goal:
 
 - keep `engine/`, `apps/server/`, and `apps/web/` synchronized on prompt,
   action, event, and round semantics
+- separate `PlayerId`, `SeatId`, `ViewerId`, `RequestId`, `EventId`, and
+  numeric commit/event/stream sequences before adding more protocol behavior
 - preserve modular-runtime frame behavior while avoiding stale migration-plan
   assumptions
 - add semantic regression tests before changing rule flow, prompt lifecycle, or
@@ -48,6 +51,7 @@ Current goal:
 
 Use:
 
+- `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
 - `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
 - `docs/current/engineering/[PLAN]_VISIBILITY_PROJECTION_REDIS.md`
 - `docs/current/backend/runtime-logging-policy.md`
@@ -56,6 +60,9 @@ Current goal:
 
 - finish transition-level durability and restart confidence
 - keep per-player visibility and public/private event projection correct
+- make Redis self-contained enough to inspect prompt lifecycle, viewer outbox,
+  source event heads, commit heads, and active runtime frame within the one-hour
+  debug retention window
 - prefer contract-level checks over ad hoc UI observation
 - preserve production-like Redis restart-smoke evidence when backend/runtime
   boundary work changes process roles, recovery, prompt continuation, or stream

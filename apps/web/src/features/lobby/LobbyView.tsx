@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { type PublicRoomResult } from "../../infra/http/sessionApi";
 import { CHARACTER_SPRITE_ROSTER } from "../../domain/characters/characterSprites";
 
@@ -72,15 +73,11 @@ export function LobbyView({
     activeRoom.human_joined_count === activeRoom.human_total_count &&
     activeRoom.human_ready_count === activeRoom.human_total_count;
   const playerStandees = CHARACTER_SPRITE_ROSTER.slice(0, 4);
-  const connectedLabel = serverConnected ? (ko ? "서버 연결됨" : "Server connected") : ko ? "오프라인 빠른 시작 가능" : "Offline quick start ready";
 
   return (
     <div className="lobby-shell">
       <section className="lobby-hero panel" aria-labelledby="lobby-hero-title">
         <div className="lobby-hero-copy">
-          <span className={serverConnected ? "lobby-status-chip lobby-status-chip-online" : "lobby-status-chip"}>
-            {connectedLabel}
-          </span>
           <h2 id="lobby-hero-title">{ko ? "바로 게임에 들어가기" : "Start playing now"}</h2>
           <p>
             {ko
@@ -112,6 +109,7 @@ export function LobbyView({
                 src={standee.sprites["front-right"]}
                 alt=""
                 className={`lobby-standee lobby-standee-${index + 1}`}
+                style={{ "--character-sprite-scale": String(standee.visualScale) } as CSSProperties}
               />
             ))}
           </div>

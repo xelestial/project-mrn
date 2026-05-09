@@ -2,7 +2,7 @@
 
 ## Authority
 
-The engine is the source of legal game progression. Backend services, Redis persistence, WebSocket replay, and frontend selectors must reject or ignore states that contradict the engine runtime contract.
+The engine is the source of legal game progression. RuntimeService is the single writer of live `ViewCommit` state. Backend services, Redis persistence, WebSocket delivery, and frontend selectors must reject or ignore states that contradict the engine runtime contract.
 
 ## Runtime Boundaries
 
@@ -17,7 +17,7 @@ The engine is the source of legal game progression. Backend services, Redis pers
 2. Round-end card flip is legal only after every player turn module in the round frame is completed or skipped.
 3. Resupply prompts use a simultaneous batch contract with `batch_id`.
 4. Module prompt decisions must echo `resume_token`, `frame_id`, `module_id`, and `module_type`.
-5. WebSocket replay may fill gaps only with projections compatible with the latest known runtime frame path.
+5. Live WebSocket recovery uses the latest Redis-cached `ViewCommit` only. Replay projection is debug/archive data and must not fill live UI gaps.
 6. Redis stores committed state atomically but does not replace backend semantic validation.
 7. `final_character_choice` is draft-frame private data until the matching `turn_start`.
    Backend `view_state.player_cards` may show `selected_private` only to the

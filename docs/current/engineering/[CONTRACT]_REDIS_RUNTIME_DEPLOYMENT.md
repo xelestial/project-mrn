@@ -118,7 +118,7 @@ Passing evidence must include:
 - `decision_smoke.accepted_status=accepted`
 - duplicate submission for the same `request_id` returns `stale` or `rejected`
 - the runtime advances from the submitted request id to the next waiting input,
-  `finished`, `unavailable`, or `aborted`
+  `completed`, `unavailable`, or `aborted`
 - replay event count after decision smoke is greater than the restart replay count
 
 Latest checked local production-like evidence:

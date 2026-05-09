@@ -31,6 +31,7 @@ KNOWN_EVENT_TYPES = {
     "marker_transferred",
     "marker_flip",
     "lap_reward_chosen",
+    "start_reward_chosen",
     "f_value_change",
     "bankruptcy",
     "turn_end_snapshot",
@@ -51,6 +52,7 @@ REQUIRED_PAYLOAD_FIELDS: dict[str, set[str]] = {
     "ability_suppressed": {"source_player_id", "actor_name", "reason", "effect_type"},
     "marker_transferred": {"from_player_id", "to_player_id"},
     "lap_reward_chosen": {"choice", "amount", "resource_delta"},
+    "start_reward_chosen": {"choice", "amount", "resource_delta"},
     "f_value_change": {"before", "delta", "after"},
     "game_end": {"winner_ids", "winner_player_id", "reason", "total_turns", "snapshot"},
 }

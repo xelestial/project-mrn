@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from apps.server.src.core.error_payload import build_error_payload
-from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer
+from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer, viewer_from_auth_context
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
@@ -75,27 +75,24 @@ async def _recover_runtime_for_authenticated_seat(
     if auth_ctx.get("role") != "seat":
         return
     runtime_state = runtime.runtime_status(session_id)
-    if runtime_state.get("status") != "recovery_required":
+    runtime_status = str(runtime_state.get("status") or "")
+    if runtime_status not in {"recovery_required", "waiting_input"}:
         return
     session = service.get_session(session_id)
     runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
     pending_command = runtime.pending_resume_command(session_id)
     if pending_command is not None:
-        command_seq = int(pending_command.get("seq", 0) or 0)
-        await runtime.process_command_once(
-            session_id=session_id,
-            command_seq=command_seq,
-            consumer_name="runtime_wakeup",
-            seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
-            policy_mode=runtime_cfg.get("policy_mode"),
-        )
+        return
+    if runtime.recovery_state_has_waiting_input(runtime_state):
         log_event(
-            "runtime_recovery_resumed_pending_command",
+            "runtime_recovery_kept_waiting_input_checkpoint",
             session_id=session_id,
             reason=runtime_state.get("reason"),
             trigger="runtime_status",
-            command_seq=command_seq,
+            status=runtime_status,
         )
+        return
+    if runtime_status != "recovery_required":
         return
     if runtime.has_unprocessed_runtime_commands(session_id):
         log_event(
@@ -383,7 +380,6 @@ async def runtime_status(
     session_id: str,
     token: str | None = None,
     service: SessionService = Depends(_service),
-    stream: StreamService = Depends(_stream_service),
     runtime: RuntimeService = Depends(_runtime),
 ) -> dict:
     try:
@@ -392,12 +388,6 @@ async def runtime_status(
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
     except SessionStateError as exc:
         _session_auth_error(exc)
-    viewer = ViewerContext(
-        role=str(auth_ctx.get("role") or "spectator"),
-        session_id=session_id,
-        seat=auth_ctx.get("seat"),
-        player_id=auth_ctx.get("player_id"),
-    )
     await _recover_runtime_for_authenticated_seat(
         session_id=session_id,
         auth_ctx=auth_ctx,
@@ -405,13 +395,33 @@ async def runtime_status(
         runtime=runtime,
     )
     runtime_payload = runtime.public_runtime_status(session_id)
-    recovery = runtime_payload.get("recovery_checkpoint")
-    if isinstance(recovery, dict):
-        runtime_payload = dict(runtime_payload)
-        recovery = dict(recovery)
-        recovery["view_state"] = await stream.rebuild_latest_view_state_for_viewer(session_id, viewer)
-        runtime_payload["recovery_checkpoint"] = recovery
     return _ok({"session_id": session_id, "runtime": runtime_payload})
+
+
+@router.get("/{session_id}/view-commit")
+async def latest_view_commit(
+    session_id: str,
+    token: str | None = None,
+    service: SessionService = Depends(_service),
+    stream: StreamService = Depends(_stream_service),
+) -> dict:
+    try:
+        service.get_session(session_id)
+        auth_ctx = service.verify_session_token(session_id, token)
+    except SessionNotFoundError:
+        _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
+    except SessionStateError as exc:
+        _session_auth_error(exc)
+    viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
+    message = await stream.latest_view_commit_message_for_viewer(session_id, viewer)
+    payload = message.get("payload") if isinstance(message, dict) else None
+    if not isinstance(payload, dict):
+        _error(
+            "VIEW_COMMIT_NOT_FOUND",
+            "Latest view commit is not available for this session.",
+            status.HTTP_404_NOT_FOUND,
+        )
+    return _ok(payload)
 
 
 @router.get("/{session_id}/replay")
@@ -428,22 +438,12 @@ async def replay_export(
         _error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
     except SessionStateError as exc:
         _session_auth_error(exc)
-    viewer = ViewerContext(
-        role=str(auth_ctx.get("role") or "spectator"),
-        session_id=session_id,
-        seat=auth_ctx.get("seat"),
-        player_id=auth_ctx.get("player_id"),
-    )
-    view_state = await stream.latest_view_state_for_viewer(session_id, viewer)
+    viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
     events = []
     for message in await stream.snapshot(session_id):
         projected = project_stream_message_for_viewer(message.to_dict(), viewer)
         if projected is not None:
             events.append(projected)
-    if events and view_state:
-        payload = events[-1].setdefault("payload", {})
-        if isinstance(payload, dict):
-            payload["view_state"] = view_state
     replay_export_payload = {
         "schema_version": 1,
         "schema_name": "mrn.redacted_replay_export",
@@ -454,9 +454,15 @@ async def replay_export(
             "role": viewer.role,
             "seat": viewer.seat,
             "player_id": viewer.player_id,
+            "legacy_player_id": viewer.legacy_player_id,
+            "public_player_id": viewer.public_player_id,
+            "seat_id": viewer.seat_id,
+            "viewer_id": viewer.viewer_id,
+            "seat_index": viewer.seat_index,
+            "turn_order_index": viewer.turn_order_index,
+            "player_label": viewer.player_label,
         },
         "event_count": len(events),
         "events": events,
-        "view_state": view_state,
     }
     return _ok(replay_export_payload)

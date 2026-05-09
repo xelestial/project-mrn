@@ -87,8 +87,8 @@ Backend and Redis persist the engine checkpoint; they do not synthesize next gam
 
 - Runtime service resumes exactly one engine command against the saved checkpoint and stores the resulting checkpoint atomically.
 - Redis prompt state is authoritative for `request_id`, `resume_token`, `frame_id`, `module_id`, `module_type`, `module_cursor`, and `batch_id`.
-- WebSocket publishes the runtime module projection attached to each prompt/event. The semantic guard rejects impossible placements before they reach clients.
-- Backend `view_state.player_cards`, `view_state.active_by_card`, and `view_state.turn_stage` are frontend-consumable projections. If a prompt event arrives late or replay skips raw history, the frontend still renders the current card strip and prompt-active beat from those fields.
+- WebSocket publishes debug events separately from the authoritative `ViewCommit`. The semantic guard rejects impossible runtime placements before they reach clients.
+- Backend `ViewCommit.view_state.player_cards`, `ViewCommit.view_state.active_by_card`, and `ViewCommit.view_state.turn_stage` are the frontend-consumable live projections. Late prompt events or replay history never rebuild the live card strip or prompt-active beat.
 - Frontend request IDs are not gameplay authority. The frontend preserves backend-issued continuation fields and uses a local ledger only to suppress duplicate sends.
 
 ## 7. Logging Map

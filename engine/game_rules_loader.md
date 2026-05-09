@@ -10,6 +10,7 @@ Loads and saves external JSON rulesets for `GameRules`.
 ## Supported top-level sections
 - `token`
 - `lap_reward`
+- `start_reward`
 - `takeover`
 - `force_sale`
 - `end`
@@ -24,3 +25,9 @@ The ruleset loader now reads and writes `economy`, `resources`, `dice`, and `spe
 
 ### 0.7.62 path resolution
 Relative ruleset file paths now resolve from the module directory when the caller runs from a different working directory.
+
+### Start reward schema
+`start_reward` is loaded and saved as explicit metadata for the game-start allocation budget. It supports `points_budget`, per-resource point costs, and resource pools.
+
+## 2026-05-09 contract sync
+Ruleset loader roundtrips are part of the backend setup contract. Add or rename rule fields only with matching loader tests and manifest snapshot updates.

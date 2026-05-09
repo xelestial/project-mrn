@@ -35,7 +35,7 @@ Production process contract:
 - Worker readiness commands are process-local and must succeed before routing live sessions to the deployment:
   `python -m apps.server.src.workers.prompt_timeout_worker_app --health` and
   `python -m apps.server.src.workers.command_wakeup_worker_app --health`.
-- Treat accepted decision commands as wakeup edges. The command wakeup worker records each command offset once, then the runtime must drain deterministic queued actions until `waiting_input`, `finished`, or `unavailable`; `dice_roll` followed by `idle` with `pending_actions > 0` means the command transition loop is broken or the worker is stale.
+- Treat accepted decision commands as wakeup edges. The command wakeup worker records each command offset once, then the runtime must drain deterministic queued actions until `waiting_input`, `completed`, or `unavailable`; `dice_roll` followed by `idle` with `pending_actions > 0` means the command transition loop is broken or the worker is stale.
 - Use one shared durable volume or object-store export path for `MRN_GAME_LOG_ARCHIVE_PATH` if archived game logs must survive container replacement.
 
 Restart smoke:

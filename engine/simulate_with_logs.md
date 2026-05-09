@@ -56,3 +56,6 @@ Use `--ruleset <path>` to load injected `GameRules` from external JSON. This is 
 - Chunked and single-run outputs preserve replay metadata (`run_id`, seeds, chunk ids, and global indexes).
 
 - Reliability note: running summaries now emit bankruptcy cause/tile-kind aggregates alongside standard end-reason statistics for easier forensic comparison across runs.
+
+## 2026-05-09 contract sync
+Simulation result dictionaries include `weather_history`, AI decision rows, and bankruptcy forensic fields used by downstream stability gates. Keep summary tests synchronized with result fields.

@@ -6,6 +6,10 @@ describe("eventLabelCatalog", () => {
     expect(eventLabelForCode("round_start")).toBe("라운드 시작");
     expect(eventLabelForCode("decision_requested")).toBe("선택 요청 등록");
     expect(eventLabelForCode("decision_resolved")).toBe("선택 처리 완료");
+    expect(eventLabelForCode("fortune_move")).toBe("운수 이동");
+    expect(eventLabelForCode("mark_resolved")).toBe("지목 처리");
+    expect(eventLabelForCode("f_value_change")).toBe("종료시간 변경");
+    expect(eventLabelForCode("turn_end_snapshot")).toBe("턴 종료 상태");
   });
 
   it("falls back to the original event code for unknown values", () => {

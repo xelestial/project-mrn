@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef } from "react";
 import type {
   ConnectionStatus,
   InboundMessage,
-  OutboundMessage,
 } from "../core/contracts/stream";
 import type { PromptContinuationViewModel } from "../domain/selectors/promptSelectors";
+import {
+  buildDecisionMessage,
+  buildGameStreamKey,
+  createDecisionRequestLedger,
+} from "../domain/stream/decisionProtocol";
 import {
   gameStreamReducer,
   initialGameStreamState,
 } from "../domain/store/gameStreamReducer";
-import { fetchReplayMessages } from "../infra/http/replayClient";
 import { logFrontendDebugEvent } from "../infra/http/frontendDebugLogClient";
 import { StreamClient } from "../infra/ws/StreamClient";
 
@@ -19,82 +22,7 @@ type UseGameStreamArgs = {
   baseUrl?: string;
 };
 
-export function buildGameStreamKey(sessionId: string, token?: string): string {
-  return `${sessionId.trim()}\n${token ?? ""}`;
-}
-
-export function shouldApplyReplayResponse(
-  requestedStreamKey: string,
-  activeStreamKey: string,
-  signal?: AbortSignal,
-): boolean {
-  return requestedStreamKey === activeStreamKey && !signal?.aborted;
-}
-
-const sentDecisionRequestIdsByStreamKey = new Map<string, Set<string>>();
-
-function sentDecisionRequestIdsFor(streamKey: string): Set<string> {
-  let sentRequestIds = sentDecisionRequestIdsByStreamKey.get(streamKey);
-  if (!sentRequestIds) {
-    sentRequestIds = new Set<string>();
-    sentDecisionRequestIdsByStreamKey.set(streamKey, sentRequestIds);
-  }
-  return sentRequestIds;
-}
-
-export function createDecisionRequestLedger(): {
-  shouldSend: (streamKey: string, requestId: string) => boolean;
-  recordSent: (streamKey: string, requestId: string) => void;
-  clear: () => void;
-} {
-  let activeStreamKey = "";
-
-  const resetIfStreamChanged = (streamKey: string) => {
-    if (activeStreamKey === streamKey) {
-      return;
-    }
-    activeStreamKey = streamKey;
-  };
-
-  return {
-    shouldSend: (streamKey, requestId) => {
-      resetIfStreamChanged(streamKey);
-      return !sentDecisionRequestIdsFor(streamKey).has(requestId);
-    },
-    recordSent: (streamKey, requestId) => {
-      resetIfStreamChanged(streamKey);
-      sentDecisionRequestIdsFor(streamKey).add(requestId);
-    },
-    clear: () => {
-      activeStreamKey = "";
-    },
-  };
-}
-
-export function buildDecisionMessage(args: {
-  requestId: string;
-  playerId: number;
-  choiceId: string;
-  choicePayload?: Record<string, unknown>;
-  continuation?: PromptContinuationViewModel;
-  clientSeq: number;
-}): OutboundMessage {
-  const continuation = args.continuation;
-  return {
-    type: "decision",
-    request_id: args.requestId,
-    player_id: args.playerId,
-    choice_id: args.choiceId,
-    choice_payload: args.choicePayload,
-    ...(continuation?.resumeToken ? { resume_token: continuation.resumeToken } : {}),
-    ...(continuation?.frameId ? { frame_id: continuation.frameId } : {}),
-    ...(continuation?.moduleId ? { module_id: continuation.moduleId } : {}),
-    ...(continuation?.moduleType ? { module_type: continuation.moduleType } : {}),
-    ...(continuation?.moduleCursor ? { module_cursor: continuation.moduleCursor } : {}),
-    ...(continuation?.batchId ? { batch_id: continuation.batchId } : {}),
-    client_seq: args.clientSeq,
-  };
-}
+export { buildDecisionMessage, buildGameStreamKey, createDecisionRequestLedger };
 
 export function useGameStream({
   sessionId,
@@ -118,32 +46,10 @@ export function useGameStream({
     gameStreamReducer,
     initialGameStreamState,
   );
-  const lastSeqRef = useRef(0);
+  const lastCommitSeqRef = useRef(0);
   const activeStreamKeyRef = useRef("");
   const logContextRef = useRef({ sessionId: "", baseUrl: "" });
-  const lastResumeRequestAtRef = useRef(0);
-  const recoveryTimersRef = useRef<number[]>([]);
-  const replayAbortControllersRef = useRef<AbortController[]>([]);
   const decisionRequestLedgerRef = useRef(createDecisionRequestLedger());
-
-  const clearRecoveryTimers = useCallback(() => {
-    for (const timer of recoveryTimersRef.current) {
-      window.clearTimeout(timer);
-    }
-    recoveryTimersRef.current = [];
-  }, []);
-
-  const abortReplayRecoveries = useCallback(() => {
-    for (const controller of replayAbortControllersRef.current) {
-      controller.abort();
-    }
-    replayAbortControllersRef.current = [];
-  }, []);
-
-  const cancelRecoveryWork = useCallback(() => {
-    clearRecoveryTimers();
-    abortReplayRecoveries();
-  }, [abortReplayRecoveries, clearRecoveryTimers]);
 
   useEffect(() => {
     logContextRef.current = {
@@ -165,16 +71,6 @@ export function useGameStream({
           server_time_ms: message.server_time_ms,
         },
       });
-      if (typeof message.seq === "number") {
-        const expected = lastSeqRef.current + 1;
-        if (message.seq > expected) {
-          const now = Date.now();
-          if (now - lastResumeRequestAtRef.current > 1000) {
-            lastResumeRequestAtRef.current = now;
-            client.requestResume(lastSeqRef.current);
-          }
-        }
-      }
       dispatch({ type: "message", message });
     });
     const offStatus = client.onStatus((next) => {
@@ -194,115 +90,35 @@ export function useGameStream({
   }, [client]);
 
   useEffect(() => {
-    lastSeqRef.current = state.lastSeq;
-  }, [state.lastSeq]);
+    lastCommitSeqRef.current = state.lastCommitSeq;
+    client.updateResumeCommitSeq(state.lastCommitSeq);
+  }, [client, state.lastCommitSeq]);
 
   useEffect(() => {
     const normalized = sessionId.trim();
     if (!normalized) {
-      cancelRecoveryWork();
       client.disconnect();
       dispatch({ type: "reset" });
-      lastSeqRef.current = 0;
+      lastCommitSeqRef.current = 0;
       activeStreamKeyRef.current = "";
-      lastResumeRequestAtRef.current = 0;
       decisionRequestLedgerRef.current.clear();
       return;
     }
     const streamKey = buildGameStreamKey(normalized, token);
     if (activeStreamKeyRef.current !== streamKey) {
-      cancelRecoveryWork();
-      lastSeqRef.current = 0;
+      lastCommitSeqRef.current = 0;
       dispatch({ type: "reset" });
       activeStreamKeyRef.current = streamKey;
-      lastResumeRequestAtRef.current = 0;
       decisionRequestLedgerRef.current.clear();
     }
     client.connect({
       sessionId: normalized,
       token,
-      onOpenResumeSeq: lastSeqRef.current,
+      onOpenResumeCommitSeq: lastCommitSeqRef.current,
       baseUrl,
     });
     return () => client.disconnect();
   }, [baseUrl, client, sessionId, token]);
-
-  const recoverFromReplay = useCallback(
-    (signal?: AbortSignal) => {
-      const normalized = sessionId.trim();
-      if (!normalized) {
-        return;
-      }
-      const requestedStreamKey = buildGameStreamKey(normalized, token);
-      if (activeStreamKeyRef.current !== requestedStreamKey) {
-        return;
-      }
-      const ownedController = signal ? null : new AbortController();
-      const requestSignal = signal ?? ownedController?.signal;
-      if (ownedController) {
-        replayAbortControllersRef.current.push(ownedController);
-      }
-      void fetchReplayMessages({
-        sessionId: normalized,
-        token,
-        baseUrl,
-        signal: requestSignal,
-        projectionSeqFloor: lastSeqRef.current,
-      })
-        .then((messages) => {
-          if (
-            !shouldApplyReplayResponse(
-              requestedStreamKey,
-              activeStreamKeyRef.current,
-              requestSignal,
-            )
-          ) {
-            return;
-          }
-          for (const message of messages) {
-            dispatch({ type: "message", message });
-          }
-        })
-        .catch((error: unknown) => {
-          if (error instanceof DOMException && error.name === "AbortError") {
-            return;
-          }
-          if (
-            !shouldApplyReplayResponse(
-              requestedStreamKey,
-              activeStreamKeyRef.current,
-              requestSignal,
-            )
-          ) {
-            return;
-          }
-          dispatch({ type: "status", status: "error" });
-        })
-        .finally(() => {
-          if (!ownedController) {
-            return;
-          }
-          replayAbortControllersRef.current = replayAbortControllersRef.current.filter(
-            (controller) => controller !== ownedController,
-          );
-        });
-    },
-    [baseUrl, sessionId, token],
-  );
-
-  useEffect(() => {
-    const normalized = sessionId.trim();
-    if (!normalized) {
-      return;
-    }
-    const controller = new AbortController();
-    recoverFromReplay(controller.signal);
-    return () => controller.abort();
-  }, [recoverFromReplay, sessionId]);
-
-  useEffect(() => {
-    return cancelRecoveryWork;
-  }, [cancelRecoveryWork]);
 
   const sendDecision = (args: {
     requestId: string;
@@ -317,7 +133,7 @@ export function useGameStream({
       logFrontendDebugEvent({
         event: "decision_suppressed_duplicate",
         sessionId: sessionId.trim(),
-        seq: lastSeqRef.current,
+        seq: lastCommitSeqRef.current,
         baseUrl,
         payload: {
           request_id: args.requestId,
@@ -334,7 +150,8 @@ export function useGameStream({
         choiceId: args.choiceId,
         choicePayload: args.choicePayload,
         continuation,
-        clientSeq: lastSeqRef.current,
+        viewCommitSeqSeen: lastCommitSeqRef.current,
+        clientSeq: lastCommitSeqRef.current,
       }),
     );
     if (sent) {
@@ -344,7 +161,7 @@ export function useGameStream({
       logFrontendDebugEvent({
         event: "decision_sent",
         sessionId: sessionId.trim(),
-        seq: lastSeqRef.current,
+        seq: lastCommitSeqRef.current,
         baseUrl,
         payload: {
           request_id: args.requestId,
@@ -352,17 +169,9 @@ export function useGameStream({
           choice_id: args.choiceId,
           choice_payload: args.choicePayload,
           continuation,
+          view_commit_seq_seen: lastCommitSeqRef.current,
         },
       });
-      for (const delay of [750, 2000, 5000, 10000, 15000, 30000]) {
-        const timer = window.setTimeout(() => {
-          recoveryTimersRef.current = recoveryTimersRef.current.filter(
-            (item) => item !== timer,
-          );
-          recoverFromReplay();
-        }, delay);
-        recoveryTimersRef.current.push(timer);
-      }
     }
     return sent;
   };

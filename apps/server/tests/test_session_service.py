@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
@@ -57,6 +58,66 @@ class SessionServiceTests(unittest.TestCase):
         self.assertEqual(auth["player_id"], 1)
         spectator = self.service.verify_session_token(session.session_id, None)
         self.assertEqual(spectator["role"], "spectator")
+
+    def test_join_exposes_distinct_protocol_identity_fields(self) -> None:
+        session = self.service.create_session(_default_seats())
+
+        join_1 = self.service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        auth = self.service.verify_session_token(session.session_id, join_1["session_token"])
+        public = self.service.to_public(session)
+        seat_payload = public["seats"][0]
+
+        self.assertEqual(join_1["player_id"], 1)
+        self.assertEqual(join_1["legacy_player_id"], 1)
+        self.assertEqual(join_1["seat_index"], 1)
+        self.assertEqual(join_1["turn_order_index"], 1)
+        self.assertEqual(join_1["player_label"], "P1")
+        self.assertRegex(join_1["public_player_id"], r"^ply_[0-9a-f-]{36}$")
+        self.assertRegex(join_1["seat_id"], r"^seat_[0-9a-f-]{36}$")
+        self.assertRegex(join_1["viewer_id"], r"^view_[0-9a-f-]{36}$")
+        self.assertNotEqual(join_1["public_player_id"], str(join_1["player_id"]))
+        self.assertEqual(auth["public_player_id"], join_1["public_player_id"])
+        self.assertEqual(auth["seat_id"], join_1["seat_id"])
+        self.assertEqual(auth["viewer_id"], join_1["viewer_id"])
+        self.assertEqual(seat_payload["public_player_id"], join_1["public_player_id"])
+        self.assertEqual(seat_payload["seat_id"], join_1["seat_id"])
+        self.assertEqual(seat_payload["seat_index"], 1)
+        self.assertEqual(seat_payload["player_label"], "P1")
+
+    def test_created_session_exposes_protocol_identity_for_every_seat(self) -> None:
+        session = self.service.create_session(_all_ai_seats())
+
+        public = self.service.to_public(session)
+
+        seen_player_ids = set()
+        seen_seat_ids = set()
+        for index, seat_payload in enumerate(public["seats"], start=1):
+            self.assertRegex(seat_payload["public_player_id"], r"^ply_[0-9a-f-]{36}$")
+            self.assertRegex(seat_payload["seat_id"], r"^seat_[0-9a-f-]{36}$")
+            self.assertRegex(seat_payload["viewer_id"], r"^view_[0-9a-f-]{36}$")
+            self.assertEqual(seat_payload["seat_index"], index)
+            self.assertEqual(seat_payload["turn_order_index"], index)
+            self.assertEqual(seat_payload["player_label"], f"P{index}")
+            seen_player_ids.add(seat_payload["public_player_id"])
+            seen_seat_ids.add(seat_payload["seat_id"])
+        self.assertEqual(len(seen_player_ids), 4)
+        self.assertEqual(len(seen_seat_ids), 4)
+
+    def test_store_backed_session_identity_fields_survive_reload(self) -> None:
+        store = _MemorySessionStore()
+        owner = SessionService(session_store=store)
+        session = owner.create_session(_default_seats())
+        join_1 = owner.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+
+        reloaded = SessionService(session_store=store)
+        auth = reloaded.verify_session_token(session.session_id, join_1["session_token"])
+        seat_payload = reloaded.to_public(reloaded.get_session(session.session_id))["seats"][0]
+
+        self.assertTrue(re.match(r"^ply_[0-9a-f-]{36}$", auth["public_player_id"]))
+        self.assertEqual(auth["public_player_id"], join_1["public_player_id"])
+        self.assertEqual(auth["seat_id"], join_1["seat_id"])
+        self.assertEqual(seat_payload["public_player_id"], join_1["public_player_id"])
+        self.assertEqual(seat_payload["seat_id"], join_1["seat_id"])
 
     def test_private_session_rejects_missing_spectator_token(self) -> None:
         session = self.service.create_session(_default_seats())
