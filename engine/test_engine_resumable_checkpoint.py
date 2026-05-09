@@ -751,8 +751,12 @@ def test_fortune_forced_trade_prompt_keeps_action_queued() -> None:
     state = GameState.create(config)
     player = state.players[0]
     other = state.players[1]
-    own_tile = state.first_tile_position(kinds=[CellKind.T2])
-    other_tile = next(idx for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3]) if idx != own_tile)
+    block_tiles: dict[int, list[int]] = {}
+    for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3]):
+        block_tiles.setdefault(state.block_ids[idx], []).append(idx)
+    selectable_blocks = [tiles for _, tiles in sorted(block_tiles.items()) if len(tiles) >= 2]
+    own_tile = selectable_blocks[0][0]
+    other_tile = selectable_blocks[1][0]
     state.tile_owner[own_tile] = player.player_id
     state.tile_owner[other_tile] = other.player_id
     player.tiles_owned = 1
@@ -770,6 +774,87 @@ def test_fortune_forced_trade_prompt_keeps_action_queued() -> None:
         raise AssertionError("forced trade target prompt should have interrupted the action")
 
     assert _checkpoint_pending_action_types(state) == ["resolve_fortune_forced_trade"]
+
+
+def test_fortune_forced_trade_resume_keeps_first_target_selection() -> None:
+    class ForcedTradeDecisionPort:
+        def __init__(self, own_target: int, other_target: int) -> None:
+            self.own_target = own_target
+            self.other_target = other_target
+            self.stage = 0
+            self.scopes: list[str] = []
+
+        def request(self, request):  # noqa: ANN001
+            if request.decision_name != "choose_trick_tile_target":
+                return request.args[0][0]
+            scope = str(request.public_context["target_scope"])
+            self.scopes.append(scope)
+            if self.stage == 0:
+                assert scope == "trade_own_tile"
+                self.stage = 1
+                raise RuntimeError("prompt_required_for_test")
+            if self.stage == 1:
+                if scope == "trade_own_tile":
+                    return self.own_target
+                assert scope == "trade_other_tile"
+                self.stage = 2
+                raise RuntimeError("prompt_required_for_test")
+            assert scope == "trade_other_tile"
+            self.stage = 3
+            return self.other_target
+
+    config = GameConfig(player_count=2)
+    state = GameState.create(config)
+    player = state.players[0]
+    other = state.players[1]
+    block_tiles: dict[int, list[int]] = {}
+    for idx in state.tile_positions(kinds=[CellKind.T2, CellKind.T3]):
+        block_tiles.setdefault(state.block_ids[idx], []).append(idx)
+    selectable_blocks = [tiles for _, tiles in sorted(block_tiles.items()) if len(tiles) >= 2]
+    own_tile = selectable_blocks[0][0]
+    other_tile = selectable_blocks[1][0]
+    state.tile_owner[own_tile] = player.player_id
+    state.tile_owner[other_tile] = other.player_id
+    player.tiles_owned = 1
+    other.tiles_owned = 1
+    state.pending_actions = [
+        ActionEnvelope(
+            action_id="forced_trade_resume",
+            type="resolve_fortune_forced_trade",
+            actor_player_id=player.player_id,
+            source="운명적 거래",
+            payload={"card_name": "운명적 거래"},
+        )
+    ]
+    decision_port = ForcedTradeDecisionPort(own_tile, other_tile)
+    engine = GameEngine(config=config, policy=HeuristicPolicy(), decision_port=decision_port, rng=random.Random(2801))
+
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("first forced trade target prompt should interrupt")
+
+    state = GameState.from_checkpoint_payload(config, state.to_checkpoint_payload())
+    try:
+        engine.run_next_transition(state)
+    except RuntimeError as exc:
+        assert str(exc) == "prompt_required_for_test"
+    else:
+        raise AssertionError("second forced trade target prompt should interrupt")
+
+    checkpoint_action = _checkpoint_pending_actions(state)[0]
+    assert checkpoint_action.payload["forced_trade_own_pos"] == own_tile
+
+    state = GameState.from_checkpoint_payload(config, state.to_checkpoint_payload())
+    result = engine.run_next_transition(state)
+
+    assert result["action_type"] == "resolve_fortune_forced_trade"
+    assert decision_port.scopes == ["trade_own_tile", "trade_own_tile", "trade_other_tile", "trade_other_tile"]
+    assert state.tile_owner[own_tile] == other.player_id
+    assert state.tile_owner[other_tile] == player.player_id
+    assert _checkpoint_pending_action_types(state) == []
 
 
 def test_prompt_action_remains_queued_when_decision_waits() -> None:

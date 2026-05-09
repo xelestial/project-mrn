@@ -877,6 +877,7 @@ class ModuleRunner:
         try:
             result = engine._execute_action(state, action, queue_followups=True)
         except Exception:
+            module.payload["action"] = action.to_payload()
             module.status = "suspended"
             module.suspension_id = frame.frame_id
             frame.status = "suspended"

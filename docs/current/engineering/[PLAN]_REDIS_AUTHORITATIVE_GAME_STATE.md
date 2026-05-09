@@ -50,6 +50,8 @@ Do not create Redis checkpoints or `view_commit` records only because an interna
 
 If an internal module needs a value that cannot be recomputed deterministically, record that value in the command payload or terminal checkpoint before using it as an irreversible input. Do not solve nondeterminism by committing every module transition.
 
+Sequential prompts inside one engine action are continuation state, not implicit local variables. If an action consumes one prompt result and may suspend before the next prompt, the consumed value must be written into the action payload or the action must be split into a separate module/action boundary. Rehydrating the checkpoint must resume at the next expected prompt, not repeat the already accepted prompt.
+
 ## 3. Stored Contracts
 
 `PromptContinuation` stores a single-player decision boundary:
@@ -112,8 +114,10 @@ Required checks:
 - command-boundary single checkpoint/view_commit test
 - command-boundary internal transition test that proves Redis runtime status is not written before terminal boundary
 - irreversible input checkpoint test for RNG state, ordered decks, and reward pools
+- multi-prompt action checkpoint test that proves an accepted first prompt is not repeated after suspension at the second prompt
 - duplicate `request_id` idempotency test
 - same-prompt busy/conflict test
+- headless repeated-prompt signature gate using `active_module_id`, player, request type, round, and turn
 - worker restart/resume test
 - simultaneous response resume test
 - `FortuneResolveModule`, `MapMoveModule`, `ArrivalTileModule` follow-up test

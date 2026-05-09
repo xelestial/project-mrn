@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   baselineDecisionPolicy,
@@ -8,7 +9,10 @@ import {
   type DecisionPolicy,
 } from "./HeadlessGameClient";
 import {
+  evaluateProtocolBackendTimingGate,
+  parseProtocolBackendTimingEvents,
   runFullStackProtocolGame,
+  summarizeProtocolBackendTiming,
   type FullStackProtocolProgressSnapshot,
   type ProtocolProfile,
   type ReconnectScenario,
@@ -36,6 +40,15 @@ type CliOptions = {
   seatProfiles?: Record<number, PolicyKind>;
   policyHttpUrl?: string;
   policyHttpTimeoutMs?: number;
+  backendLog?: string;
+  requireBackendTiming?: boolean;
+  maxBackendCommandMs?: number;
+  maxBackendTransitionMs?: number;
+  maxBackendRedisCommitCount?: number;
+  maxBackendViewCommitCount?: number;
+  backendDockerComposeProject?: string;
+  backendDockerComposeFile?: string;
+  backendDockerComposeService?: string;
 };
 
 const RECONNECT_SCENARIOS = new Set<ReconnectScenario>([
@@ -88,8 +101,11 @@ async function main(): Promise<void> {
     await writeTextFile(options.replayOut, serializeProtocolReplayRows(rows) + (rows.length > 0 ? "\n" : ""));
   }
 
+  const backendTiming = await loadBackendTimingSummary(result.sessionId, options);
+  const failures = [...result.failures, ...(backendTiming?.failures ?? [])];
+  const ok = result.ok && (backendTiming?.ok ?? true);
   const summary = {
-    ok: result.ok,
+    ok,
     profile: result.profile,
     policy_mode: policyMode,
     seat_profiles: options.seatProfiles ?? {},
@@ -98,12 +114,13 @@ async function main(): Promise<void> {
     timed_out: result.timedOut,
     idle_timed_out: result.idleTimedOut,
     runtime_status: result.runtimeStatus,
-    failures: result.failures,
+    failures,
+    backend_timing: backendTiming?.summary ?? null,
     clients: result.clientSummary,
     trace_count: result.traces.length,
   };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-  if (!result.ok) {
+  if (!ok) {
     process.exitCode = 1;
   }
 }
@@ -173,6 +190,32 @@ function parseArgs(args: string[]): CliOptions {
     } else if (arg === "--policy-http-timeout-ms" && next) {
       options.policyHttpTimeoutMs = Number(next);
       index += 1;
+    } else if (arg === "--backend-log" && next) {
+      options.backendLog = next;
+      index += 1;
+    } else if (arg === "--require-backend-timing") {
+      options.requireBackendTiming = true;
+    } else if (arg === "--max-backend-command-ms" && next) {
+      options.maxBackendCommandMs = Number(next);
+      index += 1;
+    } else if (arg === "--max-backend-transition-ms" && next) {
+      options.maxBackendTransitionMs = Number(next);
+      index += 1;
+    } else if (arg === "--max-backend-redis-commit-count" && next) {
+      options.maxBackendRedisCommitCount = Number(next);
+      index += 1;
+    } else if (arg === "--max-backend-view-commit-count" && next) {
+      options.maxBackendViewCommitCount = Number(next);
+      index += 1;
+    } else if (arg === "--backend-docker-compose-project" && next) {
+      options.backendDockerComposeProject = next;
+      index += 1;
+    } else if (arg === "--backend-docker-compose-file" && next) {
+      options.backendDockerComposeFile = next;
+      index += 1;
+    } else if (arg === "--backend-docker-compose-service" && next) {
+      options.backendDockerComposeService = next;
+      index += 1;
     } else if (arg === "--help" || arg === "-h") {
       process.stdout.write(
         [
@@ -196,12 +239,80 @@ function parseArgs(args: string[]): CliOptions {
           "  --seat-profiles '1=baseline,2=cash,3=shard,4=score'",
           "  --policy-http-url http://127.0.0.1:7777/decide",
           "  --policy-http-timeout-ms 2000",
+          "  --backend-log ./server.docker.log",
+          "  --require-backend-timing",
+          "  --max-backend-command-ms 4000",
+          "  --max-backend-transition-ms 4000",
+          "  --max-backend-redis-commit-count 1",
+          "  --max-backend-view-commit-count 1",
+          "  --backend-docker-compose-project project-mrn-protocol",
+          "  --backend-docker-compose-file ../../docker-compose.protocol.yml",
+          "  --backend-docker-compose-service server",
         ].join("\n") + "\n",
       );
       process.exit(0);
     }
   }
   return options;
+}
+
+async function loadBackendTimingSummary(
+  sessionId: string,
+  options: CliOptions,
+): Promise<
+  | {
+      ok: boolean;
+      failures: string[];
+      summary: ReturnType<typeof summarizeProtocolBackendTiming>;
+    }
+  | null
+> {
+  const hasBackendLogSource = Boolean(
+    options.backendLog ||
+      options.backendDockerComposeProject ||
+      options.backendDockerComposeFile ||
+      options.backendDockerComposeService,
+  );
+  if (!hasBackendLogSource && !options.requireBackendTiming) {
+    return null;
+  }
+  const logText = await loadBackendLogText(options);
+  const events = parseProtocolBackendTimingEvents(logText, { sessionId });
+  const gate = evaluateProtocolBackendTimingGate({
+    events,
+    required: options.requireBackendTiming,
+    maxCommandMs: options.maxBackendCommandMs,
+    maxTransitionMs: options.maxBackendTransitionMs,
+    maxRedisCommitCount: options.maxBackendRedisCommitCount,
+    maxViewCommitCount: options.maxBackendViewCommitCount,
+  });
+  return {
+    ok: gate.ok,
+    failures: gate.failures,
+    summary: summarizeProtocolBackendTiming(events, {
+      maxCommandMs: options.maxBackendCommandMs,
+      maxTransitionMs: options.maxBackendTransitionMs,
+    }),
+  };
+}
+
+async function loadBackendLogText(options: CliOptions): Promise<string> {
+  const chunks: string[] = [];
+  if (options.backendLog) {
+    chunks.push(await readFile(options.backendLog, "utf8"));
+  }
+  if (options.backendDockerComposeProject || options.backendDockerComposeFile || options.backendDockerComposeService) {
+    const args = ["compose"];
+    if (options.backendDockerComposeProject) {
+      args.push("-p", options.backendDockerComposeProject);
+    }
+    if (options.backendDockerComposeFile) {
+      args.push("-f", options.backendDockerComposeFile);
+    }
+    args.push("logs", "--no-color", options.backendDockerComposeService ?? "server");
+    chunks.push(execFileSync("docker", args, { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }));
+  }
+  return chunks.join("\n");
 }
 
 async function writeProgressArtifacts(

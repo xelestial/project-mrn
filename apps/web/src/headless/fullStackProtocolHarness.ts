@@ -129,11 +129,67 @@ export type ProtocolGateInput = {
   completed: boolean;
   clients: ProtocolClientRuntime[];
   runtimeStatus?: string | null;
+  backendTiming?: ProtocolBackendTimingGateInput;
+  traces?: HeadlessTraceEvent[];
+  maxRepeatedPromptSignatureCount?: number;
 };
 
 export type ProtocolGateResult = {
   ok: boolean;
   failures: string[];
+};
+
+export type ProtocolBackendTimingEvent = {
+  event: string;
+  session_id?: string;
+  total_ms?: number;
+  command_seq?: number;
+  processed_command_seq?: number;
+  request_id?: string;
+  request_type?: string;
+  module_type?: string;
+  result_status?: string;
+  reason?: string;
+  redis_commit_count?: number;
+  view_commit_count?: number;
+  internal_redis_commit_attempt_count?: number;
+  internal_view_commit_attempt_count?: number;
+  [key: string]: unknown;
+};
+
+export type ProtocolBackendTimingGateInput = {
+  events: ProtocolBackendTimingEvent[];
+  required?: boolean;
+  maxCommandMs?: number;
+  maxTransitionMs?: number;
+  maxRedisCommitCount?: number;
+  maxViewCommitCount?: number;
+};
+
+export type ProtocolBackendTimingSummary = {
+  eventCount: number;
+  commandTimingCount: number;
+  transitionTimingCount: number;
+  maxCommandMs: number;
+  maxTransitionMs: number;
+  maxRedisCommitCount: number;
+  maxViewCommitCount: number;
+  slowCommandCount: number;
+  slowTransitionCount: number;
+};
+
+export type ProtocolPromptRepetitionDiagnostic = {
+  signature: string;
+  count: number;
+  playerId: number;
+  requestType: string;
+  activeModuleId: string;
+  activeModuleType: string | null;
+  roundIndex: number | null;
+  turnIndex: number | null;
+  firstCommitSeq: number | null;
+  lastCommitSeq: number | null;
+  requestIds: string[];
 };
 
 export type ProtocolSeatJoin = {
@@ -340,6 +396,132 @@ export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResu
       failures.push(`${client.label} saw stream/client error ${metrics.errorMessageCount} time(s)`);
     }
   }
+  if (input.backendTiming) {
+    failures.push(...evaluateProtocolBackendTimingGate(input.backendTiming).failures);
+  }
+  if (input.traces) {
+    failures.push(
+      ...collectProtocolPromptRepetitionFailures(
+        input.traces,
+        input.maxRepeatedPromptSignatureCount,
+      ),
+    );
+  }
+  return {
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
+export function parseProtocolBackendTimingEvents(
+  logText: string,
+  options: { sessionId?: string } = {},
+): ProtocolBackendTimingEvent[] {
+  const events: ProtocolBackendTimingEvent[] = [];
+  for (const line of logText.split(/\r?\n/)) {
+    const jsonStart = line.indexOf("{");
+    if (jsonStart < 0) {
+      continue;
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(line.slice(jsonStart));
+    } catch {
+      continue;
+    }
+    if (!isRecord(payload)) {
+      continue;
+    }
+    const event = stringValue(payload["event"]);
+    if (event !== "runtime_command_process_timing" && event !== "runtime_transition_phase_timing") {
+      continue;
+    }
+    const sessionId = stringValue(payload["session_id"]);
+    if (options.sessionId && sessionId !== options.sessionId) {
+      continue;
+    }
+    events.push({
+      ...payload,
+      event,
+      session_id: sessionId ?? undefined,
+      total_ms: numberValue(payload["total_ms"]) ?? undefined,
+      command_seq: numberValue(payload["command_seq"]) ?? undefined,
+      processed_command_seq: numberValue(payload["processed_command_seq"]) ?? undefined,
+      request_id: stringValue(payload["request_id"]) ?? undefined,
+      request_type: stringValue(payload["request_type"]) ?? undefined,
+      module_type: stringValue(payload["module_type"]) ?? undefined,
+      result_status: stringValue(payload["result_status"]) ?? undefined,
+      reason: stringValue(payload["reason"]) ?? undefined,
+      redis_commit_count: numberValue(payload["redis_commit_count"]) ?? undefined,
+      view_commit_count: numberValue(payload["view_commit_count"]) ?? undefined,
+      internal_redis_commit_attempt_count: numberValue(payload["internal_redis_commit_attempt_count"]) ?? undefined,
+      internal_view_commit_attempt_count: numberValue(payload["internal_view_commit_attempt_count"]) ?? undefined,
+    });
+  }
+  return events;
+}
+
+export function summarizeProtocolBackendTiming(
+  events: ProtocolBackendTimingEvent[],
+  options: { maxCommandMs?: number; maxTransitionMs?: number } = {},
+): ProtocolBackendTimingSummary {
+  const commandThreshold = Math.max(1, Math.floor(options.maxCommandMs ?? 4_000));
+  const transitionThreshold = Math.max(1, Math.floor(options.maxTransitionMs ?? 4_000));
+  const commandEvents = events.filter((event) => event.event === "runtime_command_process_timing");
+  const transitionEvents = events.filter((event) => event.event === "runtime_transition_phase_timing");
+  return {
+    eventCount: events.length,
+    commandTimingCount: commandEvents.length,
+    transitionTimingCount: transitionEvents.length,
+    maxCommandMs: maxNumber(commandEvents.map((event) => numberValue(event.total_ms) ?? 0)),
+    maxTransitionMs: maxNumber(transitionEvents.map((event) => numberValue(event.total_ms) ?? 0)),
+    maxRedisCommitCount: maxNumber(commandEvents.map((event) => numberValue(event.redis_commit_count) ?? 0)),
+    maxViewCommitCount: maxNumber(commandEvents.map((event) => numberValue(event.view_commit_count) ?? 0)),
+    slowCommandCount: commandEvents.filter((event) => (numberValue(event.total_ms) ?? 0) > commandThreshold).length,
+    slowTransitionCount: transitionEvents.filter((event) => (numberValue(event.total_ms) ?? 0) > transitionThreshold).length,
+  };
+}
+
+export function evaluateProtocolBackendTimingGate(input: ProtocolBackendTimingGateInput): ProtocolGateResult {
+  const failures: string[] = [];
+  const events = input.events;
+  const commandEvents = events.filter((event) => event.event === "runtime_command_process_timing");
+  const transitionEvents = events.filter((event) => event.event === "runtime_transition_phase_timing");
+  const maxCommandMs = Math.max(1, Math.floor(input.maxCommandMs ?? 4_000));
+  const maxTransitionMs = Math.max(1, Math.floor(input.maxTransitionMs ?? 4_000));
+  const maxRedisCommitCount = Math.max(1, Math.floor(input.maxRedisCommitCount ?? 1));
+  const maxViewCommitCount = Math.max(1, Math.floor(input.maxViewCommitCount ?? 1));
+
+  if (input.required && commandEvents.length === 0) {
+    failures.push("backend timing gate did not find runtime_command_process_timing events");
+  }
+  if (input.required && transitionEvents.length === 0) {
+    failures.push("backend timing gate did not find runtime_transition_phase_timing events");
+  }
+  for (const event of commandEvents) {
+    const totalMs = numberValue(event.total_ms) ?? 0;
+    if (totalMs > maxCommandMs) {
+      failures.push(`backend command exceeded ${maxCommandMs}ms: ${describeBackendTimingEvent(event, totalMs)}`);
+    }
+    const redisCommitCount = numberValue(event.redis_commit_count) ?? 0;
+    if (redisCommitCount > maxRedisCommitCount) {
+      failures.push(
+        `backend command redis_commit_count exceeded ${maxRedisCommitCount}: ${describeBackendTimingEvent(event, redisCommitCount)}`,
+      );
+    }
+    const viewCommitCount = numberValue(event.view_commit_count) ?? 0;
+    if (viewCommitCount > maxViewCommitCount) {
+      failures.push(
+        `backend command view_commit_count exceeded ${maxViewCommitCount}: ${describeBackendTimingEvent(event, viewCommitCount)}`,
+      );
+    }
+  }
+  for (const event of transitionEvents) {
+    const totalMs = numberValue(event.total_ms) ?? 0;
+    if (totalMs > maxTransitionMs) {
+      failures.push(`backend transition exceeded ${maxTransitionMs}ms: ${describeBackendTimingEvent(event, totalMs)}`);
+    }
+  }
   return {
     ok: failures.length === 0,
     failures,
@@ -385,6 +567,98 @@ export function collectProtocolSuspicionFailures(clients: ProtocolClientRuntime[
     }
   }
   return failures;
+}
+
+export function collectProtocolPromptRepetitionFailures(
+  traces: HeadlessTraceEvent[],
+  maxRepeatedPromptSignatureCount = 8,
+): string[] {
+  return summarizeProtocolPromptRepetitions(traces, maxRepeatedPromptSignatureCount)
+    .map((item) => (
+      `repeated active prompt signature exceeded ${maxRepeatedPromptSignatureCount}: ` +
+      `${item.signature} count=${item.count} first_commit_seq=${item.firstCommitSeq ?? "unknown"} ` +
+      `last_commit_seq=${item.lastCommitSeq ?? "unknown"} request_ids=${item.requestIds.slice(0, 5).join(",")}`
+    ));
+}
+
+export function summarizeProtocolPromptRepetitions(
+  traces: HeadlessTraceEvent[],
+  maxRepeatedPromptSignatureCount = 8,
+): ProtocolPromptRepetitionDiagnostic[] {
+  const bySignature = new Map<
+    string,
+    {
+      playerId: number;
+      requestType: string;
+      activeModuleId: string;
+      activeModuleType: string | null;
+      roundIndex: number | null;
+      turnIndex: number | null;
+      requestIds: Set<string>;
+      firstCommitSeq: number | null;
+      lastCommitSeq: number | null;
+    }
+  >();
+  for (const trace of traces) {
+    if (trace.event !== "view_commit_seen" || !isRecord(trace.payload)) {
+      continue;
+    }
+    const requestId = stringValue(trace.payload["active_prompt_request_id"]);
+    const playerId = numberValue(trace.payload["active_prompt_player_id"]);
+    const requestType = stringValue(trace.payload["active_prompt_request_type"]);
+    const activeModuleId = stringValue(trace.payload["active_module_id"]);
+    if (!requestId || playerId === null || !requestType || !activeModuleId) {
+      continue;
+    }
+    const activeModuleType = stringValue(trace.payload["active_module_type"]);
+    const roundIndex = numberValue(trace.payload["round_index"]);
+    const turnIndex = numberValue(trace.payload["turn_index"]);
+    const signature = [
+      `player=${playerId}`,
+      `request_type=${requestType}`,
+      `module_id=${activeModuleId}`,
+      `module_type=${activeModuleType ?? "unknown"}`,
+      `round=${roundIndex ?? "unknown"}`,
+      `turn=${turnIndex ?? "unknown"}`,
+    ].join(" ");
+    let item = bySignature.get(signature);
+    if (!item) {
+      item = {
+        playerId,
+        requestType,
+        activeModuleId,
+        activeModuleType,
+        roundIndex,
+        turnIndex,
+        requestIds: new Set<string>(),
+        firstCommitSeq: null,
+        lastCommitSeq: null,
+      };
+      bySignature.set(signature, item);
+    }
+    item.requestIds.add(requestId);
+    const commitSeq = numberValue(trace.commit_seq);
+    if (commitSeq !== null) {
+      item.firstCommitSeq = item.firstCommitSeq === null ? commitSeq : Math.min(item.firstCommitSeq, commitSeq);
+      item.lastCommitSeq = item.lastCommitSeq === null ? commitSeq : Math.max(item.lastCommitSeq, commitSeq);
+    }
+  }
+  return [...bySignature.entries()]
+    .map(([signature, item]) => ({
+      signature,
+      count: item.requestIds.size,
+      playerId: item.playerId,
+      requestType: item.requestType,
+      activeModuleId: item.activeModuleId,
+      activeModuleType: item.activeModuleType,
+      roundIndex: item.roundIndex,
+      turnIndex: item.turnIndex,
+      firstCommitSeq: item.firstCommitSeq,
+      lastCommitSeq: item.lastCommitSeq,
+      requestIds: [...item.requestIds],
+    }))
+    .filter((item) => item.count > Math.max(1, Math.floor(maxRepeatedPromptSignatureCount)))
+    .sort((left, right) => right.count - left.count);
 }
 
 export function policyForProtocolPlayer(
@@ -577,7 +851,10 @@ export async function runFullStackProtocolGame(
       previousRound = latestRuntime.roundIndex ?? previousRound;
       previousTurn = latestRuntime.turnIndex ?? previousTurn;
       runtimeStatus = await fetchRuntimeStatus(baseUrl, session.sessionId, joinedSeats[0]?.token, transport);
-      if (collectProtocolSuspicionFailures(clients.map(toProtocolClientRuntime)).length > 0) {
+      if (
+        collectProtocolSuspicionFailures(clients.map(toProtocolClientRuntime)).length > 0 ||
+        collectProtocolPromptRepetitionFailures(clients.flatMap((client) => client.trace)).length > 0
+      ) {
         break;
       }
       const progressKey = buildProtocolProgressKey(clients, runtimeStatus);
@@ -687,6 +964,7 @@ export async function runFullStackProtocolGame(
     completed,
     clients: clientRuntimes,
     runtimeStatus,
+    traces: clients.flatMap((client) => client.trace),
   });
   return {
     ok: gate.ok,
@@ -1208,6 +1486,23 @@ function numberValue(value: unknown): number | null {
   }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function maxNumber(values: number[]): number {
+  return values.length > 0 ? Math.max(0, ...values) : 0;
+}
+
+function describeBackendTimingEvent(event: ProtocolBackendTimingEvent, value: number): string {
+  const commandSeq = numberValue(event.command_seq) ?? numberValue(event.processed_command_seq);
+  const fields = [
+    `value=${value}`,
+    commandSeq !== null ? `command_seq=${commandSeq}` : null,
+    stringValue(event.module_type) ? `module=${stringValue(event.module_type)}` : null,
+    stringValue(event.request_type) ? `request_type=${stringValue(event.request_type)}` : null,
+    stringValue(event.request_id) ? `request_id=${stringValue(event.request_id)}` : null,
+    stringValue(event.reason) ? `reason=${stringValue(event.reason)}` : null,
+  ].filter((field): field is string => field !== null);
+  return fields.join(" ");
 }
 
 function sleep(ms: number): Promise<void> {

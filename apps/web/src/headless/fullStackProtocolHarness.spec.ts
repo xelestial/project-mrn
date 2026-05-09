@@ -4,12 +4,17 @@ import {
   buildProtocolProgressKey,
   buildProtocolPaceDiagnostic,
   buildHeadlessHumanSessionPayload,
+  collectProtocolPromptRepetitionFailures,
   collectProtocolSuspicionFailures,
   evaluateProtocolGate,
+  evaluateProtocolBackendTimingGate,
   fetchRuntimeStatus,
+  parseProtocolBackendTimingEvents,
   policyForProtocolPlayer,
   shouldEmitProtocolProgress,
+  summarizeProtocolBackendTiming,
   summarizeProtocolClients,
+  summarizeProtocolPromptRepetitions,
   type ProtocolClientRuntime,
 } from "./fullStackProtocolHarness";
 
@@ -565,6 +570,101 @@ describe("fullStackProtocolHarness", () => {
     ]);
 
     expect(failures).toContain("seat:1 saw server decision timeout fallback 1 time(s)");
+  });
+
+  it("fails fast when the same module keeps issuing new prompt ids for the same request type", () => {
+    const traces = Array.from({ length: 9 }, (_, index) => ({
+      event: "view_commit_seen",
+      ts_ms: 1_000 + index,
+      session_id: "sess_loop",
+      player_id: index % 2 === 0 ? 3 : 0,
+      commit_seq: 50 + index,
+      payload: {
+        runtime_status: "waiting_input",
+        round_index: 1,
+        turn_index: 1,
+        active_module_id: "mod:seq:action:1:p2:53:fortuneresolve",
+        active_module_type: "FortuneResolveModule",
+        active_prompt_request_id: `trick_tile_target:${index + 1}`,
+        active_prompt_player_id: 3,
+        active_prompt_request_type: "trick_tile_target",
+      },
+    }));
+
+    const repeated = summarizeProtocolPromptRepetitions(traces);
+    const failures = collectProtocolPromptRepetitionFailures(traces);
+    const gate = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      clients: [
+        clientRuntime("seat:3", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            acceptedAckCount: 9,
+            runtimeCompletedCount: 1,
+          },
+        }),
+      ],
+      traces,
+    });
+
+    expect(repeated).toHaveLength(1);
+    expect(repeated[0]).toMatchObject({
+      count: 9,
+      playerId: 3,
+      requestType: "trick_tile_target",
+      activeModuleId: "mod:seq:action:1:p2:53:fortuneresolve",
+    });
+    expect(failures[0]).toContain("repeated active prompt signature exceeded 8");
+    expect(gate.ok).toBe(false);
+    expect(gate.failures[0]).toContain("FortuneResolveModule");
+  });
+
+  it("fails backend timing gate when server timing logs are missing", () => {
+    const result = evaluateProtocolBackendTimingGate({
+      events: [],
+      required: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual([
+      "backend timing gate did not find runtime_command_process_timing events",
+      "backend timing gate did not find runtime_transition_phase_timing events",
+    ]);
+  });
+
+  it("parses docker server timing logs and rejects slow transitions or repeated external commits", () => {
+    const logText = [
+      'server-1  | {"event":"runtime_command_process_timing","session_id":"sess_a","command_seq":7,"total_ms":4010,"redis_commit_count":2,"view_commit_count":1,"request_type":"movement"}',
+      'server-1  | {"event":"runtime_transition_phase_timing","session_id":"sess_a","processed_command_seq":7,"total_ms":5001,"module_type":"DraftModule","request_type":"draft_card","request_id":"req-1","reason":"prompt_required"}',
+      'server-1  | {"event":"runtime_command_process_timing","session_id":"sess_b","command_seq":1,"total_ms":1,"redis_commit_count":1,"view_commit_count":1}',
+    ].join("\n");
+
+    const events = parseProtocolBackendTimingEvents(logText, { sessionId: "sess_a" });
+    const summary = summarizeProtocolBackendTiming(events);
+    const result = evaluateProtocolBackendTimingGate({ events, required: true });
+
+    expect(events).toHaveLength(2);
+    expect(summary).toMatchObject({
+      eventCount: 2,
+      commandTimingCount: 1,
+      transitionTimingCount: 1,
+      maxCommandMs: 4010,
+      maxTransitionMs: 5001,
+      maxRedisCommitCount: 2,
+      maxViewCommitCount: 1,
+      slowCommandCount: 1,
+      slowTransitionCount: 1,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("backend command exceeded 4000ms"),
+        expect.stringContaining("backend command redis_commit_count exceeded 1"),
+        expect.stringContaining("backend transition exceeded 4000ms"),
+      ]),
+    );
   });
 
   it("does not treat heartbeat, repeated snapshots, resume requests, or reconnects as game progress", () => {

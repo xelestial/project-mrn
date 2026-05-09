@@ -4238,16 +4238,66 @@ class _ServerDecisionPolicyBridge:
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
     def request(self, request):
-        invocation = build_decision_invocation_from_request(request)
-        fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
-        call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
-        if self._decision_resume is not None and self._decision_resume_matches_call(call, self._decision_resume):
-            return self._consume_decision_resume(call)
-        client = self._router.client_for_call(call)
-        client_policy = getattr(client, "policy", None)
-        if callable(getattr(request, "fallback", None)) and (client_policy is None or not hasattr(client_policy, invocation.method_name)):
-            return request.fallback()
-        return client.resolve(call)
+        started = time.perf_counter()
+        phase_started = started
+        phase_timings: dict[str, int] = {}
+        invocation = None
+        call = None
+        client = None
+        error: BaseException | None = None
+
+        def _mark_phase(name: str) -> None:
+            nonlocal phase_started
+            phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
+            phase_started = time.perf_counter()
+
+        try:
+            invocation = build_decision_invocation_from_request(request)
+            fallback_policy = str(getattr(request, "fallback_policy", "required") or "required")
+            _mark_phase("build_invocation")
+            call = build_routed_decision_call(invocation, fallback_policy=fallback_policy)
+            _mark_phase("build_routed_call")
+            resume_matches = self._decision_resume is not None and self._decision_resume_matches_call(call, self._decision_resume)
+            _mark_phase("resume_match")
+            if resume_matches:
+                try:
+                    return self._consume_decision_resume(call)
+                finally:
+                    _mark_phase("consume_resume")
+            client = self._router.client_for_call(call)
+            _mark_phase("route_client")
+            client_policy = getattr(client, "policy", None)
+            if callable(getattr(request, "fallback", None)) and (
+                client_policy is None or not hasattr(client_policy, invocation.method_name)
+            ):
+                try:
+                    return request.fallback()
+                finally:
+                    _mark_phase("request_fallback")
+            try:
+                return client.resolve(call)
+            finally:
+                _mark_phase("client_resolve")
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            total_ms = _duration_ms(started)
+            if total_ms >= 500 or (error is not None and not isinstance(error, PromptRequired)):
+                routed_request = getattr(call, "request", None)
+                player_id = getattr(routed_request, "player_id", None)
+                log_event(
+                    "runtime_decision_request_timing",
+                    session_id=self._session_id,
+                    total_ms=total_ms,
+                    method_name=str(getattr(invocation, "method_name", "") or ""),
+                    request_type=str(getattr(routed_request, "request_type", "") or getattr(request, "decision_name", "") or ""),
+                    player_id=int(player_id) + 1 if player_id is not None else None,
+                    fallback_policy=str(getattr(routed_request, "fallback_policy", "") or getattr(request, "fallback_policy", "") or ""),
+                    client_class=client.__class__.__name__ if client is not None else None,
+                    error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
+                    **phase_timings,
+                )
 
     def _decision_resume_matches_call(self, call, resume: RuntimeDecisionResume) -> bool:
         request = call.request
@@ -5032,10 +5082,21 @@ class _LocalHumanDecisionClient:
             self.policy._prompt_seq = max(0, int(value))  # type: ignore[attr-defined]
 
     def _ask(self, prompt: dict, parser, fallback_fn):
+        started = time.perf_counter()
+        phase_started = started
+        phase_timings: dict[str, int] = {}
+        error: BaseException | None = None
+
+        def _mark_phase(name: str) -> None:
+            nonlocal phase_started
+            phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
+            phase_started = time.perf_counter()
+
         envelope = dict(prompt)
         self.bump_prompt_seq()
         envelope.setdefault("prompt_instance_id", self.prompt_seq)
         active_call = self._active_call
+        _mark_phase("envelope_prepare")
         if active_call is not None:
             request = getattr(active_call, "request", None)
             if request is not None:
@@ -5050,7 +5111,28 @@ class _LocalHumanDecisionClient:
                 request_context = dict(getattr(request, "public_context", {}) or {})
                 envelope["public_context"] = {**prompt_context, **request_context}
             self._attach_active_module_continuation(envelope, active_call)
-        return self._gateway.resolve_human_prompt(envelope, parser, fallback_fn)
+        _mark_phase("active_call_attach")
+        try:
+            try:
+                return self._gateway.resolve_human_prompt(envelope, parser, fallback_fn)
+            finally:
+                _mark_phase("gateway_resolve")
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            total_ms = _duration_ms(started)
+            if total_ms >= 500 or (error is not None and not isinstance(error, PromptRequired)):
+                log_event(
+                    "runtime_local_human_prompt_timing",
+                    total_ms=total_ms,
+                    request_id=str(envelope.get("request_id") or ""),
+                    request_type=str(envelope.get("request_type") or ""),
+                    player_id=envelope.get("player_id"),
+                    prompt_instance_id=envelope.get("prompt_instance_id"),
+                    error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
+                    **phase_timings,
+                )
 
     def _attach_active_module_continuation(self, envelope: dict, active_call) -> None:  # noqa: ANN001
         invocation = getattr(active_call, "invocation", None)
@@ -5164,10 +5246,27 @@ class _LocalHumanDecisionClient:
     def resolve(self, call):
         if self.policy is None:
             raise AttributeError(call.invocation.method_name)
+        started = time.perf_counter()
+        error: BaseException | None = None
         self._active_call = call
         try:
             return getattr(self.policy, call.invocation.method_name)(*call.invocation.args, **call.invocation.kwargs)
+        except BaseException as exc:
+            error = exc
+            raise
         finally:
+            total_ms = _duration_ms(started)
+            if total_ms >= 500 or (error is not None and not isinstance(error, PromptRequired)):
+                request = getattr(call, "request", None)
+                player_id = getattr(request, "player_id", None)
+                log_event(
+                    "runtime_local_human_policy_timing",
+                    total_ms=total_ms,
+                    method_name=str(getattr(call.invocation, "method_name", "") or ""),
+                    request_type=str(getattr(request, "request_type", "") or ""),
+                    player_id=int(player_id) + 1 if player_id is not None else None,
+                    error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
+                )
             self._active_call = None
 
 

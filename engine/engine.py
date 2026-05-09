@@ -5161,20 +5161,36 @@ class GameEngine:
     def _resolve_fortune_forced_trade_action(self, state: GameState, action: ActionEnvelope) -> dict:
         player = state.players[action.actor_player_id]
         name = str(action.payload.get("card_name") or action.source)
-        result = self._resolve_fortune_forced_trade(state, player, name)
+        result = self._resolve_fortune_forced_trade(state, player, name, action=action)
         self._emit_fortune_action_result(state, player, name, result)
         return result
 
-    def _resolve_fortune_forced_trade(self, state: GameState, player: PlayerState, name: str) -> dict:
-        own = self._request_decision(
-            "choose_trick_tile_target",
-            state,
-            player,
-            name,
-            list(self._owned_tile_candidates(state, player.player_id)),
-            "trade_own_tile",
-            fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
-        )
+    def _resolve_fortune_forced_trade(
+        self,
+        state: GameState,
+        player: PlayerState,
+        name: str,
+        *,
+        action: ActionEnvelope | None = None,
+    ) -> dict:
+        if action is not None and "forced_trade_own_pos" in action.payload:
+            own = int(action.payload["forced_trade_own_pos"])
+            if state.tile_owner[own] != player.player_id:
+                return {"type": "NO_EFFECT", "reason": "stale_forced_trade_own_target", "pos": own}
+        else:
+            own = self._request_decision(
+                "choose_trick_tile_target",
+                state,
+                player,
+                name,
+                list(self._owned_tile_candidates(state, player.player_id)),
+                "trade_own_tile",
+                fallback=lambda: self._select_owned_tile(state, player.player_id, highest=False),
+            )
+            if own is None:
+                return {"type": "NO_EFFECT", "reason": "missing_trade_target"}
+            if action is not None:
+                action.payload["forced_trade_own_pos"] = own
         other = self._request_decision(
             "choose_trick_tile_target",
             state,
@@ -5184,7 +5200,7 @@ class GameEngine:
             "trade_other_tile",
             fallback=lambda: self._select_other_player_tile(state, player, highest=True),
         )
-        if own is None or other is None:
+        if other is None:
             return {"type": "NO_EFFECT", "reason": "missing_trade_target"}
         other_owner = state.tile_owner[other]
         extra = 0
