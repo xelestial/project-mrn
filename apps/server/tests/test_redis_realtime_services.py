@@ -3071,6 +3071,9 @@ class _FakeRedis:
             bucket = bucket[:count]
         return bucket
 
+    def xlen(self, name: str) -> int:
+        return len(self._streams.get(name, []))
+
     def rpush(self, name: str, *values: str) -> int:
         bucket = self._lists.setdefault(name, [])
         for value in values:

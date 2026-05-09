@@ -75,7 +75,7 @@ or resume tokens.
 | `mark_target` | `TurnFrame` | `CharacterStartModule`, `TargetJudicatorModule` | `PromptContinuation` | must not reopen `CharacterStartModule` |
 | `trick_to_use` | `TrickSequenceFrame` | `TrickWindowModule`, `TrickChoiceModule` | `PromptContinuation` | must not reopen `TrickWindowModule` |
 | `hidden_trick_card` | `TrickSequenceFrame` | `TrickChoiceModule`, `TrickResolveModule` | `PromptContinuation` | must not insert duplicate followup `TrickChoiceModule` |
-| `specific_trick_reward` | `TrickSequenceFrame` | `TrickResolveModule`, `TrickDeferredFollowupsModule` | `PromptContinuation` | must not leave current `TrickSequenceFrame` |
+| `specific_trick_reward` | `TrickSequenceFrame` | `TrickResolveModule`, `TrickDeferredFollowupsModule` | `PromptContinuation` with at least one legal choice | must not leave current `TrickSequenceFrame`; empty reward deck resolves in engine without opening a prompt |
 | `movement` | `TurnFrame` | `DiceRollModule`, `MapMoveModule`, `ArrivalTileModule` | `PromptContinuation` | must not create a new `TurnFrame` |
 | `lap_reward` | `ActionSequenceFrame` | `LapRewardModule` | `PromptContinuation` | must not rerun `MovementResolveModule` |
 | `purchase_tile` | `ActionSequenceFrame` | `PurchaseDecisionModule`, `PurchaseCommitModule` | `PromptContinuation` | must not rerun `ArrivalTileModule` |

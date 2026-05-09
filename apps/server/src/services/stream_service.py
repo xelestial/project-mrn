@@ -52,6 +52,7 @@ class StreamService:
         self._subscribers: dict[str, dict[str, asyncio.Queue[dict]]] = defaultdict(dict)
         self._drop_counts: dict[str, int] = defaultdict(int)
         self._lock = asyncio.Lock()
+        self._session_locks: dict[str, asyncio.Lock] = {}
         self._stream_store = stream_store
         self._stream_backend = stream_backend
         self._game_state_store = game_state_store
@@ -60,9 +61,18 @@ class StreamService:
         self._load_from_store()
 
     async def publish(self, session_id: str, msg_type: str, payload: dict) -> StreamMessage:
-        async with self._lock:
+        async with self._lock_for_session(session_id):
             enriched_payload = dict(payload)
             self._inject_display_names(session_id, enriched_payload)
+            if self._stream_backend is not None:
+                item = await asyncio.to_thread(
+                    self._publish_with_backend_no_lock_sync,
+                    session_id,
+                    msg_type,
+                    enriched_payload,
+                )
+                self._broadcast_no_lock(session_id, item)
+                return item
             history = self._source_history_records_no_lock(session_id)
             validate_stream_payload(history=history, msg_type=msg_type, payload=enriched_payload)
             duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
@@ -87,9 +97,40 @@ class StreamService:
                 self._persist_stream_state()
             return item
 
+    async def publish_decision_ack(self, session_id: str, payload: dict) -> StreamMessage:
+        """Publish client feedback without scanning authoritative source history."""
+        async with self._lock_for_session(session_id):
+            enriched_payload = self._with_source_event_id("decision_ack", dict(payload))
+            self._inject_display_names(session_id, enriched_payload)
+            item = await asyncio.to_thread(
+                self._append_stream_message_no_lock,
+                session_id,
+                "decision_ack",
+                enriched_payload,
+                server_time_ms=int(time.time() * 1000),
+            ) if self._stream_backend is not None else self._append_stream_message_no_lock(
+                session_id,
+                "decision_ack",
+                enriched_payload,
+                server_time_ms=int(time.time() * 1000),
+            )
+            self._broadcast_no_lock(session_id, item)
+            if self._stream_backend is None:
+                self._persist_stream_state()
+            return item
+
     async def publish_view_commit(self, session_id: str, payload: dict) -> StreamMessage:
-        async with self._lock:
+        async with self._lock_for_session(session_id):
             server_time_ms = int(time.time() * 1000)
+            if self._stream_backend is not None:
+                item = await asyncio.to_thread(
+                    self._publish_view_commit_with_backend_no_lock_sync,
+                    session_id,
+                    dict(payload),
+                    server_time_ms,
+                )
+                self._broadcast_no_lock(session_id, item)
+                return item
             item = self._append_stream_message_no_lock(
                 session_id,
                 "view_commit",
@@ -101,6 +142,52 @@ class StreamService:
                 self._persist_stream_state()
             return item
 
+    def _lock_for_session(self, session_id: str) -> asyncio.Lock:
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
+
+    def _publish_with_backend_no_lock_sync(
+        self,
+        session_id: str,
+        msg_type: str,
+        enriched_payload: dict,
+    ) -> StreamMessage:
+        history = self._source_history_records_no_lock(session_id)
+        validate_stream_payload(history=history, msg_type=msg_type, payload=enriched_payload)
+        duplicate = self._duplicate_request_message_no_lock(history, msg_type, enriched_payload)
+        if duplicate is None:
+            duplicate = self._duplicate_idempotency_key_message_no_lock(history, msg_type, enriched_payload)
+        if duplicate is None:
+            duplicate = self._duplicate_round_setup_event_no_lock(history, msg_type, enriched_payload)
+        if duplicate is not None:
+            return duplicate
+        payload = self._with_source_event_id(msg_type, enriched_payload)
+        item = self._append_stream_message_no_lock(
+            session_id,
+            msg_type,
+            payload,
+            server_time_ms=int(time.time() * 1000),
+        )
+        if self._command_store is not None:
+            self._maybe_append_command(item)
+        return item
+
+    def _publish_view_commit_with_backend_no_lock_sync(
+        self,
+        session_id: str,
+        payload: dict,
+        server_time_ms: int,
+    ) -> StreamMessage:
+        return self._append_stream_message_no_lock(
+            session_id,
+            "view_commit",
+            payload,
+            server_time_ms=server_time_ms,
+        )
+
     async def emit_snapshot_pulse(
         self,
         session_id: str,
@@ -108,7 +195,7 @@ class StreamService:
         reason: str,
         target_player_id: int | None = None,
     ) -> StreamMessage | None:
-        async with self._lock:
+        async with self._lock_for_session(session_id):
             viewer = (
                 ViewerContext(role="seat", session_id=session_id, player_id=target_player_id)
                 if target_player_id is not None
@@ -134,53 +221,61 @@ class StreamService:
             return item
 
     async def snapshot(self, session_id: str) -> list[StreamMessage]:
-        async with self._lock:
-            if self._stream_backend is not None:
-                return [self._message_from_payload(message) for message in self._stream_backend.snapshot(session_id)]
+        if self._stream_backend is not None:
+            return await asyncio.to_thread(
+                lambda: [self._message_from_payload(message) for message in self._stream_backend.snapshot(session_id)]
+            )
+        async with self._lock_for_session(session_id):
             return list(self._buffers.get(session_id, []))
 
     async def replay_from(self, session_id: str, last_seq: int) -> list[StreamMessage]:
-        async with self._lock:
-            if self._stream_backend is not None:
-                return [self._message_from_payload(message) for message in self._stream_backend.replay_from(session_id, last_seq)]
+        if self._stream_backend is not None:
+            return await asyncio.to_thread(
+                lambda: [
+                    self._message_from_payload(message)
+                    for message in self._stream_backend.replay_from(session_id, last_seq)
+                ]
+            )
+        async with self._lock_for_session(session_id):
             buf = self._buffers.get(session_id, [])
             return [item for item in buf if item.seq > last_seq]
 
     async def source_snapshot(self, session_id: str, through_seq: int | None = None) -> list[dict]:
-        async with self._lock:
+        if self._stream_backend is not None:
+            return await asyncio.to_thread(self._source_history_records_no_lock, session_id, through_seq=through_seq)
+        async with self._lock_for_session(session_id):
             return self._source_history_records_no_lock(session_id, through_seq=through_seq)
 
     async def replay_window(self, session_id: str) -> tuple[int, int]:
-        async with self._lock:
-            if self._stream_backend is not None:
-                return self._stream_backend.replay_window(session_id)
+        if self._stream_backend is not None:
+            return await asyncio.to_thread(self._stream_backend.replay_window, session_id)
+        async with self._lock_for_session(session_id):
             buf = self._buffers.get(session_id, [])
             if not buf:
                 return (0, 0)
             return (buf[0].seq, buf[-1].seq)
 
     async def project_message_for_viewer(self, message: dict, viewer: ViewerContext) -> dict | None:
-        async with self._lock:
-            msg_type = str(message.get("type") or "")
-            if msg_type == "view_commit":
-                return self._view_commit_message_for_viewer_no_lock(message, viewer)
-            if msg_type == "snapshot_pulse":
-                return self._snapshot_pulse_message_for_viewer_no_lock(message, viewer)
-            filtered = project_stream_message_for_viewer(message, viewer)
-            if filtered is None:
-                return None
-            return filtered
+        session_id = str(message.get("session_id") or viewer.session_id)
+        if self._stream_backend is not None:
+            return await asyncio.to_thread(self._project_message_for_viewer_no_lock, message, viewer)
+        async with self._lock_for_session(session_id):
+            return self._project_message_for_viewer_no_lock(message, viewer)
 
     async def latest_seq(self, session_id: str) -> int:
-        async with self._lock:
+        if self._stream_backend is not None:
+            return await asyncio.to_thread(self._latest_seq_no_lock, session_id)
+        async with self._lock_for_session(session_id):
             return self._latest_seq_no_lock(session_id)
 
     async def latest_view_commit_message_for_viewer(self, session_id: str, viewer: ViewerContext) -> dict | None:
-        async with self._lock:
+        if self._stream_backend is not None:
+            return await asyncio.to_thread(self._latest_view_commit_message_for_viewer_no_lock, session_id, viewer)
+        async with self._lock_for_session(session_id):
             return self._latest_view_commit_message_for_viewer_no_lock(session_id, viewer)
 
     async def emit_latest_view_commit(self, session_id: str) -> StreamMessage | None:
-        async with self._lock:
+        async with self._lock_for_session(session_id):
             cached = self._load_cached_view_commit_no_lock(
                 session_id,
                 ViewerContext(role="spectator", session_id=session_id),
@@ -206,7 +301,7 @@ class StreamService:
             return item
 
     async def delete_session_data(self, session_id: str) -> None:
-        async with self._lock:
+        async with self._lock_for_session(session_id):
             self._seq.pop(session_id, None)
             self._buffers.pop(session_id, None)
             self._drop_counts.pop(session_id, None)
@@ -221,7 +316,14 @@ class StreamService:
                 self._persist_stream_state()
 
     async def backpressure_stats(self, session_id: str) -> dict:
-        async with self._lock:
+        if self._stream_backend is not None:
+            drop_count = await asyncio.to_thread(self._stream_backend.drop_count, session_id)
+            return {
+                "subscriber_count": len(self._subscribers.get(session_id, {})),
+                "drop_count": drop_count,
+                "queue_size": self._queue_size,
+            }
+        async with self._lock_for_session(session_id):
             return {
                 "subscriber_count": len(self._subscribers.get(session_id, {})),
                 "drop_count": self._stream_backend.drop_count(session_id) if self._stream_backend is not None else self._drop_counts.get(session_id, 0),
@@ -229,13 +331,13 @@ class StreamService:
             }
 
     async def subscribe(self, session_id: str, connection_id: str) -> asyncio.Queue[dict]:
-        async with self._lock:
+        async with self._lock_for_session(session_id):
             queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=self._queue_size)
             self._subscribers[session_id][connection_id] = queue
             return queue
 
     async def unsubscribe(self, session_id: str, connection_id: str) -> None:
-        async with self._lock:
+        async with self._lock_for_session(session_id):
             if session_id in self._subscribers:
                 self._subscribers[session_id].pop(connection_id, None)
                 if not self._subscribers[session_id]:
@@ -406,6 +508,17 @@ class StreamService:
 
     def _messages_from_backend(self, session_id: str) -> list[StreamMessage]:
         return [self._message_from_payload(message) for message in self._stream_backend.snapshot(session_id)]
+
+    def _project_message_for_viewer_no_lock(self, message: dict, viewer: ViewerContext) -> dict | None:
+        msg_type = str(message.get("type") or "")
+        if msg_type == "view_commit":
+            return self._view_commit_message_for_viewer_no_lock(message, viewer)
+        if msg_type == "snapshot_pulse":
+            return self._snapshot_pulse_message_for_viewer_no_lock(message, viewer)
+        filtered = project_stream_message_for_viewer(message, viewer)
+        if filtered is None:
+            return None
+        return filtered
 
     def _duplicate_request_message_no_lock(
         self,

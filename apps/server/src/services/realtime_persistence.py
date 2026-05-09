@@ -457,11 +457,12 @@ class RedisPromptStore:
         if callable(getattr(client, "eval", None)):
             result = client.eval(
                 _ACCEPT_PROMPT_DECISION_LUA,
-                6,
+                7,
                 self._pending_key(),
                 self._decisions_key(),
                 self._resolved_key(),
                 command_store._seen_key(),
+                command_store._session_seen_key(session_id),
                 command_store._seq_key(session_id),
                 command_store._stream_key(session_id),
                 storage_request_id,
@@ -491,6 +492,7 @@ class RedisPromptStore:
             return None
         if not bool(client.hsetnx(command_store._seen_key(), seen_key, "1")):
             return None
+        client.hset(command_store._session_seen_key(session_id), seen_key, "1")
         seq = command_store._next_seq(session_id)
         fields = {
             "seq": str(seq),
@@ -672,8 +674,9 @@ class RedisCommandStore:
         if callable(getattr(client, "eval", None)):
             result = client.eval(
                 _APPEND_COMMAND_LUA,
-                3,
+                4,
                 self._seen_key(),
+                self._session_seen_key(session_id),
                 self._seq_key(session_id),
                 self._stream_key(session_id),
                 seen_key,
@@ -696,6 +699,8 @@ class RedisCommandStore:
             }
         if normalized_request_id and not bool(client.hsetnx(self._seen_key(), seen_key, "1")):
             return None
+        if normalized_request_id:
+            client.hset(self._session_seen_key(session_id), seen_key, "1")
         seq = self._next_seq(session_id)
         fields = {
             "seq": str(seq),
@@ -746,7 +751,7 @@ class RedisCommandStore:
                 client.hdel(self._seen_key(), seen_key)
         for offset_key in list(client.hgetall(self._offset_index_key()).keys()):
             client.hdel(str(offset_key), session_id)
-        client.delete(self._stream_key(session_id), self._seq_key(session_id))
+        client.delete(self._stream_key(session_id), self._seq_key(session_id), self._session_seen_key(session_id))
 
     def _stream_key(self, session_id: str) -> str:
         return self._connection.key("commands", session_id, "stream")
@@ -756,6 +761,9 @@ class RedisCommandStore:
 
     def _seen_key(self) -> str:
         return self._connection.key("commands", "seen")
+
+    def _session_seen_key(self, session_id: str) -> str:
+        return self._connection.key("commands", session_id, "seen")
 
     def _offset_key(self, consumer_name: str) -> str:
         key = self._connection.key("commands", "offsets", str(consumer_name or "default"))
@@ -1126,6 +1134,10 @@ class RedisGameStateStore:
         current_payload = _json_dump(current_state)
         checkpoint_payload = _json_dump(checkpoint_payload_source)
         view_payload = _json_dump(view_state) if isinstance(view_state, dict) else ""
+        debug_checkpoint = checkpoint_payload_source if event_payload is None else None
+        debug_view_state = view_state if isinstance(view_state, dict) else None
+        debug_view_commits = {label: payload for label, _, payload in view_commit_entries} if view_commit_entries else None
+        debug_view_commit_index: dict[str, Any] | None = None
         offset_key = self._command_offset_key(command_consumer_name) if command_consumer_name else ""
         offset_index_key = self._command_offset_index_key() if command_consumer_name else ""
         offset_seq = str(max(0, int(command_seq))) if command_seq is not None else ""
@@ -1139,6 +1151,7 @@ class RedisGameStateStore:
                 view_commit_entries,
                 checkpoint_payload_source=checkpoint_payload_source,
             )
+            debug_view_commit_index = _json_load_dict(view_commit_index_payload) or {"schema_version": 1}
             keys = [
                 self._current_state_key(session_id),
                 self._checkpoint_key(session_id),
@@ -1178,7 +1191,14 @@ class RedisGameStateStore:
                 if "view_commit_seq_conflict" in str(exc) or "invalid_view_commit_seq" in str(exc):
                     raise ViewCommitSequenceConflict(str(exc)) from exc
                 raise
-            self._refresh_debug_snapshot(session_id)
+            self._refresh_debug_snapshot(
+                session_id,
+                checkpoint=debug_checkpoint,
+                current_state=current_state,
+                view_state=debug_view_state,
+                view_commit_index=debug_view_commit_index,
+                view_commits=debug_view_commits,
+            )
             return
         if use_lua_commit:
             client.eval(
@@ -1202,7 +1222,12 @@ class RedisGameStateStore:
                 event_fields_payload,
                 str(event_max_buffer),
             )
-            self._refresh_debug_snapshot(session_id)
+            self._refresh_debug_snapshot(
+                session_id,
+                checkpoint=debug_checkpoint,
+                current_state=current_state,
+                view_state=debug_view_state,
+            )
             return
         pipeline = client.pipeline(transaction=True)
         pipeline.set(self._current_state_key(session_id), current_payload)
@@ -1220,6 +1245,7 @@ class RedisGameStateStore:
                     checkpoint_payload_source=checkpoint_payload_source,
                 )
             ) or {"schema_version": 1}
+            debug_view_commit_index = view_commit_index
             pipeline.set(self._view_commit_index_key(session_id), _json_dump(view_commit_index))
         if offset_key and offset_seq:
             pipeline.hset(offset_index_key, offset_key, "1")
@@ -1235,18 +1261,36 @@ class RedisGameStateStore:
             kwargs = {"maxlen": event_max_buffer, "approximate": False} if event_max_buffer else {}
             pipeline.xadd(event_stream_key, fields, **kwargs)
         pipeline.execute()
-        self._refresh_debug_snapshot(session_id)
+        self._refresh_debug_snapshot(
+            session_id,
+            checkpoint=checkpoint_payload_source,
+            current_state=current_state,
+            view_state=debug_view_state,
+            view_commit_index=debug_view_commit_index,
+            view_commits=debug_view_commits,
+        )
 
     def _refresh_debug_snapshot(
         self,
         session_id: str,
         *,
         checkpoint: dict[str, Any] | None = None,
+        current_state: dict[str, Any] | None = None,
+        view_state: dict[str, Any] | None = None,
+        view_commit_index: dict[str, Any] | None = None,
+        view_commits: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         try:
             self.save_debug_snapshot(
                 session_id,
-                self._build_debug_snapshot(session_id, checkpoint=checkpoint),
+                self._build_debug_snapshot(
+                    session_id,
+                    checkpoint=checkpoint,
+                    current_state=current_state,
+                    view_state=view_state,
+                    view_commit_index=view_commit_index,
+                    view_commits=view_commits,
+                ),
             )
         except Exception:
             return
@@ -1256,12 +1300,16 @@ class RedisGameStateStore:
         session_id: str,
         *,
         checkpoint: dict[str, Any] | None = None,
+        current_state: dict[str, Any] | None = None,
+        view_state: dict[str, Any] | None = None,
+        view_commit_index: dict[str, Any] | None = None,
+        view_commits: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         checkpoint_payload = checkpoint if isinstance(checkpoint, dict) else self.load_checkpoint(session_id) or {}
-        current_state = self.load_current_state(session_id) or {}
-        view_state = self.load_view_state(session_id) or {}
-        view_commit_index = self.load_view_commit_index(session_id) or {}
-        runtime = self._latest_runtime_payload(view_commit_index, session_id)
+        current_state = current_state if isinstance(current_state, dict) else self.load_current_state(session_id) or {}
+        view_state = view_state if isinstance(view_state, dict) else self.load_view_state(session_id) or {}
+        view_commit_index = view_commit_index if isinstance(view_commit_index, dict) else self.load_view_commit_index(session_id) or {}
+        runtime = self._latest_runtime_payload(view_commit_index, session_id, view_commits=view_commits)
         frame_stack = self._list_from(current_state.get("runtime_frame_stack"))
         active_prompt = self._dict_from(
             current_state.get("runtime_active_prompt")
@@ -1348,9 +1396,21 @@ class RedisGameStateStore:
             "checkpoint": checkpoint_payload,
         }
 
-    def _latest_runtime_payload(self, view_commit_index: dict[str, Any], session_id: str) -> dict[str, Any]:
+    def _latest_runtime_payload(
+        self,
+        view_commit_index: dict[str, Any],
+        session_id: str,
+        *,
+        view_commits: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         viewers = self._list_from(view_commit_index.get("view_commit_viewers"))
         for label in ("spectator", "public", "admin", *[str(item) for item in viewers]):
+            if isinstance(view_commits, dict):
+                payload = view_commits.get(str(label))
+                if isinstance(payload, dict):
+                    runtime = payload.get("runtime")
+                    if isinstance(runtime, dict):
+                        return runtime
             key = self._view_commit_key_from_label(session_id, str(label))
             if not key:
                 continue
@@ -1377,6 +1437,7 @@ class RedisGameStateStore:
             "commands_stream": self._connection.key("commands", session_id, "stream"),
             "commands_seq": self._connection.key("commands", session_id, "seq"),
             "commands_seen": self._connection.key("commands", "seen"),
+            "commands_seen_session": self._connection.key("commands", session_id, "seen"),
             "commands_offset_indexes": self._connection.key("commands", "offset_indexes"),
             "prompts_pending_hash": self._connection.key("prompts", "pending"),
             "prompts_resolved_hash": self._connection.key("prompts", "resolved"),
@@ -1407,11 +1468,17 @@ class RedisGameStateStore:
     def _debug_command_summary(self, session_id: str) -> dict[str, Any]:
         client = self._connection.client()
         stream_key = self._connection.key("commands", session_id, "stream")
+        latest_entries = []
+        if callable(getattr(client, "xrevrange", None)):
+            latest_entries = list(reversed(client.xrevrange(stream_key, count=DEBUG_REDIS_RECORD_LIMIT)))
+        else:
+            latest_entries = list(client.xrange(stream_key))[-DEBUG_REDIS_RECORD_LIMIT:]
         command_rows = [
             self._compact_command_record(entry_id, fields)
-            for entry_id, fields in client.xrange(stream_key)
+            for entry_id, fields in latest_entries
             if isinstance(fields, dict)
         ]
+        command_count = int(client.xlen(stream_key)) if callable(getattr(client, "xlen", None)) else len(client.xrange(stream_key))
         offset_rows = []
         for offset_key in sorted(str(key) for key in client.hgetall(self._command_offset_index_key()).keys()):
             raw_offset = client.hget(offset_key, session_id)
@@ -1425,14 +1492,18 @@ class RedisGameStateStore:
                 }
             )
         seen_prefix = f"{session_id}:"
+        session_seen_rows = client.hgetall(self._connection.key("commands", session_id, "seen"))
+        seen_count = len(session_seen_rows)
+        if seen_count == 0 and command_count:
+            seen_count = len(
+                [key for key in client.hgetall(self._connection.key("commands", "seen")).keys() if str(key).startswith(seen_prefix)]
+            )
         return {
             "command_seq": _int_or_default(client.get(self._connection.key("commands", session_id, "seq")), 0),
-            "command_count": len(command_rows),
-            "seen_count": len(
-                [key for key in client.hgetall(self._connection.key("commands", "seen")).keys() if str(key).startswith(seen_prefix)]
-            ),
+            "command_count": command_count,
+            "seen_count": seen_count,
             "consumer_offsets": offset_rows,
-            "latest_commands": command_rows[-DEBUG_REDIS_RECORD_LIMIT:],
+            "latest_commands": command_rows,
         }
 
     def _compact_command_record(self, entry_id: str, fields: dict[str, Any]) -> dict[str, Any]:
@@ -2127,9 +2198,9 @@ def _json_load_dict(raw: str) -> dict[str, Any] | None:
 
 
 _APPEND_COMMAND_LUA = """
-local current_seq = tonumber(redis.call("GET", KEYS[2]) or "0") or 0
+local current_seq = tonumber(redis.call("GET", KEYS[3]) or "0") or 0
 local latest_stream_seq = 0
-local latest_entries = redis.call("XREVRANGE", KEYS[3], "+", "-", "COUNT", 1)
+local latest_entries = redis.call("XREVRANGE", KEYS[4], "+", "-", "COUNT", 1)
 if latest_entries and latest_entries[1] then
   local fields = latest_entries[1][2]
   for i = 1, #fields, 2 do
@@ -2140,18 +2211,19 @@ if latest_entries and latest_entries[1] then
   end
 end
 if current_seq < latest_stream_seq then
-  redis.call("SET", KEYS[2], tostring(latest_stream_seq))
+  redis.call("SET", KEYS[3], tostring(latest_stream_seq))
 end
 local seen_key = ARGV[1]
 if seen_key ~= "" then
   if redis.call("HSETNX", KEYS[1], seen_key, "1") == 0 then
     return false
   end
+  redis.call("HSET", KEYS[2], seen_key, "1")
 end
-local seq = redis.call("INCR", KEYS[2])
+local seq = redis.call("INCR", KEYS[3])
 local stream_id = redis.call(
   "XADD",
-  KEYS[3],
+  KEYS[4],
   "*",
   "seq",
   tostring(seq),
@@ -2364,9 +2436,10 @@ end
 if redis.call("HSETNX", KEYS[4], ARGV[4], "1") == 0 then
   return nil
 end
-local current_seq = tonumber(redis.call("GET", KEYS[5]) or "0") or 0
+redis.call("HSET", KEYS[5], ARGV[4], "1")
+local current_seq = tonumber(redis.call("GET", KEYS[6]) or "0") or 0
 local latest_stream_seq = 0
-local latest_entries = redis.call("XREVRANGE", KEYS[6], "+", "-", "COUNT", 1)
+local latest_entries = redis.call("XREVRANGE", KEYS[7], "+", "-", "COUNT", 1)
 if latest_entries and latest_entries[1] then
   local fields = latest_entries[1][2]
   for i = 1, #fields, 2 do
@@ -2377,15 +2450,15 @@ if latest_entries and latest_entries[1] then
   end
 end
 if current_seq < latest_stream_seq then
-  redis.call("SET", KEYS[5], tostring(latest_stream_seq))
+  redis.call("SET", KEYS[6], tostring(latest_stream_seq))
 end
 redis.call("HDEL", KEYS[1], ARGV[1])
 redis.call("HSET", KEYS[2], ARGV[1], ARGV[2])
 redis.call("HSET", KEYS[3], ARGV[1], ARGV[3])
-local seq = redis.call("INCR", KEYS[5])
+local seq = redis.call("INCR", KEYS[6])
 local stream_id = redis.call(
   "XADD",
-  KEYS[6],
+  KEYS[7],
   "*",
   "seq",
   tostring(seq),

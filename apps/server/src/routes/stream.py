@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["stream"])
 _RUNTIME_WAKEUP_TASKS: dict[tuple[str, int], asyncio.Task[None]] = {}
 _RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC = 0.05
 _RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC = 30.0
+_DELIVERED_STREAM_SEQ_CACHE_LIMIT = 4096
 
 
 async def _send_json_or_disconnect(websocket: WebSocket, payload: dict[str, Any]) -> None:
@@ -78,6 +79,21 @@ def _commit_seq(message: dict[str, Any]) -> int:
         return int(payload.get("commit_seq", 0) or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _remember_delivered_stream_seq(delivered_stream_seqs: set[int], seq: int) -> None:
+    if seq <= 0:
+        return
+    delivered_stream_seqs.add(seq)
+    overflow = len(delivered_stream_seqs) - _DELIVERED_STREAM_SEQ_CACHE_LIMIT
+    if overflow <= 0:
+        return
+    for stale_seq in sorted(delivered_stream_seqs)[:overflow]:
+        delivered_stream_seqs.discard(stale_seq)
+
+
+def _should_send_heartbeat_view_commit(subscriber_queue: asyncio.Queue[dict[str, Any]]) -> bool:
+    return subscriber_queue.empty()
 
 
 def _decision_view_commit_rejection_reason(message: dict[str, Any], latest_commit: dict[str, Any] | None) -> str | None:
@@ -453,6 +469,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
     )
     viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
     delivered_seq = 0
+    delivered_stream_seqs: set[int] = set()
     last_commit_seq = 0
     delivery_lock = asyncio.Lock()
 
@@ -473,13 +490,14 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                                 active_module = frame.get("active_module_id")
                                 break
                 async with delivery_lock:
-                    last_commit_seq = await _send_latest_view_commit(
-                        websocket,
-                        stream_service,
-                        session_id=session_id,
-                        last_commit_seq=last_commit_seq,
-                        viewer=viewer,
-                    )
+                    if _should_send_heartbeat_view_commit(subscriber_queue):
+                        last_commit_seq = await _send_latest_view_commit(
+                            websocket,
+                            stream_service,
+                            session_id=session_id,
+                            last_commit_seq=last_commit_seq,
+                            viewer=viewer,
+                        )
                     await _send_json_or_disconnect(
                         websocket,
                         {
@@ -517,7 +535,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     continue
                 seq = _stream_seq(message)
                 async with delivery_lock:
-                    if seq > 0 and seq <= delivered_seq:
+                    if seq > 0 and seq in delivered_stream_seqs:
                         continue
                     filtered = await stream_service.project_message_for_viewer(message, viewer)
                     delivered_seq = max(delivered_seq, seq)
@@ -528,6 +546,8 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                                 continue
                             last_commit_seq = commit_seq
                         await _send_json_or_disconnect(websocket, filtered)
+                        if filtered.get("type") != "view_commit":
+                            _remember_delivered_stream_seq(delivered_stream_seqs, seq)
         except WebSocketDisconnect:
             stop_event.set()
         except asyncio.CancelledError:
@@ -574,6 +594,12 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 )
                 continue
             if msg_type == "decision":
+                route_started_ms = time.perf_counter()
+                latest_view_commit_ms = 0
+                submit_decision_ms = 0
+                ack_publish_ms = 0
+                wake_runtime_ms = 0
+                decision_state: dict[str, Any] | None = None
                 if auth_ctx["role"] != "seat":
                     await stream_service.publish(
                         session_id,
@@ -596,7 +622,9 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         ),
                     )
                     continue
+                phase_started_ms = time.perf_counter()
                 latest_commit = await stream_service.latest_view_commit_message_for_viewer(session_id, viewer)
+                latest_view_commit_ms = int((time.perf_counter() - phase_started_ms) * 1000)
                 rejection_reason = _decision_view_commit_rejection_reason(message, latest_commit)
                 if rejection_reason is not None:
                     prompt_service.record_external_decision_result(
@@ -604,9 +632,9 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         status="stale",
                         reason=rejection_reason,
                     )
-                    await stream_service.publish(
+                    phase_started_ms = time.perf_counter()
+                    await stream_service.publish_decision_ack(
                         session_id,
-                        "decision_ack",
                         build_decision_ack_payload(
                             request_id=str(message.get("request_id", "")),
                             status="stale",
@@ -615,6 +643,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                             provider="human",
                         ),
                     )
+                    ack_publish_ms = int((time.perf_counter() - phase_started_ms) * 1000)
                     async with delivery_lock:
                         last_commit_seq = await _send_latest_view_commit(
                             websocket,
@@ -631,8 +660,22 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         reason=rejection_reason,
                         view_commit_seq_seen=message.get("view_commit_seq_seen"),
                     )
+                    log_event(
+                        "decision_route_timing",
+                        session_id=session_id,
+                        request_id=message.get("request_id"),
+                        player_id=message.get("player_id"),
+                        status="stale",
+                        reason=rejection_reason,
+                        total_ms=int((time.perf_counter() - route_started_ms) * 1000),
+                        latest_view_commit_ms=latest_view_commit_ms,
+                        submit_decision_ms=submit_decision_ms,
+                        ack_publish_ms=ack_publish_ms,
+                        wake_runtime_ms=wake_runtime_ms,
+                    )
                     continue
                 message["session_id"] = session_id
+                phase_started_ms = time.perf_counter()
                 decision_state = prompt_service.submit_decision(message)
                 if (
                     decision_state.get("status") == "stale"
@@ -645,9 +688,10 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     )
                 ):
                     decision_state = prompt_service.submit_decision(message)
-                await stream_service.publish(
+                submit_decision_ms = int((time.perf_counter() - phase_started_ms) * 1000)
+                phase_started_ms = time.perf_counter()
+                await stream_service.publish_decision_ack(
                     session_id,
-                    "decision_ack",
                     build_decision_ack_payload(
                         request_id=str(message.get("request_id", "")),
                         status=str(decision_state.get("status", "rejected")),
@@ -656,6 +700,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         provider="human",
                     ),
                 )
+                ack_publish_ms = int((time.perf_counter() - phase_started_ms) * 1000)
                 log_event(
                     "decision_received",
                     session_id=session_id,
@@ -665,11 +710,27 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     reason=decision_state.get("reason"),
                     command_seq=decision_state.get("command_seq"),
                 )
+                phase_started_ms = time.perf_counter()
                 await _wake_runtime_after_accepted_decision(
                     decision_state=decision_state,
                     session_id=session_id,
                     session_service=session_service,
                     runtime_service=runtime_service,
+                )
+                wake_runtime_ms = int((time.perf_counter() - phase_started_ms) * 1000)
+                log_event(
+                    "decision_route_timing",
+                    session_id=session_id,
+                    request_id=message.get("request_id"),
+                    player_id=message.get("player_id"),
+                    status=decision_state.get("status", "rejected"),
+                    reason=decision_state.get("reason"),
+                    command_seq=decision_state.get("command_seq"),
+                    total_ms=int((time.perf_counter() - route_started_ms) * 1000),
+                    latest_view_commit_ms=latest_view_commit_ms,
+                    submit_decision_ms=submit_decision_ms,
+                    ack_publish_ms=ack_publish_ms,
+                    wake_runtime_ms=wake_runtime_ms,
                 )
                 continue
             await stream_service.publish(

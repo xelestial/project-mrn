@@ -669,6 +669,28 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
             },
         )
 
+    def test_build_prompt_view_state_does_not_project_empty_specific_trick_reward_surface(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_reward_empty",
+                        "request_type": "specific_trick_reward",
+                        "player_id": 1,
+                        "timeout_ms": 30000,
+                        "legal_choices": [],
+                        "public_context": {"reward_count": 0},
+                    },
+                }
+            ]
+        )
+
+        self.assertNotIn("specific_trick_reward", view_state["active"]["surface"])
+
     def test_build_prompt_view_state_projects_pabal_dice_mode_surface(self) -> None:
         view_state = build_prompt_view_state(
             [

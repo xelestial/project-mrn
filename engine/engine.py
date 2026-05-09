@@ -3905,6 +3905,16 @@ class GameEngine:
         rewards = []
         for _ in range(len(burdens)):
             choices = state.trick_draw_pile[-8:] if state.trick_draw_pile else []
+            if not choices:
+                self._log(
+                    {
+                        "event": "baksu_transfer_reward_empty",
+                        "player": source.player_id + 1,
+                        "target_player": target.player_id + 1,
+                        "remaining_burdens": len(burdens) - len(rewards),
+                    }
+                )
+                break
             pick = self._request_decision(
                 "choose_specific_trick_reward",
                 state,

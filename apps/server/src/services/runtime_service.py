@@ -1472,6 +1472,11 @@ class RuntimeService:
                 deduped_request_id=result.get("deduped_request_id"),
                 busy_rejection_count=result.get("busy_rejection_count", 0),
                 idempotency_hit=bool(result.get("idempotency_hit", False)),
+                command_boundary_finalization_ms=result.get("command_boundary_finalization_ms"),
+                deferred_commit_copy_ms=result.get("deferred_commit_copy_ms"),
+                authoritative_commit_ms=result.get("authoritative_commit_ms"),
+                view_commit_emit_ms=result.get("view_commit_emit_ms"),
+                prompt_materialize_ms=result.get("prompt_materialize_ms"),
                 total_ms=_duration_ms(process_started),
             )
             if status == "waiting_input":
@@ -1881,22 +1886,49 @@ class RuntimeService:
             if _is_command_boundary_terminal_status(last_step.get("status")):
                 break
 
+        finalization_started = time.perf_counter()
+        finalization_phase_started = finalization_started
+        finalization_timings: dict[str, int] = {}
+
+        def mark_finalization_phase(name: str) -> None:
+            nonlocal finalization_phase_started
+            now = time.perf_counter()
+            finalization_timings[name] = int((now - finalization_phase_started) * 1000)
+            finalization_phase_started = now
+
         deferred_commit = boundary_store.deferred_commit()
+        mark_finalization_phase("deferred_commit_copy_ms")
         redis_commit_count = 0
         view_commit_count = 0
         if deferred_commit is not None:
             commit_session_id = str(deferred_commit.pop("session_id"))
             original_store.commit_transition(commit_session_id, **deferred_commit)
+            mark_finalization_phase("authoritative_commit_ms")
             redis_commit_count = 1
             if deferred_commit.get("view_commits"):
                 view_commit_count = 1
             self._emit_latest_view_commit_sync(loop, session_id)
+            mark_finalization_phase("view_commit_emit_ms")
             current_state = deferred_commit.get("current_state")
             if str(last_step.get("status") or "") == "waiting_input" and isinstance(current_state, dict):
                 self._materialize_prompt_boundaries_from_checkpoint_sync(loop, session_id, current_state)
+            mark_finalization_phase("prompt_materialize_ms")
+        finalization_total_ms = _duration_ms(finalization_started)
 
         terminal_status = str(last_step.get("status", ""))
         terminal_reason = str(last_step.get("reason") or terminal_status or "unknown")
+        if deferred_commit is not None:
+            log_event(
+                "runtime_command_boundary_finalization_timing",
+                session_id=session_id,
+                processed_command_seq=checkpoint_command_seq,
+                terminal_status=terminal_status,
+                terminal_boundary_reason=terminal_reason,
+                redis_commit_count=redis_commit_count,
+                view_commit_count=view_commit_count,
+                total_ms=finalization_total_ms,
+                **finalization_timings,
+            )
         return {
             **last_step,
             "transitions": transitions,
@@ -1909,6 +1941,8 @@ class RuntimeService:
             "terminal_status": terminal_status,
             "terminal_boundary_reason": terminal_reason,
             "module_trace": module_trace,
+            "command_boundary_finalization_ms": finalization_total_ms,
+            **finalization_timings,
         }
 
     @staticmethod

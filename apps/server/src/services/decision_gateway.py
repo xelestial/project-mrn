@@ -13,6 +13,7 @@ from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprin
 
 DecisionProvider = Literal["human", "ai"]
 DEFAULT_HUMAN_PROMPT_TIMEOUT_MS = 30_000
+NON_EMPTY_LEGAL_CHOICE_REQUEST_TYPES = frozenset({"specific_trick_reward"})
 
 ChoiceSerializer = Callable[[Any], str]
 ContextBuilder = Callable[[tuple[Any, ...], dict[str, Any], Any, Any], dict[str, Any]]
@@ -1714,10 +1715,13 @@ def prepare_decision_method_from_invocation(invocation: DecisionInvocation) -> P
     spec = _decision_method_spec_for_method(invocation.method_name)
     state = invocation.state
     player = invocation.player
+    legal_choices = spec.legal_choice_builder(invocation.args, invocation.kwargs, state, player) if spec.legal_choice_builder is not None else []
+    if spec.request_type in NON_EMPTY_LEGAL_CHOICE_REQUEST_TYPES and not legal_choices:
+        raise ValueError(f"{spec.request_type}_requires_legal_choices")
     return PreparedDecisionMethod(
         request_type=spec.request_type,
         public_context=build_public_context(invocation.method_name, invocation.args, invocation.kwargs),
-        legal_choices=spec.legal_choice_builder(invocation.args, invocation.kwargs, state, player) if spec.legal_choice_builder is not None else [],
+        legal_choices=legal_choices,
         choice_serializer=spec.choice_serializer,
         choice_parser=spec.choice_parser,
     )

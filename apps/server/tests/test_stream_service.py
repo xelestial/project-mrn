@@ -77,6 +77,64 @@ class FakeProjectionStore:
         return self.view_commits.get((session_id, label))
 
 
+class FakeExternalStreamBackend:
+    def __init__(self) -> None:
+        self.records: dict[str, list[dict]] = {}
+        self.drop_counts: dict[str, int] = {}
+        self.source_snapshot_calls = 0
+        self.publish_calls = 0
+
+    def publish(
+        self,
+        session_id: str,
+        msg_type: str,
+        payload: dict,
+        *,
+        server_time_ms: int,
+        max_buffer: int,
+    ) -> dict:
+        self.publish_calls += 1
+        records = self.records.setdefault(session_id, [])
+        seq = int(records[-1].get("seq") or 0) + 1 if records else 1
+        record = {
+            "type": msg_type,
+            "seq": seq,
+            "session_id": session_id,
+            "server_time_ms": int(server_time_ms),
+            "payload": dict(payload),
+        }
+        records.append(record)
+        if len(records) > max_buffer:
+            del records[: len(records) - max_buffer]
+        return record
+
+    def snapshot(self, session_id: str) -> list[dict]:
+        return list(self.records.get(session_id, []))
+
+    def replay_from(self, session_id: str, last_seq: int) -> list[dict]:
+        return [record for record in self.snapshot(session_id) if int(record.get("seq") or 0) > last_seq]
+
+    def source_snapshot(self, session_id: str, through_seq: int | None = None) -> list[dict]:
+        self.source_snapshot_calls += 1
+        records = [record for record in self.snapshot(session_id) if record.get("type") != "view_commit"]
+        if through_seq is None:
+            return records
+        return [record for record in records if int(record.get("seq") or 0) <= through_seq]
+
+    def replay_window(self, session_id: str) -> tuple[int, int]:
+        records = self.snapshot(session_id)
+        if not records:
+            return (0, 0)
+        return (int(records[0].get("seq") or 0), int(records[-1].get("seq") or 0))
+
+    def latest_seq(self, session_id: str) -> int:
+        records = self.snapshot(session_id)
+        return int(records[-1].get("seq") or 0) if records else 0
+
+    def drop_count(self, session_id: str) -> int:
+        return int(self.drop_counts.get(session_id, 0))
+
+
 def _source_messages(messages: list) -> list:
     return [message for message in messages if message.type != "view_commit"]
 
@@ -100,6 +158,112 @@ class StreamServiceTests(unittest.TestCase):
             self.assertEqual(two.seq, 2)
             self.assertIsInstance(one.server_time_ms, int)
             self.assertGreater(one.server_time_ms, 0)
+
+        asyncio.run(_run())
+
+    def test_session_scoped_reads_do_not_wait_on_global_stream_lock(self) -> None:
+        service = StreamService()
+
+        async def _run() -> None:
+            await service.publish("fast", "event", {"event_type": "turn_start"})
+            await service._lock.acquire()
+            try:
+                latest = await asyncio.wait_for(service.latest_seq("fast"), timeout=0.1)
+            finally:
+                service._lock.release()
+            self.assertEqual(latest, 1)
+
+        asyncio.run(_run())
+
+    def test_backend_reads_and_projection_do_not_wait_on_session_publish_lock(self) -> None:
+        backend = FakeExternalStreamBackend()
+        backend.records["locked"] = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "locked",
+                "server_time_ms": 101,
+                "payload": {"event_type": "round_start"},
+            },
+            {
+                "type": "view_commit",
+                "seq": 2,
+                "session_id": "locked",
+                "server_time_ms": 102,
+                "payload": {"commit_seq": 9, "source_event_seq": 1},
+            },
+        ]
+        store = FakeProjectionStore()
+        store.save_view_commit(
+            "locked",
+            {
+                "commit_seq": 9,
+                "source_event_seq": 1,
+                "viewer": {"role": "spectator"},
+                "view_state": {"turn_stage": {"round_index": 1, "turn_index": 0}},
+            },
+            viewer="spectator",
+        )
+        service = StreamService(stream_backend=backend, game_state_store=store)
+
+        async def _run() -> None:
+            lock = service._lock_for_session("locked")
+            await lock.acquire()
+            try:
+                viewer = ViewerContext(role="spectator", session_id="locked")
+                latest = await asyncio.wait_for(service.latest_seq("locked"), timeout=0.25)
+                latest_commit = await asyncio.wait_for(
+                    service.latest_view_commit_message_for_viewer("locked", viewer),
+                    timeout=0.25,
+                )
+                projected = await asyncio.wait_for(
+                    service.project_message_for_viewer(backend.records["locked"][1], viewer),
+                    timeout=0.25,
+                )
+            finally:
+                lock.release()
+            self.assertEqual(latest, 2)
+            self.assertEqual(latest_commit.get("payload", {}).get("commit_seq"), 9)
+            self.assertEqual(projected.get("payload", {}).get("commit_seq"), 9)
+
+        asyncio.run(_run())
+
+    def test_decision_ack_publish_skips_authoritative_source_history_scan(self) -> None:
+        backend = FakeExternalStreamBackend()
+        backend.records["s1"] = [
+            {
+                "type": "event",
+                "seq": 1,
+                "session_id": "s1",
+                "server_time_ms": 101,
+                "payload": {"event_type": "round_start"},
+            },
+            {
+                "type": "view_commit",
+                "seq": 2,
+                "session_id": "s1",
+                "server_time_ms": 102,
+                "payload": {"commit_seq": 1, "source_event_seq": 1},
+            },
+        ]
+        service = StreamService(stream_backend=backend)
+
+        async def _run() -> None:
+            ack = await service.publish_decision_ack(
+                "s1",
+                {
+                    "request_id": "r_ack_1",
+                    "status": "accepted",
+                    "player_id": 1,
+                    "provider": "human",
+                },
+            )
+
+            self.assertEqual(ack.type, "decision_ack")
+            self.assertEqual(ack.seq, 3)
+            self.assertEqual(backend.publish_calls, 1)
+            self.assertEqual(backend.source_snapshot_calls, 0)
+            self.assertRegex(ack.payload["event_id"], r"^evt_[0-9a-f-]{36}$")
 
         asyncio.run(_run())
 

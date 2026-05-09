@@ -497,7 +497,7 @@ def _specific_trick_reward_surface(public_context: dict[str, Any], raw_choices: 
                 "description": _choice_description(choice, _choice_value(choice)),
             }
         )
-    if not options and _number(public_context.get("reward_count")) is None:
+    if not options:
         return None
     return {
         "reward_count": _number(public_context.get("reward_count")) or len(options),

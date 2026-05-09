@@ -1440,6 +1440,9 @@ class HumanHttpPolicy:
         return self._ask(prompt, _parse, lambda: self._ai.choose_active_flip_card(state, player, flippable_cards))
 
     def choose_specific_trick_reward(self, state: Any, player: Any, choices: Any) -> Any:
+        choices = list(choices or [])
+        if not choices:
+            return self._ai.choose_specific_trick_reward(state, player, choices)
         if not self._is_human_seat(player.player_id):
             return self._ai.choose_specific_trick_reward(state, player, choices)
 

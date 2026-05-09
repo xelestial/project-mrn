@@ -2819,6 +2819,15 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual([choice["choice_id"] for choice in routed.legal_choices], ["101", "102"])
         self.assertEqual([choice["title"] for choice in routed.legal_choices], ["보상 카드 #101", "보상 카드 #102"])
         self.assertEqual(routed.choice_parser("102", invocation.args, invocation.kwargs, invocation.state, invocation.player), reward_b)
+
+    def test_specific_trick_reward_requires_non_empty_legal_choices(self) -> None:
+        state = type("State", (), {"rounds_completed": 5, "turn_index": 0})()
+        player = type("Player", (), {"cash": 9, "position": 22, "shards": 5})()
+        invocation = build_decision_invocation("choose_specific_trick_reward", (state, player, []), {})
+
+        with pytest.raises(ValueError, match="specific_trick_reward_requires_legal_choices"):
+            build_routed_decision_call(invocation, fallback_policy="required")
+
     def test_draft_context_exposes_phase_and_offered_candidates(self) -> None:
         state = type("State", (), {"rounds_completed": 0, "turn_index": 0, "active_by_card": {1: "산적", 2: "건설업자"}})()
         card_a = type("Card", (), {"deck_index": 41, "name": "가벼운 짐", "description": "desc-a"})()

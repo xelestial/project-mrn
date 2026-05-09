@@ -328,6 +328,23 @@ class DecisionPortContractTests(unittest.TestCase):
 
         self.assertIn("choose_specific_trick_reward", [request.decision_name for request in port.requests])
 
+    def test_baksu_transfer_skips_specific_reward_prompt_when_draw_pile_empty(self) -> None:
+        port = RecordingDecisionPort()
+        engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)
+        state = GameState.create(DEFAULT_CONFIG)
+        source = state.players[0]
+        target = state.players[1]
+        burden = TrickCard(deck_index=1, name="무거운 짐", description="test")
+        source.trick_hand = [burden]
+        state.trick_draw_pile = []
+
+        result = engine._resolve_baksu_transfer(state, source, target)
+
+        self.assertNotIn("choose_specific_trick_reward", [request.decision_name for request in port.requests])
+        self.assertEqual(result["reward_count"], 0)
+        self.assertEqual(source.trick_hand, [])
+        self.assertEqual(target.trick_hand, [burden])
+
     def test_doctrine_relief_routes_target_selection_through_decision_port(self) -> None:
         port = RecordingDecisionPort()
         engine = GameEngine(DEFAULT_CONFIG, DummyPolicy(), rng=random.Random(0), enable_logging=False, decision_port=port)

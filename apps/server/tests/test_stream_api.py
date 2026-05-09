@@ -190,6 +190,14 @@ class StreamApiTests(unittest.TestCase):
         with self.assertRaises(WebSocketDisconnect):
             asyncio.run(_receive_json_or_disconnect(ClosedWebSocket()))  # type: ignore[arg-type]
 
+    def test_heartbeat_snapshot_waits_behind_pending_subscriber_messages(self) -> None:
+        from apps.server.src.routes.stream import _should_send_heartbeat_view_commit
+
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+        self.assertTrue(_should_send_heartbeat_view_commit(queue))
+        queue.put_nowait({"type": "decision_ack", "seq": 8})
+        self.assertFalse(_should_send_heartbeat_view_commit(queue))
+
     def test_resume_uses_latest_view_commit_without_gap_replay(self) -> None:
         from apps.server.src import state
 
@@ -625,6 +633,68 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
         self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
+
+    def test_visible_ack_is_not_dropped_after_latest_snapshot_advances_stream_seq(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 117})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+        session_token = joined["session_token"]
+        original_latest = state.stream_service.latest_view_commit_message_for_viewer
+
+        async def _latest_view_commit_with_high_stream_seq(_session_id: str, _viewer: ViewerContext) -> dict:
+            return {
+                "type": "view_commit",
+                "seq": 50,
+                "session_id": session.session_id,
+                "payload": {
+                    "commit_seq": 50,
+                    "source_event_seq": 50,
+                    "viewer": {"role": "seat", "player_id": 1, "seat": 1},
+                    "view_state": {"turn_stage": {"round_index": 1, "turn_index": 1}},
+                },
+            }
+
+        state.stream_service.latest_view_commit_message_for_viewer = _latest_view_commit_with_high_stream_seq  # type: ignore[method-assign]
+        try:
+            path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+            with self.client.websocket_connect(path) as ws:
+                first = ws.receive_json()
+                self.assertEqual(first.get("type"), "view_commit")
+                self.assertEqual(first.get("seq"), 50)
+
+                asyncio.run(
+                    state.stream_service.publish(
+                        session.session_id,
+                        "decision_ack",
+                        {
+                            "request_id": "r_visible_low_seq_ack",
+                            "status": "accepted",
+                            "player_id": 1,
+                            "provider": "human",
+                        },
+                    )
+                )
+
+                messages: list[dict] = []
+                for _ in range(8):
+                    msg = ws.receive_json()
+                    messages.append(msg)
+                    if (
+                        msg.get("type") == "decision_ack"
+                        and msg.get("payload", {}).get("request_id") == "r_visible_low_seq_ack"
+                    ):
+                        break
+        finally:
+            state.stream_service.latest_view_commit_message_for_viewer = original_latest  # type: ignore[method-assign]
+
+        acks = [
+            m
+            for m in messages
+            if m.get("type") == "decision_ack" and m.get("payload", {}).get("request_id") == "r_visible_low_seq_ack"
+        ]
+        self.assertEqual(len(acks), 1)
+        self.assertEqual(acks[0].get("payload", {}).get("status"), "accepted")
 
     def test_seat_decision_repairs_missing_pending_prompt_from_latest_view_commit(self) -> None:
         from apps.server.src import state
