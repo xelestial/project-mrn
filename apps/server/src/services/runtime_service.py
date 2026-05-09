@@ -87,6 +87,8 @@ class RuntimeDecisionResumeMismatch(ValueError):
 class _CommandBoundaryGameStateStore:
     """Defers transition commits inside one user command until the terminal boundary."""
 
+    defer_authoritative_transition_commit = True
+
     def __init__(self, delegate: object, *, session_id: str, base_commit_seq: int) -> None:
         self._delegate = delegate
         self._session_id = str(session_id)
@@ -96,11 +98,18 @@ class _CommandBoundaryGameStateStore:
         self._view_state: dict | None = None
         self._view_commits: dict[str, dict] | None = None
         self._deferred_commit: dict | None = None
+        self.internal_state_stage_count = 0
         self.redis_commit_count = 0
         self.view_commit_count = 0
 
     def __getattr__(self, name: str) -> object:
         return getattr(self._delegate, name)
+
+    def stage_internal_transition(self, session_id: str, *, current_state: dict) -> None:
+        if str(session_id) != self._session_id:
+            return
+        self._current_state = copy.deepcopy(current_state)
+        self.internal_state_stage_count += 1
 
     def load_current_state(self, session_id: str) -> dict | None:
         if str(session_id) == self._session_id and isinstance(self._current_state, dict):
@@ -182,6 +191,24 @@ class _CommandBoundaryGameStateStore:
 
     def deferred_commit(self) -> dict | None:
         return copy.deepcopy(self._deferred_commit) if isinstance(self._deferred_commit, dict) else None
+
+
+_COMMAND_BOUNDARY_TERMINAL_STATUSES = frozenset(
+    {
+        "completed",
+        "failed",
+        "refused",
+        "rejected",
+        "stale",
+        "success",
+        "unavailable",
+        "waiting_input",
+    }
+)
+
+
+def _is_command_boundary_terminal_status(status: object) -> bool:
+    return str(status or "") in _COMMAND_BOUNDARY_TERMINAL_STATUSES
 
 
 def _derive_batch_id_from_request_id(request_id: str) -> str:
@@ -578,6 +605,19 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _runtime_frame_type_from_frame_id(frame_id: object) -> str:
+    text = str(frame_id or "")
+    if text.startswith("round:"):
+        return "round"
+    if text.startswith("turn:"):
+        return "turn"
+    if text.startswith("seq:"):
+        return "sequence"
+    if text.startswith("simul:"):
+        return "simultaneous"
+    return ""
 
 
 def _snapshot_pulse_specs_from_source_messages(source_messages: list[dict], *, after_seq: int = 0) -> list[dict[str, int | str | None]]:
@@ -1408,6 +1448,9 @@ class RuntimeService:
                 module_transition_count=result.get("module_transition_count"),
                 redis_commit_count=result.get("redis_commit_count"),
                 view_commit_count=result.get("view_commit_count"),
+                internal_redis_commit_attempt_count=result.get("internal_redis_commit_attempt_count"),
+                internal_view_commit_attempt_count=result.get("internal_view_commit_attempt_count"),
+                internal_state_stage_count=result.get("internal_state_stage_count"),
                 terminal_status=result.get("terminal_status") or status,
                 terminal_boundary_reason=result.get("terminal_boundary_reason") or result.get("reason"),
                 duplicate_request_count=result.get("duplicate_request_count", 0),
@@ -1684,16 +1727,6 @@ class RuntimeService:
         module_trace: list[dict] = []
         checkpoint_command_consumer_name = first_command_consumer_name
         checkpoint_command_seq = int(first_command_seq)
-        terminal_statuses = {
-            "completed",
-            "failed",
-            "refused",
-            "rejected",
-            "stale",
-            "success",
-            "unavailable",
-            "waiting_input",
-        }
         self._game_state_store = boundary_store
         try:
             while max_transitions is None or transitions < max(1, int(max_transitions)):
@@ -1713,8 +1746,7 @@ class RuntimeService:
                 )
                 transitions += 1
                 module_trace.append(self._command_module_trace_entry(transitions, last_step))
-                status = str(last_step.get("status", ""))
-                if status in terminal_statuses:
+                if _is_command_boundary_terminal_status(last_step.get("status")):
                     break
         finally:
             self._game_state_store = original_store
@@ -1743,6 +1775,7 @@ class RuntimeService:
             "view_commit_count": view_commit_count,
             "internal_redis_commit_attempt_count": boundary_store.redis_commit_count,
             "internal_view_commit_attempt_count": boundary_store.view_commit_count,
+            "internal_state_stage_count": boundary_store.internal_state_stage_count,
             "terminal_status": terminal_status,
             "terminal_boundary_reason": terminal_reason,
             "module_trace": module_trace,
@@ -2434,17 +2467,7 @@ class RuntimeService:
                     publish=False,
                 )
             _mark_phase("prompt_materialize")
-            previous_source_event_seq = self._latest_committed_source_event_seq(session_id)
-            latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
-            source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
-            _mark_phase("source_history")
-            snapshot_pulse_specs = _snapshot_pulse_specs_from_source_messages(
-                source_messages,
-                after_seq=previous_source_event_seq,
-            )
-            _mark_phase("snapshot_pulse_plan")
             commit_seq = base_commit_seq + 1
-            source_event_seq = latest_stream_seq
             module_debug_fields = _runtime_module_debug_fields(
                 {
                     **step,
@@ -2455,6 +2478,50 @@ class RuntimeService:
             continuation_debug_fields = _runtime_continuation_debug_fields(payload, decision_resume)
             processed_command_consumer = command_consumer_name or checkpoint_command_consumer_name
             processed_command_seq = command_seq if command_seq is not None else checkpoint_command_seq
+            stage_internal_transition = getattr(self._game_state_store, "stage_internal_transition", None)
+            if (
+                not publish_external_side_effects
+                and getattr(self._game_state_store, "defer_authoritative_transition_commit", False)
+                and not _is_command_boundary_terminal_status(step.get("status"))
+                and callable(stage_internal_transition)
+            ):
+                stage_internal_transition(session_id, current_state=payload)
+                _mark_phase("internal_state_stage")
+                log_event(
+                    "runtime_transition_phase_timing",
+                    session_id=session_id,
+                    processed_command_seq=processed_command_seq,
+                    processed_command_consumer=processed_command_consumer,
+                    base_commit_seq=base_commit_seq,
+                    commit_seq=commit_seq,
+                    source_event_seq=None,
+                    result_status=step.get("status"),
+                    reason=step.get("reason"),
+                    request_id=step.get("request_id"),
+                    request_type=step.get("request_type"),
+                    player_id=step.get("player_id"),
+                    total_ms=_duration_ms(transition_started),
+                    command_boundary_staged=True,
+                    **phase_timings,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                )
+                return {
+                    **step,
+                    "runner_kind": effective_runner_kind,
+                    **module_debug_fields,
+                    **continuation_debug_fields,
+                }
+            previous_source_event_seq = self._latest_committed_source_event_seq(session_id)
+            latest_stream_seq = self._latest_stream_seq_sync(loop, session_id)
+            source_messages = self._source_history_sync(loop, session_id, latest_stream_seq)
+            _mark_phase("source_history")
+            snapshot_pulse_specs = _snapshot_pulse_specs_from_source_messages(
+                source_messages,
+                after_seq=previous_source_event_seq,
+            )
+            _mark_phase("snapshot_pulse_plan")
+            source_event_seq = latest_stream_seq
             runtime_checkpoint = {
                 "schema_version": effective_checkpoint_schema_version,
                 "session_id": session_id,
@@ -3847,7 +3914,9 @@ class RuntimeService:
             "module_cursor": str(continuation.get("module_cursor") or ""),
             "runtime_module": {
                 "runner_kind": "module",
-                "frame_type": "simultaneous" if batch_payload else str(continuation.get("frame_id") or "").split(":", 1)[0],
+                "frame_type": "simultaneous"
+                if batch_payload
+                else _runtime_frame_type_from_frame_id(continuation.get("frame_id")),
                 "frame_id": str(continuation.get("frame_id") or ""),
                 "module_id": str(continuation.get("module_id") or ""),
                 "module_type": str(continuation.get("module_type") or ""),

@@ -13,6 +13,8 @@ Module boundaries are not Redis boundaries. A module test verifies responsibilit
 
 User command boundaries are the default persistence boundaries. A button press such as movement or purchase should create a lightweight command lifecycle record (`processing -> success/refused/failed/waiting_input`), run internal validators/resolvers in memory, and publish a final authoritative state/view only when the command reaches an external boundary.
 
+Irreversible inputs are the exception, not an excuse for per-module commits. Dice rolls, ordered deck draws such as fortune/weather, and accepted reward outcomes must be persisted because replay must consume the same value. Turn pointers, validator failures, hidden-trick availability, movement substeps, and purchase substeps should stay inside the command runner until a terminal boundary. If replay needs a value, persist that value; do not persist every transition that happened to use it.
+
 Frontend duplicate submissions are absorbed by idempotency, not by hoping the browser sends only once. The UI must single-flight by active prompt, player, and action; reconnect recovery must check pending command status and the latest `view_commit` before retrying; the backend must treat a repeated `request_id` as a dedupe hit or explicit stale/refused result.
 
 ## 2. Prompt Lifecycle
@@ -80,6 +82,7 @@ Required rule:
 - A time-based unacked resend can create a false stale decision. In `sess_fT6B5tyTvbhJUoncx5yjYD26`, `r1:t5:p1:active_flip:62` was accepted, then the command advanced through round cleanup and opened the next round prompt in 4375ms. The headless 5s unacked retry sent the old request again and the backend correctly rejected it as `stale_prompt_request`. That retry is not browser-equivalent and must stay disabled outside reconnect recovery.
 - Per-command duration must include internal transition cost. In `sess_fT6B5tyTvbhJUoncx5yjYD26`, `command_seq=95` took 10991ms across 15 transitions; per-module Redis commits alone accounted for roughly 5.4s. A long turn can be backend persistence overhead even when every prompt decision is immediate.
 - Do not confuse modularity with external commits. Modularity means `PurchaseValidator`, `MovementResolver`, `ArrivalResolver`, and similar units keep narrow contracts and can be tested with pure in/out state. It does not mean every internal step writes Redis, rebuilds frontend projection, or emits a `view_commit`.
+- Command-boundary staging must skip expensive external preparation. In the 2026-05-09 fix, internal non-terminal transitions stage only in-memory state. They must not read source history, build authoritative `view_commit`, validate precommit view payloads, or write Redis. Terminal boundaries still commit exactly once.
 
 Minimum comparison after every headless live RL run:
 

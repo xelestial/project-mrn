@@ -29,6 +29,25 @@ The runtime ignores prompt replay aids, raw resume tokens, frontend-created requ
 
 Internal `module_trace` is timing/debug evidence only. It is not an authoritative frontend render source and must not be used as a substitute for the final cached `view_commit`.
 
+## 2.1. Irreversible Inputs vs Internal Progress
+
+Redis persistence is required for external recovery boundaries and irreversible inputs, not for every internal module step.
+
+Persist irreversible inputs when they are chosen or consumed:
+
+- Dice rolls selected by the backend/engine, because replay must not roll again.
+- Fortune/weather/deck draws, because ordered deck consumption must behave like a queue and cannot duplicate after restart.
+- LAP reward choices or grants once accepted, because they are player-visible outcomes and may affect inventory, money, or score.
+- Any random seed, shuffled order, card draw, or one-time token that cannot be recomputed safely from the previous checkpoint and command payload.
+
+Do not create Redis checkpoints or `view_commit` records only because an internal module pointer changed:
+
+- Turn pointer is authoritative at the prompt/command boundary. During one command loop, the active frame stack and module cursor in memory already define which turn/module is executing.
+- Hidden-trick availability is a validator contract. If a trick cannot be used, the adjudicator returns `refused` or continues without mutating state; it does not need an intermediate external commit.
+- Movement, purchase, arrival, rent, and follow-up modules may pass through many validators/resolvers. Their intermediate state is `module_trace`, not frontend authority.
+
+If an internal module needs a value that cannot be recomputed deterministically, record that value in the command payload or terminal checkpoint before using it as an irreversible input. Do not solve nondeterminism by committing every module transition.
+
 ## 3. Stored Contracts
 
 `PromptContinuation` stores a single-player decision boundary:

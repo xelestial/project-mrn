@@ -28,7 +28,9 @@ from apps.server.src.services.decision_gateway import (
 from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 from apps.server.src.services.runtime_service import (
+    _CommandBoundaryGameStateStore,
     _FanoutVisEventStream,
+    _runtime_frame_type_from_frame_id,
     _run_runtime_stream_task_sync,
     _schedule_runtime_stream_task,
     _runtime_failure_diagnostics,
@@ -203,7 +205,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 "module_cursor": module_cursor,
                 "runtime_module": {
                     "runner_kind": "module",
-                    "frame_type": frame_id.split(":", 1)[0],
+                    "frame_type": _runtime_frame_type_from_frame_id(frame_id),
                     "frame_id": frame_id,
                     "module_id": module_id,
                     "module_type": module_type,
@@ -227,6 +229,26 @@ class RuntimeServiceTests(unittest.TestCase):
         }
         return decision
 
+    def test_checkpoint_prompt_boundary_normalizes_sequence_frame_type(self) -> None:
+        payload = RuntimeService._prompt_boundary_payload_from_continuation(
+            {
+                "request_id": "req_seq_prompt",
+                "request_type": "trick_to_use",
+                "player_id": 0,
+                "prompt_instance_id": 11,
+                "resume_token": "resume_seq_prompt",
+                "frame_id": "seq:trick:1:p0:15",
+                "module_id": "mod:seq:trick:1:p0:15:choice",
+                "module_type": "TrickChoiceModule",
+                "module_cursor": "trick_choice:await_choice",
+                "legal_choices": [{"choice_id": "skip"}],
+            },
+            player_id=1,
+            batch_payload=None,
+        )
+
+        self.assertEqual(payload["runtime_module"]["frame_type"], "sequence")
+
     @staticmethod
     def _module_state(
         *,
@@ -239,7 +261,7 @@ class RuntimeServiceTests(unittest.TestCase):
         **attrs,
     ):
         state = type("State", (), {"rounds_completed": rounds_completed, "turn_index": turn_index, **attrs})()
-        frame_type = frame_id.split(":", 1)[0]
+        frame_type = _runtime_frame_type_from_frame_id(frame_id)
         owner_player_id = None if frame_type in {"round", "simultaneous"} else 0
         module = ModuleRef(
             module_id=module_id,
@@ -6350,6 +6372,130 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(store.commits[0]["checkpoint"]["latest_commit_seq"], 5)
         self.assertEqual(store.commits[0]["runtime_event_payload"]["base_commit_seq"], 4)
         self.assertNotIn("runtime_active_prompt_request_id", store.commits[0]["runtime_event_payload"])
+
+    def test_command_boundary_internal_transition_stages_state_without_view_commit_build(self) -> None:
+        RuntimeService._ensure_engine_import_path()
+        import engine
+        from runtime_modules.contracts import PromptContinuation
+        from state import GameState
+
+        class _CommandStoreStub:
+            def __init__(self) -> None:
+                self.commands: list[dict] = []
+                self.offsets: list[tuple[str, str, int]] = []
+
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [copy.deepcopy(command) for command in self.commands if command["session_id"] == session_id]
+
+            def save_consumer_offset(self, consumer_name: str, session_id: str, seq: int) -> None:
+                self.offsets.append((consumer_name, session_id, int(seq)))
+
+        store = _MutableGameStateStoreStub()
+        command_store = _CommandStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            command_store=command_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.start_session(session.session_id, session.host_token)
+        config = runtime._config_factory.create(session.resolved_parameters)  # type: ignore[attr-defined]
+        state = GameState.create(config)
+        state.runtime_runner_kind = "module"
+        state.runtime_checkpoint_schema_version = 3
+        state.runtime_active_prompt = PromptContinuation(
+            request_id="req_1",
+            prompt_instance_id=1,
+            resume_token="token_1",
+            frame_id="turn:1:p0",
+            module_id="mod:turn:1:p0:movement",
+            module_type="MapMoveModule",
+            module_cursor="move:await_choice",
+            player_id=0,
+            request_type="movement",
+            legal_choices=[{"choice_id": "roll"}],
+        )
+        store.current_state = state.to_checkpoint_payload()
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "latest_commit_seq": 4,
+        }
+        command_store.commands.append(
+            {
+                "seq": 1,
+                "type": "decision_submitted",
+                "session_id": session.session_id,
+                "payload": {
+                    "request_id": "req_1",
+                    "player_id": 1,
+                    "request_type": "movement",
+                    "choice_id": "roll",
+                    "resume_token": "token_1",
+                    "frame_id": "turn:1:p0",
+                    "module_id": "mod:turn:1:p0:movement",
+                    "module_type": "MapMoveModule",
+                    "module_cursor": "move:await_choice",
+                    "decision": {},
+                },
+            }
+        )
+        boundary_store = _CommandBoundaryGameStateStore(store, session_id=session.session_id, base_commit_seq=4)
+        runtime._game_state_store = boundary_store
+
+        def _fake_run_next_transition(self, state, decision_resume=None):  # noqa: ANN001
+            del self, decision_resume
+            state.runtime_active_prompt = None
+            state.turn_index = int(getattr(state, "turn_index", 0) or 0) + 1
+            return {"status": "committed", "runner_kind": "module", "module_type": "MapMoveModule"}
+
+        with (
+            patch.object(engine.GameEngine, "run_next_transition", _fake_run_next_transition),
+            patch.object(
+                runtime,
+                "_source_history_sync",
+                side_effect=AssertionError("internal command transition must not read source history"),
+            ),
+            patch.object(
+                runtime,
+                "_build_authoritative_view_commits",
+                side_effect=AssertionError("internal command transition must not build view commits"),
+            ),
+        ):
+            result = runtime._run_engine_transition_once_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                True,
+                "runtime-worker",
+                1,
+                publish_external_side_effects=False,
+            )
+
+        self.assertEqual(result["status"], "committed")
+        self.assertEqual(store.commits, [])
+        self.assertIsNone(boundary_store.deferred_commit())
+        self.assertEqual(boundary_store.redis_commit_count, 0)
+        self.assertEqual(boundary_store.view_commit_count, 0)
+        self.assertEqual(boundary_store.internal_state_stage_count, 1)
+        staged_state = boundary_store.load_current_state(session.session_id)
+        self.assertIsInstance(staged_state, dict)
+        self.assertIsNone(staged_state.get("runtime_active_prompt"))
+        self.assertEqual(staged_state.get("turn_index"), 1)
 
     def test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision(self) -> None:
         RuntimeService._ensure_engine_import_path()
