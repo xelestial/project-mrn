@@ -98,6 +98,7 @@ runtime_service = RuntimeService(
     runtime_state_store=runtime_state_store,
     game_state_store=game_state_store,
     command_store=command_store,
+    runtime_engine_workers=runtime_settings.runtime_engine_workers,
 )
 prompt_timeout_worker = PromptTimeoutWorker(
     prompt_service=prompt_service,

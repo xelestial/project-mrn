@@ -24,6 +24,10 @@ type RunnerOptions = {
   runRoot?: string;
   label?: string;
   seedBase?: number;
+  quietProgress: boolean;
+  baseUrlTemplate?: string;
+  redisUrlTemplate?: string;
+  backendDockerComposeProjectTemplate?: string;
   gateArgs: string[];
 };
 
@@ -51,6 +55,7 @@ async function main(): Promise<void> {
       mkdir(artifacts.pointersDir, { recursive: true }),
     ]);
     const seedArgs = options.seedBase === undefined ? [] : ["--seed", String(options.seedBase + gameIndex)];
+    const gameRuntime = buildGameRuntimeOverrides(options, gameIndex);
     const gateArgs = [
       ...options.gateArgs,
       ...seedArgs,
@@ -62,16 +67,24 @@ async function main(): Promise<void> {
       "--summary-out",
       artifacts.summaryOut,
     ];
+    const perGameGateArgs = applyGameGateArgOverrides(gateArgs, gameRuntime);
 
     process.stderr.write(
-      `PROTOCOL_GATE_GAME_START index=${gameIndex} dir=${artifacts.gameDir} summary=${artifacts.summaryOut} log=${artifacts.protocolLogOut}\n`,
+      `PROTOCOL_GATE_GAME_START index=${gameIndex} dir=${artifacts.gameDir} summary=${artifacts.summaryOut} log=${artifacts.protocolLogOut}${gameRuntime.redisUrl ? ` redis=${redactUrlCredentials(gameRuntime.redisUrl)}` : ""}\n`,
     );
     const abortController = new AbortController();
     activeRuns.add(abortController);
     let status = 1;
     let latestProgress: ProtocolGateGameProgressRecord | null = null;
     try {
-      const result = await runGate(gateArgs, abortController, artifacts, gameIndex);
+      const result = await runGate(
+        perGameGateArgs,
+        gameRuntime.env,
+        abortController,
+        artifacts,
+        gameIndex,
+        options.quietProgress,
+      );
       status = result.status;
       latestProgress = result.latestProgress;
     } finally {
@@ -130,6 +143,7 @@ function parseArgs(args: string[]): RunnerOptions {
   const options: RunnerOptions = {
     games: 1,
     concurrency: 1,
+    quietProgress: false,
     gateArgs: [],
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -150,6 +164,17 @@ function parseArgs(args: string[]): RunnerOptions {
     } else if (arg === "--seed-base" && next) {
       options.seedBase = Number(next);
       index += 1;
+    } else if (arg === "--quiet-progress") {
+      options.quietProgress = true;
+    } else if (arg === "--base-url-template" && next) {
+      options.baseUrlTemplate = next;
+      index += 1;
+    } else if (arg === "--redis-url-template" && next) {
+      options.redisUrlTemplate = next;
+      index += 1;
+    } else if (arg === "--backend-docker-compose-project-template" && next) {
+      options.backendDockerComposeProjectTemplate = next;
+      index += 1;
     } else if (arg === "--help" || arg === "-h") {
       process.stdout.write(
         [
@@ -161,9 +186,15 @@ function parseArgs(args: string[]): RunnerOptions {
           "  --run-root tmp/rl/full-stack-protocol/my-run",
           "  --label backend-timing-gate",
           "  --seed-base 2026051100",
+          "  --quiet-progress",
+          "  --base-url-template http://127.0.0.1:910{game}",
+          "  --redis-url-template redis://127.0.0.1:638{game}/0",
+          "  --backend-docker-compose-project-template project-mrn-protocol-g{game}",
           "",
+          "Template variables: {game} is 1-based, {index} is 1-based, and {zeroBased} is 0-based.",
           "The runner writes raw logs under game-N/raw, compact reports under game-N/summary, and inspection pointers under game-N/pointers.",
-          "Progress is emitted as compact PROTOCOL_GATE_GAME_PROGRESS lines and persisted to raw/progress.ndjson plus summary/progress.json.",
+          "Progress is emitted as compact PROTOCOL_GATE_GAME_PROGRESS lines unless --quiet-progress is set.",
+          "Progress is always persisted to raw/progress.ndjson plus summary/progress.json.",
           "Failures emit PROTOCOL_GATE_FAILURE_POINTER and persist summary/failure_reason.json plus pointers/failure_pointer.json.",
           "Do not pipe through tee for summary capture; use summary/gate_result.json first and raw/protocol_gate.log only from a pointer.",
         ].join("\n") + "\n",
@@ -206,15 +237,97 @@ function defaultGateArgs(gateArgs: string[], backendLogOut: string): string[] {
   return args;
 }
 
+type GameRuntimeOverrides = {
+  baseUrl?: string;
+  redisUrl?: string;
+  backendDockerComposeProject?: string;
+  env: NodeJS.ProcessEnv;
+};
+
+function buildGameRuntimeOverrides(options: RunnerOptions, gameIndex: number): GameRuntimeOverrides {
+  const redisUrl = options.redisUrlTemplate
+    ? renderGameTemplate(options.redisUrlTemplate, gameIndex)
+    : undefined;
+  return {
+    baseUrl: options.baseUrlTemplate ? renderGameTemplate(options.baseUrlTemplate, gameIndex) : undefined,
+    redisUrl,
+    backendDockerComposeProject: options.backendDockerComposeProjectTemplate
+      ? renderGameTemplate(options.backendDockerComposeProjectTemplate, gameIndex)
+      : undefined,
+    env: redisUrl ? { MRN_REDIS_URL: redisUrl } : {},
+  };
+}
+
+function applyGameGateArgOverrides(args: string[], overrides: GameRuntimeOverrides): string[] {
+  let nextArgs = args;
+  if (overrides.baseUrl) {
+    nextArgs = withCliFlagValue(nextArgs, "--base-url", overrides.baseUrl);
+  }
+  if (overrides.backendDockerComposeProject) {
+    nextArgs = withCliFlagValue(
+      nextArgs,
+      "--backend-docker-compose-project",
+      overrides.backendDockerComposeProject,
+    );
+  }
+  return nextArgs;
+}
+
+function renderGameTemplate(template: string, gameIndex: number): string {
+  return template
+    .replaceAll("{game}", String(gameIndex))
+    .replaceAll("{index}", String(gameIndex))
+    .replaceAll("{zeroBased}", String(gameIndex - 1));
+}
+
+function withCliFlagValue(args: string[], flag: string, value: string): string[] {
+  const nextArgs: string[] = [];
+  let replaced = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === flag) {
+      nextArgs.push(flag, value);
+      index += 1;
+      replaced = true;
+    } else if (arg.startsWith(`${flag}=`)) {
+      nextArgs.push(`${flag}=${value}`);
+      replaced = true;
+    } else {
+      nextArgs.push(arg);
+    }
+  }
+  if (!replaced) {
+    nextArgs.push(flag, value);
+  }
+  return nextArgs;
+}
+
+function redactUrlCredentials(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.username) {
+      url.username = "***";
+    }
+    if (url.password) {
+      url.password = "***";
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 function hasCliFlag(args: string[], flag: string): boolean {
   return args.includes(flag) || args.some((arg) => arg.startsWith(`${flag}=`));
 }
 
 function runGate(
   args: string[],
+  env: NodeJS.ProcessEnv,
   abortController: AbortController,
   artifacts: ProtocolGateProgressArtifacts,
   gameIndex: number,
+  quietProgress: boolean,
 ): Promise<{ status: number; latestProgress: ProtocolGateGameProgressRecord | null }> {
   return new Promise((resolveStatus, reject) => {
     const protocolLog = createWriteStream(artifacts.protocolLogOut, { flags: "w" });
@@ -225,9 +338,9 @@ function runGate(
       artifacts,
       protocolLog,
       progressLog,
+      quietProgress,
       onProgress: (record) => {
         latestProgress = record;
-        process.stderr.write(`${formatProtocolGateProgressLine(record)}\n`);
       },
     });
     let settled = false;
@@ -265,6 +378,7 @@ function runGate(
 
     const child = spawn("npm", ["run", "rl:protocol-gate", "--", ...args], {
       cwd: webRoot,
+      env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
       signal: abortController.signal,
     });
@@ -296,6 +410,7 @@ function createChildOutputObserver(args: {
   artifacts: ProtocolGateProgressArtifacts;
   protocolLog: NodeJS.WritableStream;
   progressLog: NodeJS.WritableStream;
+  quietProgress: boolean;
   onProgress: (record: ProtocolGateGameProgressRecord) => void;
 }): {
   write: (chunk: Buffer | string) => void;
@@ -316,6 +431,9 @@ function createChildOutputObserver(args: {
     });
     args.progressLog.write(`${JSON.stringify(record)}\n`);
     writeChain = writeChain.then(() => writeProtocolGateLatestProgressArtifacts(record));
+    if (!args.quietProgress) {
+      process.stderr.write(`${formatProtocolGateProgressLine(record)}\n`);
+    }
     args.onProgress(record);
   };
 

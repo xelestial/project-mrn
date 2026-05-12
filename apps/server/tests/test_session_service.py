@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import copy
 import re
+import threading
+import time
 import unittest
 
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
@@ -300,6 +303,26 @@ class SessionServiceTests(unittest.TestCase):
         persisted_ids = {payload["session_id"] for payload in store.load_sessions()}
         self.assertEqual(persisted_ids, {created.session_id})
 
+    def test_store_backed_concurrent_creates_do_not_overwrite_other_sessions(self) -> None:
+        store = _ConcurrentSessionStore()
+        service = SessionService(session_store=store)
+        first: dict[str, object] = {}
+
+        def create_first() -> None:
+            first["session"] = service.create_session(_all_ai_seats(), config={"seed": 1})
+
+        thread = threading.Thread(target=create_first)
+        thread.start()
+        self.assertTrue(store.first_write_sleeping.wait(timeout=1.0))
+
+        second = service.create_session(_all_ai_seats(), config={"seed": 2})
+        thread.join(timeout=1.0)
+        self.assertFalse(thread.is_alive())
+
+        first_session = first["session"]
+        persisted_ids = {payload["session_id"] for payload in store.load_sessions()}
+        self.assertEqual(persisted_ids, {first_session.session_id, second.session_id})
+
 
 class _MemorySessionStore:
     def __init__(self) -> None:
@@ -310,6 +333,47 @@ class _MemorySessionStore:
 
     def save_sessions(self, sessions: list[dict]) -> None:
         self.sessions = [dict(session) for session in sessions]
+
+
+class _ConcurrentSessionStore:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sessions_by_id: dict[str, dict] = {}
+        self._write_count = 0
+        self.first_write_sleeping = threading.Event()
+
+    def load_sessions(self) -> list[dict]:
+        with self._lock:
+            return [copy.deepcopy(session) for session in self._sessions_by_id.values()]
+
+    def save_sessions(self, sessions: list[dict]) -> None:
+        self._maybe_pause_first_write()
+        with self._lock:
+            self._sessions_by_id = {
+                str(session["session_id"]): copy.deepcopy(session)
+                for session in sessions
+                if session.get("session_id")
+            }
+
+    def save_session(self, session: dict) -> None:
+        self._maybe_pause_first_write()
+        session_id = str(session.get("session_id", "")).strip()
+        if not session_id:
+            return
+        with self._lock:
+            self._sessions_by_id[session_id] = copy.deepcopy(session)
+
+    def delete_session(self, session_id: str) -> None:
+        with self._lock:
+            self._sessions_by_id.pop(session_id, None)
+
+    def _maybe_pause_first_write(self) -> None:
+        with self._lock:
+            self._write_count += 1
+            write_count = self._write_count
+        if write_count == 1:
+            self.first_write_sleeping.set()
+            time.sleep(0.05)
 
 
 if __name__ == "__main__":

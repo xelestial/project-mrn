@@ -70,6 +70,11 @@ class ParameterServiceTests(unittest.TestCase):
                 "starting_shards": 7,
                 "dice_values": [2, 4, 8],
                 "dice_max_cards_per_turn": 1,
+                "runtime": {
+                    "policy_mode": "baseline",
+                    "runner_kind": "module",
+                    "ai_decision_delay_ms": 0,
+                },
                 "rules": {
                     "end": {
                         "f_threshold": 1,
@@ -108,7 +113,11 @@ class ParameterServiceTests(unittest.TestCase):
                 },
             }
         )
+        self.assertEqual(resolved["runtime"]["seed"], 77)
+        self.assertEqual(resolved["runtime"]["policy_mode"], "baseline")
         self.assertEqual(resolved["runtime"]["player_count"], 2)
+        self.assertEqual(resolved["runtime"]["runner_kind"], "module")
+        self.assertEqual(resolved["runtime"]["ai_decision_delay_ms"], 0)
         self.assertEqual(resolved["board"]["topology"], "line")
         self.assertEqual(resolved["seats"]["allowed"], [1, 2])
         self.assertEqual(resolved["economy"]["starting_cash"], 55)
@@ -199,6 +208,11 @@ class ParameterServiceTests(unittest.TestCase):
             {"rules": {"end": {"max_rounds": 0}}},
             {"rules": {"end": {"max_turns": 0}}},
             {"runtime": []},
+            {"runtime": {"seed": False}},
+            {"runtime": {"policy_mode": 123}},
+            {"runtime": {"runner_kind": ""}},
+            {"runtime": {"ai_decision_delay_ms": True}},
+            {"runtime": {"ai_decision_delay_ms": -1}},
             {"runtime": {"max_rounds": False}},
             {"runtime": {"max_turns": False}},
         ]

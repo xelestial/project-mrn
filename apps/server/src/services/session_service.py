@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import asdict
 import random
+import threading
 
 from apps.server.src.domain.protocol_identity import seat_protocol_fields
 from apps.server.src.domain.protocol_ids import new_public_player_id, new_seat_id, new_viewer_id
@@ -43,6 +44,7 @@ class SessionService:
         max_persisted_sessions: int = 200,
         restart_recovery_policy: str = "abort_in_progress",
     ) -> None:
+        self._lock = threading.RLock()
         self._sessions: dict[str, Session] = {}
         self._parameter_resolver = parameter_resolver or GameParameterResolver()
         self._manifest_builder = manifest_builder or PublicManifestBuilder()
@@ -57,106 +59,112 @@ class SessionService:
         seats: list[dict],
         config: dict | None = None,
     ) -> Session:
-        self._refresh_from_store_if_backed()
-        raw_config = dict(config or {})
-        visibility = self.normalize_visibility(raw_config)
-        raw_config["visibility"] = visibility.value
-        try:
-            resolved_parameters = self._parameter_resolver.resolve(raw_config)
-        except ParameterValidationError as exc:
-            raise SessionStateError(str(exc)) from exc
-        normalized = self._normalize_seats(
-            seats,
-            resolved_parameters["seats"],
-            resolved_parameters.get("participants", {}),
-        )
-        session_id = f"sess_{secrets.token_urlsafe(18)}"
-        host_token = self._new_token("host")
-        join_tokens: dict[int, str] = {}
+        with self._lock:
+            self._refresh_from_store_if_backed()
+            raw_config = dict(config or {})
+            visibility = self.normalize_visibility(raw_config)
+            raw_config["visibility"] = visibility.value
+            try:
+                resolved_parameters = self._parameter_resolver.resolve(raw_config)
+            except ParameterValidationError as exc:
+                raise SessionStateError(str(exc)) from exc
+            normalized = self._normalize_seats(
+                seats,
+                resolved_parameters["seats"],
+                resolved_parameters.get("participants", {}),
+            )
+            session_id = f"sess_{secrets.token_urlsafe(18)}"
+            host_token = self._new_token("host")
+            join_tokens: dict[int, str] = {}
 
-        for seat in normalized:
-            if seat.seat_type == SeatType.HUMAN:
-                join_tokens[seat.seat] = self._new_token(f"seat{seat.seat}")
+            for seat in normalized:
+                if seat.seat_type == SeatType.HUMAN:
+                    join_tokens[seat.seat] = self._new_token(f"seat{seat.seat}")
 
-        session = Session(
-            session_id=session_id,
-            status=SessionStatus.WAITING,
-            seats=normalized,
-            visibility=visibility,
-            config=raw_config,
-            host_token=host_token,
-            join_tokens=join_tokens,
-            resolved_parameters=resolved_parameters,
-            parameter_manifest=self._manifest_builder.build_public_manifest(resolved_parameters),
-        )
-        self._sessions[session_id] = session
-        self._persist_sessions()
-        return session
+            session = Session(
+                session_id=session_id,
+                status=SessionStatus.WAITING,
+                seats=normalized,
+                visibility=visibility,
+                config=raw_config,
+                host_token=host_token,
+                join_tokens=join_tokens,
+                resolved_parameters=resolved_parameters,
+                parameter_manifest=self._manifest_builder.build_public_manifest(resolved_parameters),
+            )
+            self._sessions[session_id] = session
+            self._persist_session(session)
+            return session
 
     def list_sessions(self) -> list[Session]:
-        self._refresh_from_store_if_backed()
-        return list(self._sessions.values())
+        with self._lock:
+            self._refresh_from_store_if_backed()
+            return list(self._sessions.values())
 
     def refresh_from_store(self) -> None:
-        self._refresh_from_store_if_backed()
+        with self._lock:
+            self._refresh_from_store_if_backed()
 
     def get_session(self, session_id: str) -> Session:
-        self._refresh_from_store_if_backed()
-        session = self._sessions.get(session_id)
-        if session is None:
-            raise SessionNotFoundError(session_id)
-        return session
+        with self._lock:
+            self._refresh_from_store_if_backed()
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise SessionNotFoundError(session_id)
+            return session
 
     def join_session(self, session_id: str, seat: int, join_token: str, display_name: str | None = None) -> dict:
-        session = self.get_session(session_id)
-        if session.status != SessionStatus.WAITING:
-            raise SessionStateError("session_not_joinable")
+        with self._lock:
+            session = self.get_session(session_id)
+            if session.status != SessionStatus.WAITING:
+                raise SessionStateError("session_not_joinable")
 
-        token_expected = session.join_tokens.get(seat)
-        if token_expected is None or token_expected != join_token:
-            raise SessionStateError("invalid_join_token")
+            token_expected = session.join_tokens.get(seat)
+            if token_expected is None or token_expected != join_token:
+                raise SessionStateError("invalid_join_token")
 
-        seat_cfg = self._find_seat(session, seat)
-        if seat_cfg.seat_type != SeatType.HUMAN:
-            raise SessionStateError("seat_not_human")
-        if seat_cfg.player_id is not None:
-            raise SessionStateError("seat_already_joined")
+            seat_cfg = self._find_seat(session, seat)
+            if seat_cfg.seat_type != SeatType.HUMAN:
+                raise SessionStateError("seat_not_human")
+            if seat_cfg.player_id is not None:
+                raise SessionStateError("seat_already_joined")
 
-        seat_cfg.player_id = seat
-        self._ensure_join_identity(seat_cfg)
-        seat_cfg.display_name = (
-            str(display_name).strip()[:24]
-            if isinstance(display_name, str) and display_name.strip()
-            else f"Player {seat}"
-        )
-        seat_cfg.connected = False
-        session_token = self._new_token(f"session_p{seat}")
-        session.session_tokens[seat] = session_token
-        self._persist_sessions()
-        result = {
-            "session_id": session.session_id,
-            "seat": seat,
-            "player_id": seat_cfg.player_id,
-            "display_name": seat_cfg.display_name,
-            "session_token": session_token,
-            "role": "seat",
-        }
-        result.update(seat_protocol_fields(seat_cfg))
-        return result
+            seat_cfg.player_id = seat
+            self._ensure_join_identity(seat_cfg)
+            seat_cfg.display_name = (
+                str(display_name).strip()[:24]
+                if isinstance(display_name, str) and display_name.strip()
+                else f"Player {seat}"
+            )
+            seat_cfg.connected = False
+            session_token = self._new_token(f"session_p{seat}")
+            session.session_tokens[seat] = session_token
+            self._persist_session(session)
+            result = {
+                "session_id": session.session_id,
+                "seat": seat,
+                "player_id": seat_cfg.player_id,
+                "display_name": seat_cfg.display_name,
+                "session_token": session_token,
+                "role": "seat",
+            }
+            result.update(seat_protocol_fields(seat_cfg))
+            return result
 
     def start_session(self, session_id: str, host_token: str) -> Session:
-        session = self.get_session(session_id)
-        if session.host_token != host_token:
-            raise SessionStateError("invalid_host_token")
-        if session.status != SessionStatus.WAITING:
-            raise SessionStateError("session_not_startable")
-        if not self._all_required_humans_joined(session):
-            raise SessionStateError("human_seats_not_ready")
-        session.status = SessionStatus.IN_PROGRESS
-        session.started_at = utc_now_iso()
-        session.abort_reason = None
-        self._persist_sessions()
-        return session
+        with self._lock:
+            session = self.get_session(session_id)
+            if session.host_token != host_token:
+                raise SessionStateError("invalid_host_token")
+            if session.status != SessionStatus.WAITING:
+                raise SessionStateError("session_not_startable")
+            if not self._all_required_humans_joined(session):
+                raise SessionStateError("human_seats_not_ready")
+            session.status = SessionStatus.IN_PROGRESS
+            session.started_at = utc_now_iso()
+            session.abort_reason = None
+            self._persist_session(session)
+            return session
 
     def to_public(self, session: Session, *, include_private_identifier: bool = True) -> dict:
         seed = session.config.get("seed")
@@ -206,34 +214,38 @@ class SessionService:
         return result
 
     def mark_connected(self, session_id: str, seat: int, connected: bool) -> None:
-        session = self.get_session(session_id)
-        seat_cfg = self._find_seat(session, seat)
-        seat_cfg.connected = connected
-        self._persist_sessions()
+        with self._lock:
+            session = self.get_session(session_id)
+            seat_cfg = self._find_seat(session, seat)
+            seat_cfg.connected = connected
+            self._persist_session(session)
 
     def is_all_ai(self, session_id: str) -> bool:
         session = self.get_session(session_id)
         return all(seat.seat_type == SeatType.AI for seat in session.seats)
 
     def finish_session(self, session_id: str) -> None:
-        session = self.get_session(session_id)
-        if session.status == SessionStatus.IN_PROGRESS:
-            session.status = SessionStatus.COMPLETED
-            self._persist_sessions()
+        with self._lock:
+            session = self.get_session(session_id)
+            if session.status == SessionStatus.IN_PROGRESS:
+                session.status = SessionStatus.COMPLETED
+                self._persist_session(session)
 
     def delete_session(self, session_id: str) -> None:
-        self._refresh_from_store_if_backed()
-        removed = self._sessions.pop(session_id, None)
-        if removed is None:
-            return
-        self._persist_sessions()
+        with self._lock:
+            self._refresh_from_store_if_backed()
+            removed = self._sessions.pop(session_id, None)
+            if removed is None:
+                return
+            self._delete_persisted_session(session_id)
 
     def expire_session_tokens(self, session_id: str) -> None:
-        session = self.get_session(session_id)
-        session.session_tokens = {}
-        session.host_token = ""
-        session.join_tokens = {}
-        self._persist_sessions()
+        with self._lock:
+            session = self.get_session(session_id)
+            session.session_tokens = {}
+            session.host_token = ""
+            session.join_tokens = {}
+            self._persist_session(session)
 
     def to_create_result(self, session: Session) -> dict:
         data = self.to_public(session)
@@ -379,6 +391,43 @@ class SessionService:
             return
         payload = [self._session_to_payload(session) for session in self._sessions_for_persistence()]
         self._session_store.save_sessions(payload)
+
+    def _persist_session(self, session: Session) -> None:
+        if self._session_store is None:
+            return
+        save_session = getattr(self._session_store, "save_session", None)
+        if callable(save_session):
+            save_session(self._session_to_payload(session))
+            self._trim_persisted_sessions_if_needed()
+            return
+        self._persist_sessions()
+
+    def _delete_persisted_session(self, session_id: str) -> None:
+        if self._session_store is None:
+            return
+        delete_session = getattr(self._session_store, "delete_session", None)
+        if callable(delete_session):
+            delete_session(session_id)
+            return
+        self._persist_sessions()
+
+    def _trim_persisted_sessions_if_needed(self) -> None:
+        if self._session_store is None or len(self._sessions) <= self._max_persisted_sessions:
+            return
+        keep_ids = {session.session_id for session in self._sessions_for_persistence()}
+        remove_ids = [
+            session_id
+            for session_id in self._sessions
+            if session_id not in keep_ids
+        ]
+        if not remove_ids:
+            return
+        delete_session = getattr(self._session_store, "delete_session", None)
+        if callable(delete_session):
+            for session_id in remove_ids:
+                delete_session(session_id)
+            return
+        self._persist_sessions()
 
     def _load_from_store(self) -> None:
         if self._session_store is None:

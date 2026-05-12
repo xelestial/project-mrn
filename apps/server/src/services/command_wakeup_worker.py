@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Awaitable, Callable
+
+
+_RECENT_COMMAND_SCAN_LIMIT = 32
+_DEFAULT_CONSUMED_COMMAND_RESCAN_INTERVAL_MS = 2000
 
 
 class CommandStreamWakeupWorker:
@@ -14,6 +19,8 @@ class CommandStreamWakeupWorker:
         poll_interval_ms: int = 250,
         consumer_name: str = "runtime_wakeup",
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        consumed_command_rescan_interval_ms: int = _DEFAULT_CONSUMED_COMMAND_RESCAN_INTERVAL_MS,
+        monotonic_ms: Callable[[], int] | None = None,
     ) -> None:
         self._command_store = command_store
         self._session_service = session_service
@@ -21,7 +28,10 @@ class CommandStreamWakeupWorker:
         self._poll_interval_ms = max(50, int(poll_interval_ms))
         self._consumer_name = str(consumer_name or "runtime_wakeup")
         self._sleeper = sleeper
+        self._consumed_command_rescan_interval_ms = max(250, int(consumed_command_rescan_interval_ms))
+        self._monotonic_ms = monotonic_ms or (lambda: int(time.monotonic() * 1000))
         self._last_processed_seq: dict[str, int] = {}
+        self._last_consumed_command_scan_ms: dict[str, int] = {}
         self._reprocessed_consumed_commands: set[tuple[str, int, str]] = set()
 
     async def run_once(self, *, session_id: str | None = None) -> list[dict]:
@@ -32,29 +42,38 @@ class CommandStreamWakeupWorker:
             if not current_session_id:
                 continue
             last_seq = self._load_offset(current_session_id)
-            for command in self._command_store.list_commands(current_session_id):
-                seq = int(command.get("seq", 0))
-                if seq <= last_seq:
-                    if self._is_runtime_resume_command(command):
-                        status = self._runtime_service.runtime_status(current_session_id)
-                        if self._is_waiting_for_resume_command(status, command):
-                            request_id = self._command_request_id(command)
-                            reprocess_key = (current_session_id, seq, request_id)
-                            if reprocess_key in self._reprocessed_consumed_commands:
-                                continue
-                            await self._process_or_start_runtime(current_session_id, seq)
-                            self._reprocessed_consumed_commands.add(reprocess_key)
-                            wakeups.append(
-                                {
-                                    "session_id": current_session_id,
-                                    "command_seq": seq,
-                                    "command_type": command.get("type"),
-                                    "runtime_status": status.get("status"),
-                                    "reprocessed_consumed": True,
-                                }
-                            )
-                            break
+            latest_seq = self._latest_seq(current_session_id)
+            if latest_seq is not None and latest_seq <= last_seq and not self._is_consumed_command_scan_due(current_session_id):
+                continue
+
+            status = self._runtime_service.runtime_status(current_session_id)
+            if latest_seq is not None and latest_seq <= last_seq:
+                if not self._should_scan_consumed_resume_commands(current_session_id, status):
                     continue
+                self._mark_consumed_command_scan(current_session_id)
+                recent_commands = self._recent_commands(current_session_id)
+                reprocessed = await self._maybe_reprocess_consumed_resume_command(
+                    current_session_id,
+                    last_seq,
+                    recent_commands,
+                    status=status,
+                )
+                if reprocessed is not None:
+                    wakeups.append(reprocessed)
+                continue
+
+            recent_commands = self._recent_commands(current_session_id)
+            reprocessed = await self._maybe_reprocess_consumed_resume_command(
+                current_session_id,
+                last_seq,
+                recent_commands,
+                status=status,
+            )
+            if reprocessed is not None:
+                wakeups.append(reprocessed)
+                continue
+            for command in self._commands_after(current_session_id, last_seq, recent_commands):
+                seq = int(command.get("seq", 0))
                 status = self._runtime_service.runtime_status(current_session_id)
                 if self._should_process_resume_command(status, command):
                     if self._is_stale_waiting_command(status, command):
@@ -81,6 +100,79 @@ class CommandStreamWakeupWorker:
                     else:
                         break
         return wakeups
+
+    async def _maybe_reprocess_consumed_resume_command(
+        self,
+        session_id: str,
+        last_seq: int,
+        recent_commands: list[dict],
+        *,
+        status: dict | None = None,
+    ) -> dict | None:
+        for command in recent_commands:
+            seq = int(command.get("seq", 0))
+            if seq > last_seq or not self._is_runtime_resume_command(command):
+                continue
+            current_status = status if status is not None else self._runtime_service.runtime_status(session_id)
+            if not self._is_waiting_for_resume_command(current_status, command):
+                continue
+            request_id = self._command_request_id(command)
+            reprocess_key = (session_id, seq, request_id)
+            if reprocess_key in self._reprocessed_consumed_commands:
+                continue
+            await self._process_or_start_runtime(session_id, seq)
+            self._reprocessed_consumed_commands.add(reprocess_key)
+            return {
+                "session_id": session_id,
+                "command_seq": seq,
+                "command_type": command.get("type"),
+                "runtime_status": current_status.get("status"),
+                "reprocessed_consumed": True,
+            }
+        return None
+
+    def _latest_seq(self, session_id: str) -> int | None:
+        latest_seq = getattr(self._command_store, "latest_seq", None)
+        if not callable(latest_seq):
+            return None
+        return max(0, int(latest_seq(session_id)))
+
+    def _is_consumed_command_scan_due(self, session_id: str) -> bool:
+        last_scan_ms = self._last_consumed_command_scan_ms.get(session_id)
+        if last_scan_ms is None:
+            return True
+        return self._monotonic_ms() - last_scan_ms >= self._consumed_command_rescan_interval_ms
+
+    def _mark_consumed_command_scan(self, session_id: str) -> None:
+        self._last_consumed_command_scan_ms[session_id] = self._monotonic_ms()
+
+    def _should_scan_consumed_resume_commands(self, session_id: str, status: dict) -> bool:
+        if str(status.get("status") or "") not in {"waiting_input", "running"}:
+            return False
+        if not self._waiting_prompt_request_ids(status):
+            return False
+        return self._is_consumed_command_scan_due(session_id)
+
+    def _recent_commands(self, session_id: str) -> list[dict]:
+        list_recent = getattr(self._command_store, "list_recent_commands", None)
+        if callable(list_recent):
+            return list_recent(session_id, limit=_RECENT_COMMAND_SCAN_LIMIT)
+        return self._command_store.list_commands(session_id)
+
+    def _commands_after(self, session_id: str, last_seq: int, recent_commands: list[dict]) -> list[dict]:
+        if not recent_commands:
+            return []
+        last = max(0, int(last_seq))
+        latest_seq = self._command_seq(recent_commands[-1])
+        if latest_seq <= last:
+            return []
+        earliest_seq = self._command_seq(recent_commands[0])
+        if earliest_seq > last + 1:
+            list_after = getattr(self._command_store, "list_commands_after", None)
+            if callable(list_after):
+                return list_after(session_id, last, limit=_RECENT_COMMAND_SCAN_LIMIT)
+            return [command for command in self._command_store.list_commands(session_id) if self._command_seq(command) > last]
+        return [command for command in recent_commands if self._command_seq(command) > last]
 
     async def run(
         self,
@@ -148,6 +240,13 @@ class CommandStreamWakeupWorker:
         if callable(getattr(self._command_store, "save_consumer_offset", None)):
             self._command_store.save_consumer_offset(self._consumer_name, session_id, seq)
         self._last_processed_seq[session_id] = int(seq)
+
+    @staticmethod
+    def _command_seq(command: dict) -> int:
+        try:
+            return int(command.get("seq", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _is_runtime_observation_command(command: dict) -> bool:

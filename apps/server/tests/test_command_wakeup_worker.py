@@ -158,6 +158,106 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 21, None)])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
 
+    def test_wakeup_worker_skips_command_tail_when_offset_is_current(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-tail",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = _CountingRedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 22},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(status="waiting_input")
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+        )
+        for seq in range(1, 41):
+            command_store.append_command(
+                session.session_id,
+                "decision_resolved",
+                {"request_id": f"req_observation_{seq}", "choice_id": "roll"},
+                request_id=f"req_observation_{seq}",
+            )
+        command_store.save_consumer_offset("runtime_wakeup", session.session_id, 40)
+
+        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(wakeups, [])
+        self.assertEqual(command_store.full_list_calls, 0)
+        self.assertEqual(command_store.recent_list_calls, 0)
+        self.assertEqual(command_store.latest_seq_calls, 1)
+
+    def test_wakeup_worker_throttles_consumed_command_rescan(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-consumed-throttle",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = _CountingRedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 23},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(
+            status="waiting_input",
+            waiting_request_id="req_missing",
+            active_frame_id="turn:1:p0",
+            active_module_id="mod:turn:1:p0:dice",
+            active_module_type="DiceRollModule",
+            active_module_cursor="await_turn_prompt",
+        )
+        now_ms = 1000
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+            consumed_command_rescan_interval_ms=2000,
+            monotonic_ms=lambda: now_ms,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_resolved",
+            {"request_id": "req_observation", "choice_id": "roll"},
+            request_id="req_observation",
+        )
+        command_store.save_consumer_offset("runtime_wakeup", session.session_id, 1)
+
+        first = asyncio.run(worker.run_once(session_id=session.session_id))
+        second = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(first, [])
+        self.assertEqual(second, [])
+        self.assertEqual(command_store.recent_list_calls, 1)
+
+        now_ms = 3100
+        third = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(third, [])
+        self.assertEqual(command_store.recent_list_calls, 2)
+
     def test_wakeup_worker_reprocesses_consumed_command_when_checkpoint_still_waits(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(
@@ -938,6 +1038,26 @@ class _RuntimeProcessStub:
         self.processed.append((session_id, command_seq, consumer_name, seed, policy_mode))
         self._status = self._status_after_process
         return {"status": "committed"}
+
+
+class _CountingRedisCommandStore(RedisCommandStore):
+    def __init__(self, connection: RedisConnection) -> None:
+        super().__init__(connection)
+        self.full_list_calls = 0
+        self.recent_list_calls = 0
+        self.latest_seq_calls = 0
+
+    def list_commands(self, session_id: str) -> list[dict]:
+        self.full_list_calls += 1
+        return super().list_commands(session_id)
+
+    def list_recent_commands(self, session_id: str, *, limit: int = 32) -> list[dict]:
+        self.recent_list_calls += 1
+        return super().list_recent_commands(session_id, limit=limit)
+
+    def latest_seq(self, session_id: str) -> int:
+        self.latest_seq_calls += 1
+        return super().latest_seq(session_id)
 
 
 class _HealthRedis:

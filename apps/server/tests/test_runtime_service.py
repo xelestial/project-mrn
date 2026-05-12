@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import copy
 import json
 import os
@@ -122,6 +123,45 @@ warnings.filterwarnings(
     message="websockets\\.server\\.WebSocketServerProtocol is deprecated",
     category=DeprecationWarning,
 )
+
+
+class RuntimeEngineExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runtime_executor_limits_concurrent_engine_work(self) -> None:
+        runtime = RuntimeService(
+            session_service=SessionService(),
+            stream_service=StreamService(),
+            prompt_service=PromptService(),
+            runtime_engine_workers=1,
+        )
+        started: list[str] = []
+        first_entered = threading.Event()
+        release_first = threading.Event()
+
+        def blocking_transition(label: str) -> str:
+            started.append(label)
+            if label == "first":
+                first_entered.set()
+                release_first.wait(timeout=2.0)
+            return label
+
+        try:
+            first = asyncio.create_task(runtime._run_in_runtime_executor(blocking_transition, "first"))
+            deadline = time.monotonic() + 2.0
+            while not first_entered.is_set() and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            self.assertTrue(first_entered.is_set())
+
+            second = asyncio.create_task(runtime._run_in_runtime_executor(blocking_transition, "second"))
+            await asyncio.sleep(0.05)
+            self.assertEqual(started, ["first"])
+
+            release_first.set()
+            self.assertEqual(await first, "first")
+            self.assertEqual(await second, "second")
+            self.assertEqual(started, ["first", "second"])
+        finally:
+            release_first.set()
+            runtime._runtime_executor.shutdown(wait=True, cancel_futures=True)
 
 
 class RuntimeServiceTests(unittest.TestCase):
@@ -1148,6 +1188,63 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_fanout_event_stream_drops_publish_timeout_without_blocking_runtime(self) -> None:
+        class StreamStub:
+            async def latest_seq(self, session_id: str) -> int:
+                del session_id
+                return 0
+
+            async def publish(self, session_id: str, event_type: str, payload: dict) -> _PublishedEventStub:
+                del session_id, event_type, payload
+                return _PublishedEventStub(1)
+
+        cancelled = False
+
+        class FutureStub:
+            def __init__(self, value=None, *, timeout: bool = False) -> None:
+                self._value = value
+                self._timeout = timeout
+
+            def result(self, timeout=None):
+                self.timeout_arg = timeout
+                if timeout is None:
+                    raise AssertionError("fanout stream wait must use a timeout")
+                if self._timeout:
+                    raise concurrent.futures.TimeoutError()
+                return self._value
+
+            def cancel(self) -> None:
+                nonlocal cancelled
+                cancelled = True
+
+        calls = 0
+
+        def fake_run_coroutine_threadsafe(coro, loop):
+            nonlocal calls
+            del loop
+            calls += 1
+            coro.close()
+            if calls == 1:
+                return FutureStub(0)
+            return FutureStub(timeout=True)
+
+        fanout = _FanoutVisEventStream(
+            object(),
+            StreamStub(),
+            "sess_fanout_timeout",
+            lambda _session_id: None,
+        )
+
+        with patch(
+            "apps.server.src.services.runtime_service.asyncio.run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ), patch("apps.server.src.services.runtime_service.log_event") as log_event:
+            fanout.append(_DebugEventStub({"event_type": "dice_roll"}))
+
+        self.assertTrue(cancelled)
+        log_event.assert_called_once()
+        self.assertEqual(log_event.call_args.args[0], "runtime_event_stream_publish_failed")
+
     def test_public_runtime_status_does_not_expose_canonical_current_state(self) -> None:
         session = self.session_service.create_session(
             seats=[
@@ -1981,6 +2078,9 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(result["module_transition_count"], 3)
         self.assertEqual(result["redis_commit_count"], 1)
         self.assertEqual(result["view_commit_count"], 1)
+        self.assertGreaterEqual(result["engine_loop_total_ms"], result["command_boundary_finalization_ms"])
+        self.assertGreaterEqual(result["engine_prepare_ms"], 0)
+        self.assertGreaterEqual(result["engine_transition_loop_ms"], 0)
         self.assertEqual(calls, [("runtime_wakeup", 7), (None, None), (None, None)])
         self.assertEqual(len(store.commits), 1)
         self.assertEqual(store.commits[0]["current_state"]["transition_index"], 3)
@@ -2027,6 +2127,10 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(timing["consumer_name"], "runtime_wakeup")
         self.assertEqual(timing["result_status"], "waiting_input")
         self.assertGreaterEqual(timing["total_ms"], 1)
+        self.assertGreaterEqual(timing["pre_executor_ms"], 0)
+        self.assertGreaterEqual(timing["executor_wall_ms"], 1)
+        self.assertIn("engine_loop_total_ms", timing)
+        self.assertIn("executor_overhead_ms", timing)
 
     def test_process_command_once_refreshes_runtime_lease_while_transition_runs(self) -> None:
         session = self.session_service.create_session(

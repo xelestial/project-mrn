@@ -32,11 +32,12 @@ services:
       redis:
         condition: service_healthy
     environment:
-      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_URL: ${MRN_REDIS_URL:-redis://redis:6379/0}
       MRN_REDIS_KEY_PREFIX: ${MRN_REDIS_KEY_PREFIX:-mrn:protocol}
       MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
       MRN_ARCHIVE_HOT_RETENTION_SECONDS: "3600"
       MRN_RESTART_RECOVERY_POLICY: ${MRN_RESTART_RECOVERY_POLICY:-abort_in_progress}
+      MRN_RUNTIME_ENGINE_WORKERS: ${MRN_RUNTIME_ENGINE_WORKERS:-8}
       MRN_LOG_LEVEL: INFO
       MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
       MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}
@@ -67,7 +68,7 @@ services:
       server:
         condition: service_healthy
     environment:
-      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_URL: ${MRN_REDIS_URL:-redis://redis:6379/0}
       MRN_REDIS_KEY_PREFIX: ${MRN_REDIS_KEY_PREFIX:-mrn:protocol}
       MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
       MRN_RESTART_RECOVERY_POLICY: keep
@@ -89,11 +90,12 @@ services:
       server:
         condition: service_healthy
     environment:
-      MRN_REDIS_URL: redis://redis:6379/0
+      MRN_REDIS_URL: ${MRN_REDIS_URL:-redis://redis:6379/0}
       MRN_REDIS_KEY_PREFIX: ${MRN_REDIS_KEY_PREFIX:-mrn:protocol}
       MRN_GAME_LOG_ARCHIVE_PATH: /app/data/game_logs
       MRN_RESTART_RECOVERY_POLICY: keep
       MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS: "250"
+      MRN_RUNTIME_ENGINE_WORKERS: ${MRN_RUNTIME_ENGINE_WORKERS:-8}
       MRN_LOG_LEVEL: INFO
       MRN_DEBUG_GAME_LOGS: ${MRN_DEBUG_GAME_LOGS:-0}
       MRN_DEBUG_GAME_LOG_DIR: ${MRN_DEBUG_GAME_LOG_DIR:-/app/.log}

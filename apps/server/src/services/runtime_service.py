@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import copy
+import functools
 import inspect
 import json
 import os
@@ -49,6 +50,7 @@ from apps.server.src.services.realtime_persistence import ViewCommitSequenceConf
 _VIEW_COMMIT_SCHEMA_VERSION = 1
 _PROMPT_BOUNDARY_PUBLISH_TIMEOUT_SECONDS = 5.0
 _PROMPT_BOUNDARY_PUBLISH_ATTEMPTS = 3
+_EVENT_STREAM_PUBLISH_TIMEOUT_SECONDS = 1.0
 
 
 def _duration_ms(started: float) -> int:
@@ -673,6 +675,8 @@ class RuntimeService:
         runtime_state_store=None,
         game_state_store=None,
         command_store=None,
+        runtime_engine_workers: int | None = None,
+        runtime_executor: concurrent.futures.Executor | None = None,
     ) -> None:
         self._session_service = session_service
         self._stream_service = stream_service
@@ -689,6 +693,11 @@ class RuntimeService:
         self._runtime_state_store = runtime_state_store
         self._game_state_store = game_state_store
         self._command_store = command_store
+        self._runtime_engine_workers = self._resolve_runtime_engine_workers(runtime_engine_workers)
+        self._runtime_executor = runtime_executor or concurrent.futures.ThreadPoolExecutor(
+            max_workers=self._runtime_engine_workers,
+            thread_name_prefix="mrn-runtime",
+        )
         self._worker_id = f"runtime_{uuid.uuid4().hex[:12]}"
         self._lease_ttl_ms = max(5000, self._watchdog_timeout_ms * 2)
         self._active_command_sessions: set[str] = set()
@@ -696,6 +705,26 @@ class RuntimeService:
         self._held_runtime_leases: set[str] = set()
         self._runtime_lease_tracking_lock = threading.Lock()
         self._initialize_recovery_state()
+
+    @staticmethod
+    def _resolve_runtime_engine_workers(value: int | None) -> int:
+        if value is None:
+            raw = os.getenv("MRN_RUNTIME_ENGINE_WORKERS", "").strip()
+            if raw:
+                try:
+                    value = int(raw)
+                except ValueError:
+                    value = None
+        if value is None:
+            value = max(1, min(8, os.cpu_count() or 1))
+        return max(1, int(value))
+
+    async def _run_in_runtime_executor(self, func, /, *args, **kwargs):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._runtime_executor,
+            functools.partial(func, *args, **kwargs),
+        )
 
     def add_session_completed_callback(self, callback) -> None:
         if callback is None:
@@ -1442,7 +1471,9 @@ class RuntimeService:
             self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
             self._persist_runtime_state(session_id)
             loop = asyncio.get_running_loop()
-            result = await asyncio.to_thread(
+            pre_executor_ms = _duration_ms(process_started)
+            executor_started = time.perf_counter()
+            result = await self._run_in_runtime_executor(
                 self._run_engine_transition_loop_sync,
                 loop,
                 session_id,
@@ -1451,7 +1482,13 @@ class RuntimeService:
                 first_command_consumer_name=consumer_name,
                 first_command_seq=command_seq,
             )
+            executor_wall_ms = _duration_ms(executor_started)
             status = str(result.get("status", ""))
+            total_ms = _duration_ms(process_started)
+            engine_loop_total_ms = result.get("engine_loop_total_ms")
+            executor_overhead_ms = None
+            if isinstance(engine_loop_total_ms, int):
+                executor_overhead_ms = max(0, executor_wall_ms - engine_loop_total_ms)
             log_event(
                 "runtime_command_process_timing",
                 session_id=session_id,
@@ -1477,7 +1514,13 @@ class RuntimeService:
                 authoritative_commit_ms=result.get("authoritative_commit_ms"),
                 view_commit_emit_ms=result.get("view_commit_emit_ms"),
                 prompt_materialize_ms=result.get("prompt_materialize_ms"),
-                total_ms=_duration_ms(process_started),
+                pre_executor_ms=pre_executor_ms,
+                executor_wall_ms=executor_wall_ms,
+                engine_loop_total_ms=engine_loop_total_ms,
+                engine_prepare_ms=result.get("engine_prepare_ms"),
+                engine_transition_loop_ms=result.get("engine_transition_loop_ms"),
+                executor_overhead_ms=executor_overhead_ms,
+                total_ms=total_ms,
             )
             if status == "waiting_input":
                 self._status[session_id] = {"status": "waiting_input", "watchdog_state": "waiting_input", "last_transition": result}
@@ -1589,7 +1632,7 @@ class RuntimeService:
     ) -> None:
         loop = asyncio.get_running_loop()
         try:
-            result = await asyncio.to_thread(
+            result = await self._run_in_runtime_executor(
                 self._run_engine_sync,
                 loop,
                 session_id,
@@ -1682,6 +1725,7 @@ class RuntimeService:
         first_command_consumer_name: str | None = None,
         first_command_seq: int | None = None,
     ) -> dict:
+        loop_started = time.perf_counter()
         if first_command_seq is not None and self._game_state_store is not None:
             return self._run_engine_command_boundary_loop_sync(
                 loop,
@@ -1713,15 +1757,15 @@ class RuntimeService:
             transitions += 1
             status = str(last_step.get("status", ""))
             if status in {"completed", "unavailable", "waiting_input", "rejected", "stale"}:
-                return {**last_step, "transitions": transitions}
+                return {**last_step, "transitions": transitions, "engine_loop_total_ms": _duration_ms(loop_started)}
             if self._prompt_service is not None and self._prompt_service.has_pending_for_session(session_id):
                 current = dict(self._status.get(session_id, {"status": "running"}))
                 current["status"] = "waiting_input"
                 current["watchdog_state"] = "waiting_input"
                 self._status[session_id] = current
                 self._persist_runtime_state(session_id)
-                return {**last_step, "status": "waiting_input", "transitions": transitions}
-        return {**last_step, "transitions": transitions}
+                return {**last_step, "status": "waiting_input", "transitions": transitions, "engine_loop_total_ms": _duration_ms(loop_started)}
+        return {**last_step, "transitions": transitions, "engine_loop_total_ms": _duration_ms(loop_started)}
 
     def _prepare_runtime_transition_context_sync(
         self,
@@ -1843,6 +1887,7 @@ class RuntimeService:
         first_command_consumer_name: str | None,
         first_command_seq: int,
     ) -> dict:
+        loop_started = time.perf_counter()
         if self._game_state_store is None:
             raise RuntimeError("command_boundary_requires_game_state_store")
         original_store = self._game_state_store
@@ -1856,6 +1901,7 @@ class RuntimeService:
         module_trace: list[dict] = []
         checkpoint_command_consumer_name = first_command_consumer_name
         checkpoint_command_seq = int(first_command_seq)
+        prepare_started = time.perf_counter()
         transition_context = self._prepare_runtime_transition_context_sync(
             loop,
             session_id,
@@ -1864,6 +1910,8 @@ class RuntimeService:
             publish_external_side_effects=False,
             game_state_store_override=boundary_store,
         )
+        engine_prepare_ms = _duration_ms(prepare_started)
+        transition_loop_started = time.perf_counter()
         while max_transitions is None or transitions < max(1, int(max_transitions)):
             command_consumer_name = first_command_consumer_name if transitions == 0 else None
             command_seq = int(first_command_seq) if transitions == 0 else None
@@ -1885,6 +1933,7 @@ class RuntimeService:
             module_trace.append(self._command_module_trace_entry(transitions, last_step))
             if _is_command_boundary_terminal_status(last_step.get("status")):
                 break
+        engine_transition_loop_ms = _duration_ms(transition_loop_started)
 
         finalization_started = time.perf_counter()
         finalization_phase_started = finalization_started
@@ -1942,6 +1991,9 @@ class RuntimeService:
             "terminal_boundary_reason": terminal_reason,
             "module_trace": module_trace,
             "command_boundary_finalization_ms": finalization_total_ms,
+            "engine_loop_total_ms": _duration_ms(loop_started),
+            "engine_prepare_ms": engine_prepare_ms,
+            "engine_transition_loop_ms": engine_transition_loop_ms,
             **finalization_timings,
         }
 
@@ -5488,22 +5540,51 @@ class _FanoutVisEventStream:
         self._human_player_ids = frozenset(int(player_id) for player_id in (human_player_ids or []))
         self._spectator_event_delay_ms = max(0, int(spectator_event_delay_ms))
 
+    def _run_stream_operation(self, failure_event: str, operation: str, coroutine_factory):
+        coro = None
+        future: concurrent.futures.Future | None = None
+        started = time.perf_counter()
+        try:
+            coro = coroutine_factory()
+            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return future.result(timeout=_EVENT_STREAM_PUBLISH_TIMEOUT_SECONDS)
+        except Exception as exc:
+            if future is not None and isinstance(exc, concurrent.futures.TimeoutError):
+                future.cancel()
+            if future is None and inspect.iscoroutine(coro):
+                coro.close()
+            log_event(
+                failure_event,
+                session_id=self._session_id,
+                operation=operation,
+                timeout_seconds=_EVENT_STREAM_PUBLISH_TIMEOUT_SECONDS,
+                duration_ms=_duration_ms(started),
+                error=str(exc).strip() or exc.__class__.__name__,
+                exception_type=exc.__class__.__name__,
+                exception_repr=repr(exc),
+            )
+            return None
+
     def append(self, event) -> None:
         self._events.append(event)
         self._touch_activity(self._session_id)
         payload = event.to_dict()
         latest_seq = 0
         if callable(getattr(self._stream_service, "latest_seq", None)):
-            latest_seq_fut = asyncio.run_coroutine_threadsafe(
-                self._stream_service.latest_seq(self._session_id),
-                self._loop,
+            latest_seq_value = self._run_stream_operation(
+                "runtime_event_stream_latest_seq_failed",
+                "latest_seq",
+                lambda: self._stream_service.latest_seq(self._session_id),
             )
-            latest_seq = int(latest_seq_fut.result() or 0)
-        fut = asyncio.run_coroutine_threadsafe(
-            self._stream_service.publish(self._session_id, "event", payload),
-            self._loop,
+            if latest_seq_value is not None:
+                latest_seq = int(latest_seq_value or 0)
+        published = self._run_stream_operation(
+            "runtime_event_stream_publish_failed",
+            "publish",
+            lambda: self._stream_service.publish(self._session_id, "event", payload),
         )
-        published = fut.result()
+        if published is None:
+            return
         published_seq = int(getattr(published, "seq", 0) or 0)
         if published_seq > latest_seq:
             write_game_debug_log(

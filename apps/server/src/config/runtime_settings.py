@@ -4,6 +4,10 @@ import os
 from dataclasses import dataclass
 
 
+def _default_runtime_engine_workers() -> int:
+    return max(1, min(8, os.cpu_count() or 1))
+
+
 def _env_int(name: str, default: int, minimum: int) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -56,6 +60,7 @@ class RuntimeSettings:
     archive_hot_retention_seconds: int = 3600
     prompt_timeout_worker_poll_interval_ms: int = 250
     command_wakeup_worker_poll_interval_ms: int = 250
+    runtime_engine_workers: int = 8
     admin_token: str = ""
     debug_game_logs_enabled: bool = False
     debug_game_log_dir: str = ".log"
@@ -91,6 +96,11 @@ def load_runtime_settings() -> RuntimeSettings:
         archive_hot_retention_seconds=_env_int_capped("MRN_ARCHIVE_HOT_RETENTION_SECONDS", 3600, 0, 3600),
         prompt_timeout_worker_poll_interval_ms=_env_int("MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS", 250, 50),
         command_wakeup_worker_poll_interval_ms=_env_int("MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS", 250, 50),
+        runtime_engine_workers=_env_int(
+            "MRN_RUNTIME_ENGINE_WORKERS",
+            _default_runtime_engine_workers(),
+            1,
+        ),
         admin_token=_env_str("MRN_ADMIN_TOKEN", ""),
         debug_game_logs_enabled=_env_bool("MRN_DEBUG_GAME_LOGS", False),
         debug_game_log_dir=_env_str("MRN_DEBUG_GAME_LOG_DIR", ".log"),

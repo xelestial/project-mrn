@@ -359,6 +359,7 @@ export function buildHeadlessHumanSessionPayload({
       seed,
       visibility: "public",
       runtime: {
+        ai_decision_delay_ms: 0,
         ...runtimeConfig,
         seed,
       },

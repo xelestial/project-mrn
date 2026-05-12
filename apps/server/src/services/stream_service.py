@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 
 from apps.server.src.domain.protocol_ids import new_event_id
 from apps.server.src.domain.runtime_semantic_guard import validate_stream_payload
 from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer
+from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.persistence import StreamStore
 
 
@@ -59,6 +61,9 @@ class StreamService:
         self._game_state_store = game_state_store
         self._command_store = command_store
         self._player_name_resolver = player_name_resolver
+        self._view_commit_cache: OrderedDict[tuple[str, str], dict] = OrderedDict()
+        self._view_commit_cache_lock = threading.RLock()
+        self._view_commit_cache_max_entries = max(256, self._max_persisted_sessions * 8)
         self._load_from_store()
 
     async def publish(self, session_id: str, msg_type: str, payload: dict) -> StreamMessage:
@@ -296,9 +301,21 @@ class StreamService:
                 ViewerContext(role="spectator", session_id=session_id),
             )
             if cached is None:
+                log_event(
+                    "stream_emit_latest_view_commit",
+                    session_id=session_id,
+                    action="no_cached_commit",
+                    subscriber_count=len(self._subscribers.get(session_id, {})),
+                )
                 return None
             payload = cached.get("payload")
             if not isinstance(payload, dict):
+                log_event(
+                    "stream_emit_latest_view_commit",
+                    session_id=session_id,
+                    action="invalid_cached_payload",
+                    subscriber_count=len(self._subscribers.get(session_id, {})),
+                )
                 return None
             emitted_payload = dict(payload)
             outbox_scopes = self._view_commit_outbox_scopes_no_lock(session_id)
@@ -313,6 +330,16 @@ class StreamService:
             await self._broadcast(session_id, item)
             if self._stream_backend is None:
                 self._persist_stream_state()
+            log_event(
+                "stream_emit_latest_view_commit",
+                session_id=session_id,
+                action="broadcast_pointer",
+                stream_seq=item.seq,
+                commit_seq=self._commit_seq_from_payload(emitted_payload),
+                source_event_seq=emitted_payload.get("source_event_seq"),
+                subscriber_count=len(self._subscribers.get(session_id, {})),
+                outbox_scope_count=len(outbox_scopes),
+            )
             return item
 
     async def delete_session_data(self, session_id: str) -> None:
@@ -328,6 +355,7 @@ class StreamService:
                     self._command_store.delete_session_data(session_id)
             else:
                 self._persist_stream_state()
+            self._forget_view_commit_cache(session_id)
         async with self._subscriber_lock_for_session(session_id):
             self._subscribers.pop(session_id, None)
 
@@ -501,14 +529,39 @@ class StreamService:
         return item
 
     def _broadcast_no_lock(self, session_id: str, item: StreamMessage) -> None:
-        for queue in self._subscribers.get(session_id, {}).values():
-            dropped = self._offer_latest(queue, item.to_dict())
+        subscribers = self._subscribers.get(session_id, {})
+        dropped_count = 0
+        full_before_count = 0
+        max_depth_before = 0
+        min_depth_before: int | None = None
+        message = item.to_dict()
+        for queue in subscribers.values():
+            depth_before = queue.qsize()
+            max_depth_before = max(max_depth_before, depth_before)
+            min_depth_before = depth_before if min_depth_before is None else min(min_depth_before, depth_before)
+            if queue.full():
+                full_before_count += 1
+            dropped = self._offer_latest(queue, message)
             if not dropped:
                 continue
+            dropped_count += 1
             if self._stream_backend is not None:
                 self._stream_backend.increment_drop_count(session_id, 1)
             else:
                 self._drop_counts[session_id] += 1
+        if item.type == "view_commit":
+            log_event(
+                "stream_broadcast_delivery",
+                session_id=session_id,
+                action="offered",
+                stream_seq=item.seq,
+                commit_seq=self._commit_seq_from_payload(item.payload),
+                subscriber_count=len(subscribers),
+                dropped_count=dropped_count,
+                full_before_count=full_before_count,
+                min_depth_before=0 if min_depth_before is None else min_depth_before,
+                max_depth_before=max_depth_before,
+            )
 
     def _history_records_no_lock(self, session_id: str) -> list[dict]:
         if self._stream_backend is not None:
@@ -699,7 +752,11 @@ class StreamService:
         payload = message.get("payload")
         if not session_id or not isinstance(payload, dict):
             return None
-        cached = self._load_cached_view_commit_no_lock(session_id, viewer)
+        cached = self._load_cached_view_commit_no_lock(
+            session_id,
+            viewer,
+            expected_commit_seq=self._commit_seq_from_payload(payload),
+        )
         if cached is not None:
             cached["seq"] = self._message_seq(message)
             cached["server_time_ms"] = int(message.get("server_time_ms", 0) or cached.get("server_time_ms") or 0)
@@ -753,11 +810,17 @@ class StreamService:
             "payload": payload,
         }
 
-    def _load_cached_view_commit_no_lock(self, session_id: str, viewer: ViewerContext) -> dict | None:
+    def _load_cached_view_commit_no_lock(
+        self,
+        session_id: str,
+        viewer: ViewerContext,
+        *,
+        expected_commit_seq: int | None = None,
+    ) -> dict | None:
         if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_view_commit", None)):
             return None
-        expected_commit_seq = 0
-        if callable(getattr(self._game_state_store, "load_view_commit_index", None)):
+        expected_commit_seq = max(0, int(expected_commit_seq or 0))
+        if expected_commit_seq <= 0 and callable(getattr(self._game_state_store, "load_view_commit_index", None)):
             index = self._game_state_store.load_view_commit_index(session_id)
             if isinstance(index, dict):
                 expected_commit_seq = self._commit_seq_from_payload({"commit_seq": index.get("latest_commit_seq")})
@@ -772,20 +835,45 @@ class StreamService:
             candidates.append(("spectator", None))
             candidates.append(("public", None))
         payload = None
+        skipped_stale: list[dict[str, int | str | None]] = []
+        missing_candidates: list[str] = []
         for candidate_viewer, candidate_player_id in candidates:
+            candidate_label = self._view_commit_candidate_label(candidate_viewer, candidate_player_id)
+            cached_payload = self._cached_view_commit_payload(session_id, candidate_label, expected_commit_seq)
+            if cached_payload is not None:
+                payload = cached_payload
+                break
             candidate = self._game_state_store.load_view_commit(
                 session_id,
                 candidate_viewer,
                 player_id=candidate_player_id,
             )
             if not isinstance(candidate, dict):
+                missing_candidates.append(candidate_label)
                 continue
             candidate_commit_seq = self._commit_seq_from_payload(candidate)
             if expected_commit_seq > 0 and candidate_commit_seq < expected_commit_seq:
+                skipped_stale.append(
+                    {
+                        "viewer": candidate_label,
+                        "commit_seq": candidate_commit_seq,
+                    }
+                )
                 continue
             payload = candidate
+            self._remember_view_commit_payload(session_id, candidate_label, payload)
             break
         if not isinstance(payload, dict):
+            if expected_commit_seq > 0:
+                log_event(
+                    "stream_cached_view_commit_lookup",
+                    session_id=session_id,
+                    action="no_usable_candidate",
+                    viewer=self._viewer_label(viewer),
+                    expected_commit_seq=expected_commit_seq,
+                    missing_candidates=missing_candidates,
+                    skipped_stale=skipped_stale,
+                )
             return None
         return {
             "type": "view_commit",
@@ -794,6 +882,47 @@ class StreamService:
             "server_time_ms": int(time.time() * 1000),
             "payload": payload,
         }
+
+    def _cached_view_commit_payload(self, session_id: str, viewer_label: str, expected_commit_seq: int) -> dict | None:
+        key = (session_id, viewer_label)
+        with self._view_commit_cache_lock:
+            payload = self._view_commit_cache.get(key)
+            if not isinstance(payload, dict):
+                return None
+            commit_seq = self._commit_seq_from_payload(payload)
+            if expected_commit_seq > 0 and commit_seq < expected_commit_seq:
+                self._view_commit_cache.pop(key, None)
+                return None
+            self._view_commit_cache.move_to_end(key)
+            return payload
+
+    def _remember_view_commit_payload(self, session_id: str, viewer_label: str, payload: dict) -> None:
+        with self._view_commit_cache_lock:
+            self._view_commit_cache[(session_id, viewer_label)] = payload
+            self._view_commit_cache.move_to_end((session_id, viewer_label))
+            while len(self._view_commit_cache) > self._view_commit_cache_max_entries:
+                self._view_commit_cache.popitem(last=False)
+
+    def _forget_view_commit_cache(self, session_id: str) -> None:
+        with self._view_commit_cache_lock:
+            for key in [key for key in self._view_commit_cache if key[0] == session_id]:
+                self._view_commit_cache.pop(key, None)
+
+    @staticmethod
+    def _view_commit_candidate_label(viewer: str, player_id: int | None) -> str:
+        if viewer == "player":
+            return f"player:{player_id}" if player_id is not None else "player"
+        return viewer
+
+    @staticmethod
+    def _viewer_label(viewer: ViewerContext) -> str:
+        if viewer.is_seat:
+            return f"player:{viewer.player_id}" if viewer.player_id is not None else "seat"
+        if viewer.is_admin:
+            return "admin"
+        if viewer.is_backend:
+            return "backend"
+        return viewer.role or "spectator"
 
     def _view_commit_outbox_scopes_no_lock(self, session_id: str) -> list[str]:
         if self._game_state_store is None or not callable(getattr(self._game_state_store, "load_view_commit_index", None)):

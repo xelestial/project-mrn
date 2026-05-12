@@ -28,6 +28,7 @@ from apps.server.tests.prompt_payloads import module_prompt
 class _CachedViewCommitStore:
     def __init__(self) -> None:
         self._commits: dict[tuple[str, str, int | None], dict] = {}
+        self._indexes: dict[str, dict] = {}
 
     def apply_stream_message(self, _message: dict) -> None:
         return None
@@ -35,8 +36,25 @@ class _CachedViewCommitStore:
     def load_view_commit(self, session_id: str, viewer: str, *, player_id: int | None = None) -> dict | None:
         return self._commits.get((session_id, viewer, player_id if viewer == "player" else None))
 
+    def load_view_commit_index(self, session_id: str) -> dict | None:
+        return self._indexes.get(session_id)
+
     def save_view_commit(self, session_id: str, payload: dict, *, viewer: str, player_id: int | None = None) -> None:
         self._commits[(session_id, viewer, player_id if viewer == "player" else None)] = dict(payload)
+        label = f"player:{player_id}" if viewer == "player" and player_id is not None else viewer
+        index = self._indexes.setdefault(session_id, {"schema_version": 1})
+        viewers = set(str(item) for item in index.get("view_commit_viewers", []))
+        viewers.add(label)
+        index["view_commit_viewers"] = sorted(viewers)
+        index["latest_commit_seq"] = max(
+            int(index.get("latest_commit_seq") or 0),
+            int(payload.get("commit_seq") or 0),
+        )
+        index["latest_source_event_seq"] = max(
+            int(index.get("latest_source_event_seq") or 0),
+            int(payload.get("source_event_seq") or 0),
+        )
+        index["has_view_commit"] = True
 
 
 def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> None:
@@ -197,6 +215,14 @@ class StreamApiTests(unittest.TestCase):
         self.assertTrue(_should_send_heartbeat_view_commit(queue))
         queue.put_nowait({"type": "decision_ack", "seq": 8})
         self.assertFalse(_should_send_heartbeat_view_commit(queue))
+
+    def test_stale_raw_view_commit_can_be_suppressed_before_projection(self) -> None:
+        from apps.server.src.routes.stream import _should_suppress_stale_raw_view_commit
+
+        self.assertTrue(_should_suppress_stale_raw_view_commit(raw_commit_seq=25, last_commit_seq=27))
+        self.assertTrue(_should_suppress_stale_raw_view_commit(raw_commit_seq=27, last_commit_seq=27))
+        self.assertFalse(_should_suppress_stale_raw_view_commit(raw_commit_seq=28, last_commit_seq=27))
+        self.assertFalse(_should_suppress_stale_raw_view_commit(raw_commit_seq=0, last_commit_seq=27))
 
     def test_resume_uses_latest_view_commit_without_gap_replay(self) -> None:
         from apps.server.src import state
@@ -926,6 +952,64 @@ class StreamApiTests(unittest.TestCase):
 
         asyncio.run(_scenario())
         self.assertEqual(calls, [88, 88])
+
+    def test_direct_decision_ack_sends_once_and_marks_stream_seq_delivered(self) -> None:
+        from apps.server.src.routes import stream
+
+        class _WebSocket:
+            def __init__(self) -> None:
+                self.sent: list[dict] = []
+
+            async def send_json(self, payload: dict) -> None:
+                self.sent.append(payload)
+
+        class _StreamService:
+            async def project_message_for_viewer(self, message: dict, _viewer: ViewerContext) -> dict:
+                return dict(message)
+
+        async def _scenario() -> tuple[list[dict], set[int], bool, bool]:
+            websocket = _WebSocket()
+            delivered: set[int] = set()
+            ack_message = {
+                "type": "decision_ack",
+                "seq": 17,
+                "session_id": "sess_direct_ack",
+                "payload": {
+                    "request_id": "r_direct_ack",
+                    "status": "accepted",
+                    "player_id": 1,
+                    "provider": "human",
+                },
+            }
+            first = await stream._send_direct_decision_ack(
+                websocket=websocket,  # type: ignore[arg-type]
+                stream_service=_StreamService(),
+                viewer=ViewerContext(role="seat", session_id="sess_direct_ack", player_id=1),
+                delivery_lock=asyncio.Lock(),
+                delivered_stream_seqs=delivered,
+                session_id="sess_direct_ack",
+                connection_id="conn_direct_ack",
+                ack_message=ack_message,
+            )
+            second = await stream._send_direct_decision_ack(
+                websocket=websocket,  # type: ignore[arg-type]
+                stream_service=_StreamService(),
+                viewer=ViewerContext(role="seat", session_id="sess_direct_ack", player_id=1),
+                delivery_lock=asyncio.Lock(),
+                delivered_stream_seqs=delivered,
+                session_id="sess_direct_ack",
+                connection_id="conn_direct_ack",
+                ack_message=ack_message,
+            )
+            return websocket.sent, delivered, first, second
+
+        sent, delivered, first, second = asyncio.run(_scenario())
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["type"], "decision_ack")
+        self.assertEqual(sent[0]["payload"]["request_id"], "r_direct_ack")
+        self.assertIn(17, delivered)
 
     def test_spectator_does_not_receive_prompt_or_decision_ack_for_seat(self) -> None:
         from apps.server.src import state

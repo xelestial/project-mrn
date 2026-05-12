@@ -88,6 +88,7 @@ class GameParameterResolver:
         cfg = self._load_default_config()
         raw = dict(session_config or {})
         seat_limits = self._resolve_seat_limits(raw=raw, default_player_count=int(cfg.player_count))
+        runtime = self._resolve_runtime(raw=raw, seat_limits=seat_limits)
         board_topology = self._resolve_board_topology(raw=raw)
         participant_defaults = self._resolve_participant_defaults(raw=raw)
         end_rules = self._resolve_end_rules(raw=raw, cfg=cfg)
@@ -118,11 +119,7 @@ class GameParameterResolver:
 
         return {
             "version": "v1",
-            "runtime": {
-                "seed": int(raw.get("seed", 42)),
-                "policy_mode": str(raw.get("policy_mode", "")).strip() or None,
-                "player_count": int(seat_limits["max"]),
-            },
+            "runtime": runtime,
             "participants": participant_defaults,
             "seats": seat_limits,
             "board": {
@@ -157,6 +154,50 @@ class GameParameterResolver:
             },
             "labels": labels,
         }
+
+    @staticmethod
+    def _resolve_runtime(raw: dict[str, Any], seat_limits: dict[str, Any]) -> dict[str, Any]:
+        runtime_raw = raw.get("runtime")
+        if runtime_raw is None:
+            runtime_raw = {}
+        if not isinstance(runtime_raw, dict):
+            raise ParameterValidationError("invalid_runtime_config")
+
+        seed_raw = runtime_raw.get("seed", raw.get("seed", 42))
+        if isinstance(seed_raw, bool):
+            raise ParameterValidationError("invalid_runtime_seed")
+        try:
+            seed = int(seed_raw)
+        except (TypeError, ValueError) as exc:
+            raise ParameterValidationError("invalid_runtime_seed") from exc
+
+        policy_mode_raw = runtime_raw.get("policy_mode", raw.get("policy_mode", None))
+        if policy_mode_raw is None:
+            policy_mode = None
+        elif isinstance(policy_mode_raw, str):
+            policy_mode = policy_mode_raw.strip() or None
+        else:
+            raise ParameterValidationError("invalid_runtime_policy_mode")
+
+        runtime: dict[str, Any] = {
+            "seed": seed,
+            "policy_mode": policy_mode,
+            "player_count": int(seat_limits["max"]),
+        }
+
+        runner_kind_raw = runtime_raw.get("runner_kind")
+        if runner_kind_raw is not None:
+            if not isinstance(runner_kind_raw, str) or not runner_kind_raw.strip():
+                raise ParameterValidationError("invalid_runtime_runner_kind")
+            runtime["runner_kind"] = runner_kind_raw.strip().lower()
+
+        ai_delay_raw = runtime_raw.get("ai_decision_delay_ms")
+        if ai_delay_raw is not None:
+            if isinstance(ai_delay_raw, bool) or not isinstance(ai_delay_raw, int) or ai_delay_raw < 0:
+                raise ParameterValidationError("invalid_runtime_ai_decision_delay_ms")
+            runtime["ai_decision_delay_ms"] = int(ai_delay_raw)
+
+        return runtime
 
     @staticmethod
     def _resolve_participant_defaults(raw: dict[str, Any]) -> dict[str, Any]:

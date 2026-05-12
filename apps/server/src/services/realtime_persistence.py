@@ -786,6 +786,28 @@ class RedisCommandStore:
     def list_commands(self, session_id: str) -> list[dict[str, Any]]:
         return [self._decode_stream_entry(entry_id, fields) for entry_id, fields in self._connection.client().xrange(self._stream_key(session_id))]
 
+    def list_recent_commands(self, session_id: str, *, limit: int = 32) -> list[dict[str, Any]]:
+        entries = self._connection.client().xrevrange(self._stream_key(session_id), count=max(1, int(limit)))
+        commands = [self._decode_stream_entry(entry_id, fields) for entry_id, fields in entries]
+        commands.reverse()
+        return commands
+
+    def list_commands_after(self, session_id: str, last_seq: int, *, limit: int = 32) -> list[dict[str, Any]]:
+        last = max(0, int(last_seq))
+        recent = self.list_recent_commands(session_id, limit=limit)
+        if not recent:
+            return []
+        latest_seq = self._command_seq(recent[-1])
+        if latest_seq <= last:
+            return []
+        earliest_seq = self._command_seq(recent[0])
+        if earliest_seq > last + 1:
+            return [command for command in self.list_commands(session_id) if self._command_seq(command) > last]
+        return [command for command in recent if self._command_seq(command) > last]
+
+    def latest_seq(self, session_id: str) -> int:
+        return self._latest_stream_seq(session_id)
+
     def load_consumer_offset(self, consumer_name: str, session_id: str) -> int:
         raw = self._connection.client().hget(self._offset_key(consumer_name), session_id)
         return int(raw) if isinstance(raw, str) and raw.lstrip("-").isdigit() else 0
@@ -854,6 +876,10 @@ class RedisCommandStore:
         if not isinstance(fields, dict):
             return 0
         return _int_or_default(_redis_text(fields.get("seq")), 0)
+
+    @staticmethod
+    def _command_seq(command: dict[str, Any]) -> int:
+        return _int_or_default(str(command.get("seq", 0)), 0)
 
     @staticmethod
     def _decode_stream_entry(entry_id: str, fields: dict[str, Any]) -> dict[str, Any]:

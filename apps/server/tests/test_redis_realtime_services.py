@@ -119,6 +119,24 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_command_store_lists_recent_commands_and_falls_back_after_gap(self) -> None:
+        command_store = RedisCommandStore(self.connection)
+        for seq in range(1, 7):
+            command_store.append_command(
+                "s-command-tail",
+                "decision_submitted",
+                {"request_id": f"req_{seq}", "choice_id": "roll"},
+                request_id=f"req_{seq}",
+            )
+
+        recent = command_store.list_recent_commands("s-command-tail", limit=2)
+        after_tail = command_store.list_commands_after("s-command-tail", 4, limit=2)
+        after_gap = command_store.list_commands_after("s-command-tail", 2, limit=2)
+
+        self.assertEqual([command["seq"] for command in recent], [5, 6])
+        self.assertEqual([command["seq"] for command in after_tail], [5, 6])
+        self.assertEqual([command["seq"] for command in after_gap], [3, 4, 5, 6])
+
     def test_stream_event_index_maps_event_id_to_source_sequence(self) -> None:
         stream_store = RedisStreamStore(self.connection)
         service = StreamService(stream_backend=stream_store)

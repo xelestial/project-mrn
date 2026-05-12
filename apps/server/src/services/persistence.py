@@ -49,6 +49,45 @@ class JsonFileSessionStore:
         payload["sessions"] = sessions
         self._write_json(payload)
 
+    def save_session(self, session: dict) -> None:
+        session_id = str(session.get("session_id", "")).strip()
+        if not session_id:
+            return
+        payload = self._read_json()
+        sessions = payload.get("sessions", [])
+        if not isinstance(sessions, list):
+            sessions = []
+        updated = False
+        next_sessions: list[dict] = []
+        for existing in sessions:
+            if not isinstance(existing, dict):
+                continue
+            if str(existing.get("session_id", "")).strip() == session_id:
+                next_sessions.append(session)
+                updated = True
+            else:
+                next_sessions.append(existing)
+        if not updated:
+            next_sessions.append(session)
+        payload["sessions"] = next_sessions
+        self._write_json(payload)
+
+    def delete_session(self, session_id: str) -> None:
+        target = str(session_id).strip()
+        if not target:
+            return
+        payload = self._read_json()
+        sessions = payload.get("sessions", [])
+        if not isinstance(sessions, list):
+            return
+        payload["sessions"] = [
+            session
+            for session in sessions
+            if isinstance(session, dict)
+            and str(session.get("session_id", "")).strip() != target
+        ]
+        self._write_json(payload)
+
     def load_room_state(self) -> dict:
         payload = self._read_json()
         room_state = payload.get("room_state")
@@ -115,6 +154,18 @@ class RedisSessionStore:
         if mapping:
             pipeline.hset(self._hash_key, mapping=mapping)
         pipeline.execute()
+
+    def save_session(self, session: dict) -> None:
+        session_id = str(session.get("session_id", "")).strip()
+        if not session_id:
+            return
+        self._connection.client().hset(self._hash_key, session_id, _json_dump(session))
+
+    def delete_session(self, session_id: str) -> None:
+        target = str(session_id).strip()
+        if not target:
+            return
+        self._connection.client().hdel(self._hash_key, target)
 
 
 class RedisRoomStore:

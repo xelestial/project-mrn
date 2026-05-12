@@ -74,7 +74,18 @@ describe("fullStackProtocolHarness", () => {
     expect(payload.config).toMatchObject({
       seed: 20260508,
       visibility: "public",
-      runtime: { seed: 20260508, policy_mode: "baseline" },
+      runtime: { seed: 20260508, policy_mode: "baseline", ai_decision_delay_ms: 0 },
+    });
+  });
+
+  it("preserves an explicit protocol server AI decision delay override", () => {
+    const payload = buildHeadlessHumanSessionPayload({
+      seed: 20260508,
+      config: { runtime: { ai_decision_delay_ms: 250 } },
+    });
+
+    expect(payload.config).toMatchObject({
+      runtime: { seed: 20260508, ai_decision_delay_ms: 250 },
     });
   });
 
