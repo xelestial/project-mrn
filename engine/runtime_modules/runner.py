@@ -427,7 +427,11 @@ class ModuleRunner:
         player = state.players[player_id]
         if module.module_type == "TrickChoiceModule":
             module.cursor = "await_trick_prompt"
+            previous_hidden_selection_suppression = bool(
+                getattr(engine, "_suppress_hidden_trick_selection", False)
+            )
             try:
+                setattr(engine, "_suppress_hidden_trick_selection", True)
                 deferred = engine._use_trick_phase(
                     state,
                     player,
@@ -438,6 +442,8 @@ class ModuleRunner:
                 module.suspension_id = frame.frame_id
                 frame.status = "suspended"
                 raise
+            finally:
+                setattr(engine, "_suppress_hidden_trick_selection", previous_hidden_selection_suppression)
             module.payload["deferred_followups"] = bool(deferred)
             self._copy_last_trick_result_to_resolve_module(state, frame, module, deferred=bool(deferred))
             self._complete_module(state, frame, module)
@@ -456,6 +462,26 @@ class ModuleRunner:
             self._complete_module(state, frame, module)
             self._complete_sequence_frame_if_drained(frame)
             return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}
+        if module.module_type == "TrickVisibilitySyncModule":
+            module.cursor = "await_hidden_trick_prompt"
+            sync_trick_visibility = getattr(engine, "_sync_trick_visibility", None)
+            try:
+                if callable(sync_trick_visibility):
+                    sync_trick_visibility(state, player)
+            except Exception:
+                module.status = "suspended"
+                module.suspension_id = frame.frame_id
+                frame.status = "suspended"
+                raise
+            self._complete_module(state, frame, module)
+            self._complete_sequence_frame_if_drained(frame)
+            return {
+                "status": "committed",
+                "module_type": module.module_type,
+                "frame_id": frame.frame_id,
+                "player_id": player_id + 1,
+                "hidden_trick_deck_index": getattr(player, "hidden_trick_deck_index", None),
+            }
         self._complete_module(state, frame, module)
         self._complete_sequence_frame_if_drained(frame)
         return {"status": "committed", "module_type": module.module_type, "frame_id": frame.frame_id}

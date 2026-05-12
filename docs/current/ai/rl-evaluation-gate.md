@@ -98,6 +98,7 @@ npm run rl:protocol-gate:games -- \
   --max-backend-transition-ms 5000 \
   --max-backend-redis-commit-count 1 \
   --max-backend-view-commit-count 1 \
+  --max-protocol-command-latency-ms 5000 \
   --backend-docker-compose-project project-mrn-protocol \
   --backend-docker-compose-file ../../docker-compose.protocol.yml \
   --backend-docker-compose-service server
@@ -105,12 +106,24 @@ npm run rl:protocol-gate:games -- \
 
 The runner resolves `--run-root` from the repository root and passes absolute `--out`, `--replay-out`, and `--summary-out` paths to each game. This avoids the known failure mode where `npm --prefix apps/web` changes the npm script cwd while shell `tee` still resolves paths from the outer shell cwd.
 
+Each `game-N/` directory is split by inspection cost:
+
+- `summary/`: read this first. `gate_result.json`, `run_status.json`, `progress.json`, `slowest_command.json`, `slowest_transition.json`, and `failure_reason.json` are small enough for agent context.
+- `pointers/`: read this second on failure. `failure_pointer.json`, `suspect_events.json`, and `log_offsets.json` identify the `session_id`, `request_id`, `command_seq`, or `commit_seq` to search.
+- `raw/`: read only targeted slices. `backend_server.log`, `protocol_gate.log`, `progress.ndjson`, `protocol_trace.jsonl`, and `protocol_replay.jsonl` are evidence stores, not default agent context.
+
+For long or parallel runs, inspect `summary/gate_result.json` and `summary/failure_reason.json` before touching raw logs. Do not load full raw logs into the agent conversation unless the pointer files prove that a narrow grep/slice is insufficient.
+
+The repeated-game runner must not silently add `--continue-while-progressing`. A 10-minute completion target is a quality gate, not a soft log marker. Use `--continue-while-progressing` only for explicit endurance/debug runs where exceeding `--timeout-ms` is expected evidence, and report that the result is not a pass for the normal RL stability gate.
+
 Full-stack acceptance requires:
 
 - `runtime_failed == 0`
 - `illegal_action == 0`
 - `timeout == 0`
 - one-game wall-clock duration stays under 10 minutes for the normal no-deliberation click-through path, unless the run intentionally measures slow human deliberation or production-length endurance
+- browser-observed command latency (`prompt -> decision -> ack`) stays under the configured command SLA, currently 5000ms
+- backend internal command timing and browser-observed command latency are separate gates; passing `runtime_command_process_timing` does not excuse a slow decision ACK path
 - rejected decision acknowledgements `== 0`
 - decision fallback count `== 0`
 - unrecovered stale decision acknowledgements `== 0`

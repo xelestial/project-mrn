@@ -53,6 +53,7 @@ class StreamService:
         self._drop_counts: dict[str, int] = defaultdict(int)
         self._lock = asyncio.Lock()
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._subscriber_locks: dict[str, asyncio.Lock] = {}
         self._stream_store = stream_store
         self._stream_backend = stream_backend
         self._game_state_store = game_state_store
@@ -71,7 +72,7 @@ class StreamService:
                     msg_type,
                     enriched_payload,
                 )
-                self._broadcast_no_lock(session_id, item)
+                await self._broadcast(session_id, item)
                 return item
             history = self._source_history_records_no_lock(session_id)
             validate_stream_payload(history=history, msg_type=msg_type, payload=enriched_payload)
@@ -90,7 +91,7 @@ class StreamService:
                 enriched_payload,
                 server_time_ms=server_time_ms,
             )
-            self._broadcast_no_lock(session_id, item)
+            await self._broadcast(session_id, item)
             if self._command_store is not None:
                 self._maybe_append_command(item)
             if self._stream_backend is None:
@@ -99,7 +100,7 @@ class StreamService:
 
     async def publish_decision_ack(self, session_id: str, payload: dict) -> StreamMessage:
         """Publish client feedback without scanning authoritative source history."""
-        async with self._lock_for_session(session_id):
+        if self._stream_backend is not None:
             enriched_payload = self._with_source_event_id("decision_ack", dict(payload))
             self._inject_display_names(session_id, enriched_payload)
             item = await asyncio.to_thread(
@@ -108,13 +109,20 @@ class StreamService:
                 "decision_ack",
                 enriched_payload,
                 server_time_ms=int(time.time() * 1000),
-            ) if self._stream_backend is not None else self._append_stream_message_no_lock(
+            )
+            await self._broadcast(session_id, item)
+            return item
+
+        async with self._lock_for_session(session_id):
+            enriched_payload = self._with_source_event_id("decision_ack", dict(payload))
+            self._inject_display_names(session_id, enriched_payload)
+            item = self._append_stream_message_no_lock(
                 session_id,
                 "decision_ack",
                 enriched_payload,
                 server_time_ms=int(time.time() * 1000),
             )
-            self._broadcast_no_lock(session_id, item)
+            await self._broadcast(session_id, item)
             if self._stream_backend is None:
                 self._persist_stream_state()
             return item
@@ -129,7 +137,7 @@ class StreamService:
                     dict(payload),
                     server_time_ms,
                 )
-                self._broadcast_no_lock(session_id, item)
+                await self._broadcast(session_id, item)
                 return item
             item = self._append_stream_message_no_lock(
                 session_id,
@@ -137,7 +145,7 @@ class StreamService:
                 dict(payload),
                 server_time_ms=server_time_ms,
             )
-            self._broadcast_no_lock(session_id, item)
+            await self._broadcast(session_id, item)
             if self._stream_backend is None:
                 self._persist_stream_state()
             return item
@@ -147,6 +155,13 @@ class StreamService:
         if lock is None:
             lock = asyncio.Lock()
             self._session_locks[session_id] = lock
+        return lock
+
+    def _subscriber_lock_for_session(self, session_id: str) -> asyncio.Lock:
+        lock = self._subscriber_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._subscriber_locks[session_id] = lock
         return lock
 
     def _publish_with_backend_no_lock_sync(
@@ -215,7 +230,7 @@ class StreamService:
                 payload,
                 server_time_ms=int(time.time() * 1000),
             )
-            self._broadcast_no_lock(session_id, item)
+            await self._broadcast(session_id, item)
             if self._stream_backend is None:
                 self._persist_stream_state()
             return item
@@ -295,7 +310,7 @@ class StreamService:
                 emitted_payload,
                 server_time_ms=int(time.time() * 1000),
             )
-            self._broadcast_no_lock(session_id, item)
+            await self._broadcast(session_id, item)
             if self._stream_backend is None:
                 self._persist_stream_state()
             return item
@@ -305,7 +320,6 @@ class StreamService:
             self._seq.pop(session_id, None)
             self._buffers.pop(session_id, None)
             self._drop_counts.pop(session_id, None)
-            self._subscribers.pop(session_id, None)
             if self._stream_backend is not None:
                 self._stream_backend.delete_session_data(session_id)
                 if self._game_state_store is not None:
@@ -314,34 +328,41 @@ class StreamService:
                     self._command_store.delete_session_data(session_id)
             else:
                 self._persist_stream_state()
+        async with self._subscriber_lock_for_session(session_id):
+            self._subscribers.pop(session_id, None)
 
     async def backpressure_stats(self, session_id: str) -> dict:
         if self._stream_backend is not None:
             drop_count = await asyncio.to_thread(self._stream_backend.drop_count, session_id)
-            return {
-                "subscriber_count": len(self._subscribers.get(session_id, {})),
-                "drop_count": drop_count,
-                "queue_size": self._queue_size,
-            }
+            async with self._subscriber_lock_for_session(session_id):
+                subscriber_count = len(self._subscribers.get(session_id, {}))
+            return {"subscriber_count": subscriber_count, "drop_count": drop_count, "queue_size": self._queue_size}
         async with self._lock_for_session(session_id):
+            drop_count = self._stream_backend.drop_count(session_id) if self._stream_backend is not None else self._drop_counts.get(session_id, 0)
+        async with self._subscriber_lock_for_session(session_id):
+            subscriber_count = len(self._subscribers.get(session_id, {}))
             return {
-                "subscriber_count": len(self._subscribers.get(session_id, {})),
-                "drop_count": self._stream_backend.drop_count(session_id) if self._stream_backend is not None else self._drop_counts.get(session_id, 0),
+                "subscriber_count": subscriber_count,
+                "drop_count": drop_count,
                 "queue_size": self._queue_size,
             }
 
     async def subscribe(self, session_id: str, connection_id: str) -> asyncio.Queue[dict]:
-        async with self._lock_for_session(session_id):
+        async with self._subscriber_lock_for_session(session_id):
             queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=self._queue_size)
             self._subscribers[session_id][connection_id] = queue
             return queue
 
     async def unsubscribe(self, session_id: str, connection_id: str) -> None:
-        async with self._lock_for_session(session_id):
+        async with self._subscriber_lock_for_session(session_id):
             if session_id in self._subscribers:
                 self._subscribers[session_id].pop(connection_id, None)
                 if not self._subscribers[session_id]:
                     self._subscribers.pop(session_id, None)
+
+    async def _broadcast(self, session_id: str, item: StreamMessage) -> None:
+        async with self._subscriber_lock_for_session(session_id):
+            self._broadcast_no_lock(session_id, item)
 
     @staticmethod
     def _offer_latest(queue: asyncio.Queue[dict], message: dict) -> bool:

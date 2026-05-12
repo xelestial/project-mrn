@@ -13,13 +13,19 @@ import {
   parseProtocolBackendTimingEvents,
   runFullStackProtocolGame,
   summarizeProtocolBackendTiming,
+  summarizeProtocolThroughput,
   type FullStackProtocolRunResult,
+  type ProtocolBackendTimingEvent,
   type ProtocolBackendTimingSummary,
   type FullStackProtocolProgressSnapshot,
   type ProtocolProfile,
   type ReconnectScenario,
 } from "./fullStackProtocolHarness";
 import { createHttpDecisionPolicy } from "./httpDecisionPolicy";
+import {
+  evaluateProtocolLatencyGate,
+  type ProtocolLatencyGateSummary,
+} from "./protocolLatencyGate";
 import { protocolTraceEventsToReplayRows, serializeProtocolReplayRows } from "./protocolReplay";
 
 type PolicyKind = "baseline" | "conservative" | "cash" | "shard" | "score" | "http";
@@ -28,6 +34,8 @@ type BackendTimingGateSummary = {
   ok: boolean;
   failures: string[];
   summary: ProtocolBackendTimingSummary;
+  events: ProtocolBackendTimingEvent[];
+  logPath?: string;
 };
 
 type CliOptions = {
@@ -35,6 +43,8 @@ type CliOptions = {
   profile?: ProtocolProfile;
   seed?: number;
   timeoutMs?: number;
+  hardTimeoutMs?: number;
+  continueWhileProgressing?: boolean;
   idleTimeoutMs?: number;
   out?: string;
   replayOut?: string;
@@ -50,11 +60,13 @@ type CliOptions = {
   policyHttpUrl?: string;
   policyHttpTimeoutMs?: number;
   backendLog?: string;
+  backendLogOut?: string;
   requireBackendTiming?: boolean;
   maxBackendCommandMs?: number;
   maxBackendTransitionMs?: number;
   maxBackendRedisCommitCount?: number;
   maxBackendViewCommitCount?: number;
+  maxProtocolCommandLatencyMs?: number;
   backendDockerComposeProject?: string;
   backendDockerComposeFile?: string;
   backendDockerComposeService?: string;
@@ -78,6 +90,7 @@ async function main(): Promise<void> {
   const startedAtMs = Date.now();
   let latestSnapshot: FullStackProtocolProgressSnapshot | null = null;
   let liveBackendTimingFailed = false;
+  let liveProtocolLatencyFailed = false;
   let result: FullStackProtocolRunResult;
   try {
     result = await runFullStackProtocolGame({
@@ -85,6 +98,8 @@ async function main(): Promise<void> {
       profile: options.profile,
       seed: options.seed,
       timeoutMs: options.timeoutMs,
+      hardTimeoutMs: options.hardTimeoutMs,
+      continueWhileProgressing: options.continueWhileProgressing,
       idleTimeoutMs: options.idleTimeoutMs,
       config: options.config,
       policy,
@@ -99,21 +114,54 @@ async function main(): Promise<void> {
         await writeProgressArtifacts(snapshot, options);
         writeProgressLine(snapshot);
         if (snapshot.reason !== "final" && !liveBackendTimingFailed) {
-          const backendTiming = await loadBackendTimingSummary(snapshot.sessionId, options, { required: false });
+          const backendTiming = await loadBackendTimingSummary(snapshot.sessionId, options, {
+            required: false,
+            writeLog: false,
+          });
           if (backendTiming && !backendTiming.ok) {
             liveBackendTimingFailed = true;
             throw new BackendTimingGateViolation(backendTiming);
+          }
+        }
+        if (snapshot.reason !== "final" && options.maxProtocolCommandLatencyMs && !liveProtocolLatencyFailed) {
+          const protocolLatency = evaluateProtocolLatencyGate({
+            commands: snapshot.pace.slowestCommandLatencies,
+            maxCommandLatencyMs: options.maxProtocolCommandLatencyMs,
+          });
+          if (!protocolLatency.ok) {
+            liveProtocolLatencyFailed = true;
+            throw new ProtocolLatencyGateViolation(protocolLatency);
           }
         }
       },
     });
   } catch (error) {
     if (error instanceof BackendTimingGateViolation) {
+      const snapshot = latestSnapshot as FullStackProtocolProgressSnapshot | null;
+      const backendTiming = snapshot?.sessionId
+        ? await loadBackendTimingSummary(snapshot.sessionId, options, { required: false, writeLog: true })
+        : null;
       await writeBackendTimingFailureSummary({
         options,
         policyMode,
-        latestSnapshot,
-        backendTiming: error.backendTiming,
+        latestSnapshot: snapshot,
+        backendTiming: backendTiming ?? error.backendTiming,
+        durationMs: Date.now() - startedAtMs,
+      });
+      process.exitCode = 1;
+      return;
+    }
+    if (error instanceof ProtocolLatencyGateViolation) {
+      const snapshot = latestSnapshot as FullStackProtocolProgressSnapshot | null;
+      const backendTiming = snapshot?.sessionId
+        ? await loadBackendTimingSummary(snapshot.sessionId, options, { required: false, writeLog: true })
+        : null;
+      await writeProtocolLatencyFailureSummary({
+        options,
+        policyMode,
+        latestSnapshot: snapshot,
+        protocolLatency: error.protocolLatency,
+        backendTiming,
         durationMs: Date.now() - startedAtMs,
       });
       process.exitCode = 1;
@@ -137,9 +185,21 @@ async function main(): Promise<void> {
     await writeTextFile(options.replayOut, serializeProtocolReplayRows(rows) + (rows.length > 0 ? "\n" : ""));
   }
 
-  const backendTiming = await loadBackendTimingSummary(result.sessionId, options);
-  const failures = [...result.failures, ...(backendTiming?.failures ?? [])];
-  const ok = result.ok && (backendTiming?.ok ?? true);
+  const finalSnapshot = latestSnapshot as FullStackProtocolProgressSnapshot | null;
+  const backendTiming = await loadBackendTimingSummary(result.sessionId, options, { writeLog: true });
+  const protocolLatency = options.maxProtocolCommandLatencyMs
+    ? evaluateProtocolLatencyGate({
+        commands: finalSnapshot?.pace.slowestCommandLatencies ?? [],
+        maxCommandLatencyMs: options.maxProtocolCommandLatencyMs,
+      })
+    : null;
+  const failures = [...result.failures, ...(backendTiming?.failures ?? []), ...(protocolLatency?.failures ?? [])];
+  const ok = result.ok && (backendTiming?.ok ?? true) && (protocolLatency?.ok ?? true);
+  const throughput = summarizeProtocolThroughput({
+    durationMs: result.durationMs,
+    traces: result.traces,
+    backendEvents: backendTiming?.events ?? [],
+  });
   const summary = {
     ok,
     profile: result.profile,
@@ -147,11 +207,18 @@ async function main(): Promise<void> {
     seat_profiles: options.seatProfiles ?? {},
     session_id: result.sessionId,
     duration_ms: result.durationMs,
+    timeout_ms: result.timeoutMs,
+    hard_timeout_ms: result.hardTimeoutMs,
+    continue_while_progressing: result.continueWhileProgressing,
     timed_out: result.timedOut,
+    progress_timeout_exceeded: result.progressTimeoutExceeded,
     idle_timed_out: result.idleTimedOut,
     runtime_status: result.runtimeStatus,
     failures,
     backend_timing: backendTiming?.summary ?? null,
+    backend_log: backendTiming?.logPath ?? null,
+    protocol_latency: protocolLatency,
+    throughput,
     clients: result.clientSummary,
     trace_count: result.traces.length,
   };
@@ -168,6 +235,12 @@ async function main(): Promise<void> {
 class BackendTimingGateViolation extends Error {
   constructor(readonly backendTiming: BackendTimingGateSummary) {
     super(`backend_timing_gate_violation: ${backendTiming.failures.join("; ")}`);
+  }
+}
+
+class ProtocolLatencyGateViolation extends Error {
+  constructor(readonly protocolLatency: ProtocolLatencyGateSummary) {
+    super(`protocol_latency_gate_violation: ${protocolLatency.failures.join("; ")}`);
   }
 }
 
@@ -191,6 +264,11 @@ function parseArgs(args: string[]): CliOptions {
     } else if (arg === "--timeout-ms" && next) {
       options.timeoutMs = Number(next);
       index += 1;
+    } else if (arg === "--hard-timeout-ms" && next) {
+      options.hardTimeoutMs = Number(next);
+      index += 1;
+    } else if (arg === "--continue-while-progressing") {
+      options.continueWhileProgressing = true;
     } else if (arg === "--idle-timeout-ms" && next) {
       options.idleTimeoutMs = Number(next);
       index += 1;
@@ -242,6 +320,9 @@ function parseArgs(args: string[]): CliOptions {
     } else if (arg === "--backend-log" && next) {
       options.backendLog = next;
       index += 1;
+    } else if (arg === "--backend-log-out" && next) {
+      options.backendLogOut = next;
+      index += 1;
     } else if (arg === "--require-backend-timing") {
       options.requireBackendTiming = true;
     } else if (arg === "--max-backend-command-ms" && next) {
@@ -255,6 +336,9 @@ function parseArgs(args: string[]): CliOptions {
       index += 1;
     } else if (arg === "--max-backend-view-commit-count" && next) {
       options.maxBackendViewCommitCount = Number(next);
+      index += 1;
+    } else if (arg === "--max-protocol-command-latency-ms" && next) {
+      options.maxProtocolCommandLatencyMs = Number(next);
       index += 1;
     } else if (arg === "--backend-docker-compose-project" && next) {
       options.backendDockerComposeProject = next;
@@ -275,6 +359,8 @@ function parseArgs(args: string[]): CliOptions {
           "  --profile live|contract",
           "  --seed 20260508",
           "  --timeout-ms 120000",
+          "  --hard-timeout-ms 240000",
+          "  --continue-while-progressing",
           "  --idle-timeout-ms 60000",
           "  --out ./protocol_trace.jsonl",
           "  --replay-out ./rl_replay.jsonl",
@@ -290,11 +376,13 @@ function parseArgs(args: string[]): CliOptions {
           "  --policy-http-url http://127.0.0.1:7777/decide",
           "  --policy-http-timeout-ms 2000",
           "  --backend-log ./server.docker.log",
+          "  --backend-log-out ./backend_server.log",
           "  --require-backend-timing",
           "  --max-backend-command-ms 5000",
           "  --max-backend-transition-ms 5000",
           "  --max-backend-redis-commit-count 1",
           "  --max-backend-view-commit-count 1",
+          "  --max-protocol-command-latency-ms 5000",
           "  --backend-docker-compose-project project-mrn-protocol",
           "  --backend-docker-compose-file ../../docker-compose.protocol.yml",
           "  --backend-docker-compose-service server",
@@ -309,7 +397,7 @@ function parseArgs(args: string[]): CliOptions {
 async function loadBackendTimingSummary(
   sessionId: string,
   options: CliOptions,
-  gateOptions?: { required?: boolean },
+  gateOptions?: { required?: boolean; writeLog?: boolean },
 ): Promise<BackendTimingGateSummary | null> {
   const hasBackendLogSource = Boolean(
     options.backendLog ||
@@ -321,6 +409,11 @@ async function loadBackendTimingSummary(
     return null;
   }
   const logText = await loadBackendLogText(options);
+  let logPath: string | undefined;
+  if (gateOptions?.writeLog && options.backendLogOut) {
+    await writeTextFile(options.backendLogOut, logText);
+    logPath = options.backendLogOut;
+  }
   const events = parseProtocolBackendTimingEvents(logText, { sessionId });
   const gate = evaluateProtocolBackendTimingGate({
     events,
@@ -333,6 +426,8 @@ async function loadBackendTimingSummary(
   return {
     ok: gate.ok,
     failures: gate.failures,
+    events,
+    logPath,
     summary: summarizeProtocolBackendTiming(events, {
       maxCommandMs: options.maxBackendCommandMs,
       maxTransitionMs: options.maxBackendTransitionMs,
@@ -354,13 +449,66 @@ async function writeBackendTimingFailureSummary(args: {
     seat_profiles: args.options.seatProfiles ?? {},
     session_id: args.latestSnapshot?.sessionId ?? "",
     duration_ms: args.durationMs,
+    timeout_ms: args.options.timeoutMs ?? null,
+    hard_timeout_ms: args.options.hardTimeoutMs ?? null,
+    continue_while_progressing: args.options.continueWhileProgressing ?? false,
     timed_out: false,
+    progress_timeout_exceeded: false,
     idle_timed_out: false,
     runtime_status: args.latestSnapshot?.runtimeStatus ?? null,
     aborted: true,
     abort_reason: "backend_timing_gate",
     failures: args.backendTiming.failures,
     backend_timing: args.backendTiming.summary,
+    backend_log: args.backendTiming.logPath ?? null,
+    throughput: summarizeProtocolThroughput({
+      durationMs: args.durationMs,
+      traces: args.latestSnapshot?.traces ?? [],
+      backendEvents: args.backendTiming.events,
+    }),
+    clients: args.latestSnapshot?.clientSummary ?? [],
+    trace_count: args.latestSnapshot?.traceCount ?? 0,
+  };
+  const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
+  if (args.options.summaryOut) {
+    await writeTextFile(args.options.summaryOut, summaryText);
+  }
+  process.stdout.write(summaryText);
+}
+
+async function writeProtocolLatencyFailureSummary(args: {
+  options: CliOptions;
+  policyMode: PolicyKind;
+  latestSnapshot: FullStackProtocolProgressSnapshot | null;
+  protocolLatency: ProtocolLatencyGateSummary;
+  backendTiming: BackendTimingGateSummary | null;
+  durationMs: number;
+}): Promise<void> {
+  const summary = {
+    ok: false,
+    profile: args.latestSnapshot?.profile ?? args.options.profile ?? null,
+    policy_mode: args.policyMode,
+    seat_profiles: args.options.seatProfiles ?? {},
+    session_id: args.latestSnapshot?.sessionId ?? "",
+    duration_ms: args.durationMs,
+    timeout_ms: args.options.timeoutMs ?? null,
+    hard_timeout_ms: args.options.hardTimeoutMs ?? null,
+    continue_while_progressing: args.options.continueWhileProgressing ?? false,
+    timed_out: false,
+    progress_timeout_exceeded: false,
+    idle_timed_out: false,
+    runtime_status: args.latestSnapshot?.runtimeStatus ?? null,
+    aborted: true,
+    abort_reason: "protocol_latency_gate",
+    failures: args.protocolLatency.failures,
+    backend_timing: args.backendTiming?.summary ?? null,
+    backend_log: args.backendTiming?.logPath ?? null,
+    protocol_latency: args.protocolLatency,
+    throughput: summarizeProtocolThroughput({
+      durationMs: args.durationMs,
+      traces: args.latestSnapshot?.traces ?? [],
+      backendEvents: args.backendTiming?.events ?? [],
+    }),
     clients: args.latestSnapshot?.clientSummary ?? [],
     trace_count: args.latestSnapshot?.traceCount ?? 0,
   };
@@ -439,6 +587,7 @@ function writeProgressLine(snapshot: FullStackProtocolProgressSnapshot): void {
       pace: snapshot.pace,
       completed: snapshot.completed,
       timed_out: snapshot.timedOut,
+      progress_timeout_exceeded: snapshot.progressTimeoutExceeded,
       idle_timed_out: snapshot.idleTimedOut,
       trace_count: snapshot.traceCount,
       cpu: snapshot.cpu,

@@ -267,6 +267,37 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_backend_decision_ack_does_not_wait_on_session_publish_lock(self) -> None:
+        backend = FakeExternalStreamBackend()
+        service = StreamService(stream_backend=backend)
+
+        async def _run() -> None:
+            queue = await service.subscribe("locked", "seat-1")
+            publish_lock = service._lock_for_session("locked")
+            await publish_lock.acquire()
+            try:
+                ack = await asyncio.wait_for(
+                    service.publish_decision_ack(
+                        "locked",
+                        {
+                            "request_id": "r_ack_fast",
+                            "status": "accepted",
+                            "player_id": 1,
+                            "provider": "human",
+                        },
+                    ),
+                    timeout=0.25,
+                )
+                delivered = await asyncio.wait_for(queue.get(), timeout=0.25)
+            finally:
+                publish_lock.release()
+
+            self.assertEqual(ack.type, "decision_ack")
+            self.assertEqual(delivered["type"], "decision_ack")
+            self.assertEqual(delivered["payload"]["request_id"], "r_ack_fast")
+
+        asyncio.run(_run())
+
     def test_publish_adds_source_event_id(self) -> None:
         service = StreamService()
 

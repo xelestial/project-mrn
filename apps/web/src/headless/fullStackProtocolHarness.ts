@@ -53,6 +53,7 @@ export type FullStackProtocolProgressSnapshot = {
   traceCount: number;
   completed: boolean;
   timedOut: boolean;
+  progressTimeoutExceeded: boolean;
   idleTimedOut: boolean;
   cpu: ProtocolCpuDiagnostic;
   traces: HeadlessTraceEvent[];
@@ -170,12 +171,46 @@ export type ProtocolBackendTimingSummary = {
   eventCount: number;
   commandTimingCount: number;
   transitionTimingCount: number;
+  decisionRouteTimingCount: number;
+  promptTimingCount: number;
   maxCommandMs: number;
   maxTransitionMs: number;
+  maxDecisionRouteMs: number;
+  maxPromptMs: number;
   maxRedisCommitCount: number;
   maxViewCommitCount: number;
   slowCommandCount: number;
   slowTransitionCount: number;
+};
+
+export type ProtocolPercentileSummary = {
+  count: number;
+  p50: number | null;
+  p95: number | null;
+  max: number | null;
+};
+
+export type ProtocolBackendPhaseSummary = {
+  count: number;
+  totalMs: ProtocolPercentileSummary;
+  phases: Record<string, ProtocolPercentileSummary>;
+};
+
+export type ProtocolThroughputSummary = {
+  decisionCount: number;
+  acceptedAckCount: number;
+  missingAckCount: number;
+  uniqueViewCommitCount: number;
+  durationMs: number;
+  decisionsPerMinute: number | null;
+  ackLatencyMs: ProtocolPercentileSummary;
+  commitGapMs: ProtocolPercentileSummary;
+  backend: {
+    command: ProtocolBackendPhaseSummary;
+    transition: ProtocolBackendPhaseSummary;
+    decisionRoute: ProtocolBackendPhaseSummary;
+    prompt: ProtocolBackendPhaseSummary;
+  };
 };
 
 export type ProtocolPromptRepetitionDiagnostic = {
@@ -219,6 +254,8 @@ export type RunFullStackProtocolGameOptions = {
   seed?: number;
   seatCount?: number;
   timeoutMs?: number;
+  hardTimeoutMs?: number;
+  continueWhileProgressing?: boolean;
   idleTimeoutMs?: number;
   pollIntervalMs?: number;
   config?: Record<string, unknown>;
@@ -239,6 +276,10 @@ export type FullStackProtocolRunResult = {
   sessionId: string;
   durationMs: number;
   timedOut: boolean;
+  progressTimeoutExceeded: boolean;
+  timeoutMs: number;
+  hardTimeoutMs: number;
+  continueWhileProgressing: boolean;
   idleTimedOut: boolean;
   completed: boolean;
   runtimeStatus: string | null;
@@ -277,6 +318,30 @@ const DEFAULT_CPU_DIAGNOSTIC_IDLE_MS = 30_000;
 const DEFAULT_CPU_LOW_LOAD_PERCENT = 10;
 const DEFAULT_PROGRESS_INTERVAL_MS = 5_000;
 const PROGRESS_CHANGE_MIN_INTERVAL_MS = 1_000;
+
+export type ProtocolTimeoutPolicy = {
+  timeoutMs: number;
+  hardTimeoutMs: number;
+  continueWhileProgressing: boolean;
+};
+
+export function resolveProtocolTimeoutPolicy(args: {
+  profile: ProtocolProfile;
+  timeoutMs?: number;
+  hardTimeoutMs?: number;
+  continueWhileProgressing?: boolean;
+}): ProtocolTimeoutPolicy {
+  const timeoutMs = Math.max(1_000, args.timeoutMs ?? (args.profile === "live" ? 900_000 : 120_000));
+  const continueWhileProgressing = args.continueWhileProgressing ?? false;
+  const hardTimeoutMs = continueWhileProgressing
+    ? Math.max(timeoutMs, Math.floor(args.hardTimeoutMs ?? timeoutMs * 2))
+    : timeoutMs;
+  return {
+    timeoutMs,
+    hardTimeoutMs,
+    continueWhileProgressing,
+  };
+}
 
 export function buildHeadlessHumanSessionPayload({
   seed,
@@ -435,7 +500,12 @@ export function parseProtocolBackendTimingEvents(
       continue;
     }
     const event = stringValue(payload["event"]);
-    if (event !== "runtime_command_process_timing" && event !== "runtime_transition_phase_timing") {
+    if (
+      event !== "runtime_command_process_timing" &&
+      event !== "runtime_transition_phase_timing" &&
+      event !== "decision_route_timing" &&
+      event !== "runtime_decision_gateway_prompt_timing"
+    ) {
       continue;
     }
     const sessionId = stringValue(payload["session_id"]);
@@ -471,16 +541,87 @@ export function summarizeProtocolBackendTiming(
   const transitionThreshold = Math.max(1, Math.floor(options.maxTransitionMs ?? DEFAULT_MAX_BACKEND_TRANSITION_MS));
   const commandEvents = events.filter((event) => event.event === "runtime_command_process_timing");
   const transitionEvents = events.filter((event) => event.event === "runtime_transition_phase_timing");
+  const decisionRouteEvents = events.filter((event) => event.event === "decision_route_timing");
+  const promptEvents = events.filter((event) => event.event === "runtime_decision_gateway_prompt_timing");
   return {
     eventCount: events.length,
     commandTimingCount: commandEvents.length,
     transitionTimingCount: transitionEvents.length,
+    decisionRouteTimingCount: decisionRouteEvents.length,
+    promptTimingCount: promptEvents.length,
     maxCommandMs: maxNumber(commandEvents.map((event) => numberValue(event.total_ms) ?? 0)),
     maxTransitionMs: maxNumber(transitionEvents.map((event) => numberValue(event.total_ms) ?? 0)),
+    maxDecisionRouteMs: maxNumber(decisionRouteEvents.map((event) => numberValue(event.total_ms) ?? 0)),
+    maxPromptMs: maxNumber(promptEvents.map((event) => numberValue(event.total_ms) ?? 0)),
     maxRedisCommitCount: maxNumber(commandEvents.map((event) => numberValue(event.redis_commit_count) ?? 0)),
     maxViewCommitCount: maxNumber(commandEvents.map((event) => numberValue(event.view_commit_count) ?? 0)),
     slowCommandCount: commandEvents.filter((event) => (numberValue(event.total_ms) ?? 0) > commandThreshold).length,
     slowTransitionCount: transitionEvents.filter((event) => (numberValue(event.total_ms) ?? 0) > transitionThreshold).length,
+  };
+}
+
+export function summarizeProtocolThroughput(args: {
+  durationMs: number;
+  traces: HeadlessTraceEvent[];
+  backendEvents?: ProtocolBackendTimingEvent[];
+}): ProtocolThroughputSummary {
+  const decisions = args.traces
+    .filter((trace) => trace.event === "decision_sent" && trace.request_id && numberValue(trace.ts_ms) !== null)
+    .map((trace) => ({
+      requestId: trace.request_id as string,
+      tsMs: numberValue(trace.ts_ms) ?? 0,
+    }));
+  const acceptedAcks = args.traces
+    .filter((trace) => trace.event === "decision_ack" && trace.status === "accepted" && trace.request_id)
+    .map((trace) => ({
+      requestId: trace.request_id as string,
+      tsMs: numberValue(trace.ts_ms),
+    }));
+  const firstDecisionByRequestId = new Map<string, number>();
+  for (const decision of decisions) {
+    const previous = firstDecisionByRequestId.get(decision.requestId);
+    if (previous === undefined || decision.tsMs < previous) {
+      firstDecisionByRequestId.set(decision.requestId, decision.tsMs);
+    }
+  }
+  const ackLatencyMs = acceptedAcks
+    .map((ack) => {
+      const sentAt = firstDecisionByRequestId.get(ack.requestId);
+      return sentAt !== undefined && ack.tsMs !== null ? Math.max(0, ack.tsMs - sentAt) : null;
+    })
+    .filter((value): value is number => value !== null);
+  const firstCommitSeenAt = new Map<number, number>();
+  for (const trace of args.traces) {
+    if (trace.event !== "view_commit_seen") {
+      continue;
+    }
+    const commitSeq = numberValue(trace.commit_seq ?? trace.payload?.["commit_seq"]);
+    const tsMs = numberValue(trace.ts_ms);
+    if (commitSeq === null || tsMs === null) {
+      continue;
+    }
+    const previous = firstCommitSeenAt.get(commitSeq);
+    if (previous === undefined || tsMs < previous) {
+      firstCommitSeenAt.set(commitSeq, tsMs);
+    }
+  }
+  const commitSeenTimes = [...firstCommitSeenAt.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map((entry) => entry[1]);
+  const commitGaps = commitSeenTimes
+    .slice(1)
+    .map((tsMs, index) => Math.max(0, tsMs - commitSeenTimes[index]));
+  const durationMinutes = args.durationMs > 0 ? args.durationMs / 60_000 : null;
+  return {
+    decisionCount: decisions.length,
+    acceptedAckCount: acceptedAcks.length,
+    missingAckCount: Math.max(0, firstDecisionByRequestId.size - new Set(acceptedAcks.map((ack) => ack.requestId)).size),
+    uniqueViewCommitCount: firstCommitSeenAt.size,
+    durationMs: Math.max(0, Math.floor(args.durationMs)),
+    decisionsPerMinute: durationMinutes ? roundPercent(decisions.length / durationMinutes) : null,
+    ackLatencyMs: summarizePercentiles(ackLatencyMs),
+    commitGapMs: summarizePercentiles(commitGaps),
+    backend: summarizeBackendThroughput(args.backendEvents ?? []),
   };
 }
 
@@ -757,7 +898,13 @@ export async function runFullStackProtocolGame(
     fetchRetryDelayMs: DEFAULT_FETCH_RETRY_DELAY_MS,
   });
   const seed = options.seed ?? Date.now();
-  const timeoutMs = Math.max(1_000, options.timeoutMs ?? (profile === "live" ? 900_000 : 120_000));
+  const timeoutPolicy = resolveProtocolTimeoutPolicy({
+    profile,
+    timeoutMs: options.timeoutMs,
+    hardTimeoutMs: options.hardTimeoutMs,
+    continueWhileProgressing: options.continueWhileProgressing,
+  });
+  const { timeoutMs, hardTimeoutMs, continueWhileProgressing } = timeoutPolicy;
   const pollIntervalMs = Math.max(25, options.pollIntervalMs ?? (profile === "live" ? 500 : 100));
   const idleTimeoutMs = Math.max(pollIntervalMs * 2, options.idleTimeoutMs ?? (profile === "live" ? 60_000 : 20_000));
   const policy = options.policy ?? baselineDecisionPolicy;
@@ -775,6 +922,7 @@ export async function runFullStackProtocolGame(
   let runtimeStatus: string | null = null;
   let completed = false;
   let timedOut = false;
+  let progressTimeoutExceeded = false;
   let idleTimedOut = false;
   let completedPollCount = 0;
   const clients: HeadlessGameClient[] = [];
@@ -839,8 +987,9 @@ export async function runFullStackProtocolGame(
       forceReconnectOnce(clients, firedReconnectScenarios, "after_start");
     }
 
-    while (Date.now() - startedAt < timeoutMs) {
+    while (Date.now() - startedAt < hardTimeoutMs) {
       await sleep(pollIntervalMs);
+      progressTimeoutExceeded = Date.now() - startedAt >= timeoutMs;
       fireReconnectTriggers({
         clients,
         reconnectScenarios,
@@ -906,6 +1055,7 @@ export async function runFullStackProtocolGame(
             clients,
             completed,
             timedOut,
+            progressTimeoutExceeded,
             idleTimedOut,
             lastProgressAt,
             cpuDiagnosticIdleMs,
@@ -922,7 +1072,8 @@ export async function runFullStackProtocolGame(
       !completed &&
       runtimeStatus !== "failed" &&
       runtimeStatus !== "rejected" &&
-      Date.now() - startedAt >= timeoutMs;
+      Date.now() - startedAt >= hardTimeoutMs;
+    progressTimeoutExceeded = progressTimeoutExceeded || Date.now() - startedAt >= timeoutMs;
   } finally {
     if (sessionId) {
       try {
@@ -942,6 +1093,7 @@ export async function runFullStackProtocolGame(
             clients,
             completed,
             timedOut,
+            progressTimeoutExceeded,
             idleTimedOut,
             lastProgressAt,
             cpuDiagnosticIdleMs,
@@ -974,6 +1126,10 @@ export async function runFullStackProtocolGame(
     sessionId,
     durationMs: Date.now() - startedAt,
     timedOut,
+    progressTimeoutExceeded,
+    timeoutMs,
+    hardTimeoutMs,
+    continueWhileProgressing,
     idleTimedOut,
     completed,
     runtimeStatus,
@@ -993,6 +1149,7 @@ function buildProgressSnapshot(args: {
   clients: HeadlessGameClient[];
   completed: boolean;
   timedOut: boolean;
+  progressTimeoutExceeded: boolean;
   idleTimedOut: boolean;
   lastProgressAt: number;
   cpuDiagnosticIdleMs: number;
@@ -1021,6 +1178,7 @@ function buildProgressSnapshot(args: {
     traceCount: traces.length,
     completed: args.completed,
     timedOut: args.timedOut,
+    progressTimeoutExceeded: args.progressTimeoutExceeded,
     idleTimedOut: args.idleTimedOut,
     cpu: buildCpuDiagnostic({
       idleMs,
@@ -1492,6 +1650,61 @@ function numberValue(value: unknown): number | null {
 
 function maxNumber(values: number[]): number {
   return values.length > 0 ? Math.max(0, ...values) : 0;
+}
+
+function summarizePercentiles(values: number[]): ProtocolPercentileSummary {
+  const sorted = values
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.max(0, Math.round(value)))
+    .sort((left, right) => left - right);
+  return {
+    count: sorted.length,
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    max: sorted.length > 0 ? sorted[sorted.length - 1] : null,
+  };
+}
+
+function percentile(sortedValues: number[], rank: number): number | null {
+  if (sortedValues.length === 0) {
+    return null;
+  }
+  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(sortedValues.length * rank) - 1));
+  return sortedValues[index];
+}
+
+function summarizeBackendThroughput(events: ProtocolBackendTimingEvent[]): ProtocolThroughputSummary["backend"] {
+  return {
+    command: summarizeBackendPhase(
+      events.filter((event) => event.event === "runtime_command_process_timing"),
+      ["command_boundary_finalization_ms", "authoritative_commit_ms", "prompt_materialize_ms", "total_ms"],
+    ),
+    transition: summarizeBackendPhase(
+      events.filter((event) => event.event === "runtime_transition_phase_timing"),
+      ["engine_transition_ms", "redis_commit_ms", "view_commit_build_ms", "total_ms"],
+    ),
+    decisionRoute: summarizeBackendPhase(
+      events.filter((event) => event.event === "decision_route_timing"),
+      ["latest_view_commit_ms", "submit_decision_ms", "ack_publish_ms", "total_ms"],
+    ),
+    prompt: summarizeBackendPhase(
+      events.filter((event) => event.event === "runtime_decision_gateway_prompt_timing"),
+      ["create_prompt_ms", "replay_wait_ms", "total_ms"],
+    ),
+  };
+}
+
+function summarizeBackendPhase(events: ProtocolBackendTimingEvent[], phaseKeys: string[]): ProtocolBackendPhaseSummary {
+  return {
+    count: events.length,
+    totalMs: summarizePercentiles(events.map((event) => numberValue(event.total_ms) ?? 0)),
+    phases: Object.fromEntries(
+      phaseKeys.map((key) => [
+        key,
+        summarizePercentiles(events.map((event) => numberValue(event[key])).filter((value): value is number => value !== null)),
+      ]),
+    ),
+  };
 }
 
 function describeBackendTimingEvent(event: ProtocolBackendTimingEvent, value: number): string {

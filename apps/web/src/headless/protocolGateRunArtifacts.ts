@@ -10,9 +10,24 @@ export type ProtocolGateRunLayoutOptions = {
 export type ProtocolGateRunArtifacts = {
   runRoot: string;
   gameDir: string;
+  rawDir: string;
+  summaryDir: string;
+  pointersDir: string;
   traceOut: string;
   replayOut: string;
   summaryOut: string;
+  backendLogOut: string;
+  protocolLogOut: string;
+  progressOut: string;
+  runStatusOut: string;
+  progressSummaryOut: string;
+  slowestCommandOut: string;
+  slowestTransitionOut: string;
+  gateResultOut: string;
+  failureReasonOut: string;
+  failurePointerOut: string;
+  suspectEventsOut: string;
+  logOffsetsOut: string;
 };
 
 function defaultRunRoot(repoRoot: string, label?: string): string {
@@ -34,11 +49,29 @@ export function buildProtocolGateRunArtifacts(options: ProtocolGateRunLayoutOpti
   }
   const runRoot = resolveProtocolGateRunRoot(options.repoRoot, options.runRoot, options.label);
   const gameDir = resolve(runRoot, `game-${options.gameIndex}`);
+  const rawDir = resolve(gameDir, "raw");
+  const summaryDir = resolve(gameDir, "summary");
+  const pointersDir = resolve(gameDir, "pointers");
   return {
     runRoot,
     gameDir,
-    traceOut: resolve(gameDir, "protocol_trace.jsonl"),
-    replayOut: resolve(gameDir, "protocol_replay.jsonl"),
-    summaryOut: resolve(gameDir, "summary.json"),
+    rawDir,
+    summaryDir,
+    pointersDir,
+    traceOut: resolve(rawDir, "protocol_trace.jsonl"),
+    replayOut: resolve(rawDir, "protocol_replay.jsonl"),
+    summaryOut: resolve(summaryDir, "summary.json"),
+    backendLogOut: resolve(rawDir, "backend_server.log"),
+    protocolLogOut: resolve(rawDir, "protocol_gate.log"),
+    progressOut: resolve(rawDir, "progress.ndjson"),
+    runStatusOut: resolve(summaryDir, "run_status.json"),
+    progressSummaryOut: resolve(summaryDir, "progress.json"),
+    slowestCommandOut: resolve(summaryDir, "slowest_command.json"),
+    slowestTransitionOut: resolve(summaryDir, "slowest_transition.json"),
+    gateResultOut: resolve(summaryDir, "gate_result.json"),
+    failureReasonOut: resolve(summaryDir, "failure_reason.json"),
+    failurePointerOut: resolve(pointersDir, "failure_pointer.json"),
+    suspectEventsOut: resolve(pointersDir, "suspect_events.json"),
+    logOffsetsOut: resolve(pointersDir, "log_offsets.json"),
   };
 }

@@ -11,10 +11,12 @@ import {
   fetchRuntimeStatus,
   parseProtocolBackendTimingEvents,
   policyForProtocolPlayer,
+  resolveProtocolTimeoutPolicy,
   shouldEmitProtocolProgress,
   summarizeProtocolBackendTiming,
   summarizeProtocolClients,
   summarizeProtocolPromptRepetitions,
+  summarizeProtocolThroughput,
   type ProtocolClientRuntime,
 } from "./fullStackProtocolHarness";
 
@@ -638,6 +640,8 @@ describe("fullStackProtocolHarness", () => {
     const logText = [
       'server-1  | {"event":"runtime_command_process_timing","session_id":"sess_a","command_seq":7,"total_ms":4010,"redis_commit_count":2,"view_commit_count":1,"request_type":"movement"}',
       'server-1  | {"event":"runtime_transition_phase_timing","session_id":"sess_a","processed_command_seq":7,"total_ms":5001,"module_type":"DraftModule","request_type":"draft_card","request_id":"req-1","reason":"prompt_required"}',
+      'server-1  | {"event":"decision_route_timing","session_id":"sess_a","request_id":"req-1","total_ms":33,"submit_decision_ms":18,"ack_publish_ms":7}',
+      'server-1  | {"event":"runtime_decision_gateway_prompt_timing","session_id":"sess_a","request_id":"req-1","total_ms":21,"create_prompt_ms":8}',
       'server-1  | {"event":"runtime_command_process_timing","session_id":"sess_b","command_seq":1,"total_ms":1,"redis_commit_count":1,"view_commit_count":1}',
     ].join("\n");
 
@@ -645,13 +649,17 @@ describe("fullStackProtocolHarness", () => {
     const summary = summarizeProtocolBackendTiming(events);
     const result = evaluateProtocolBackendTimingGate({ events, required: true });
 
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(4);
     expect(summary).toMatchObject({
-      eventCount: 2,
+      eventCount: 4,
       commandTimingCount: 1,
       transitionTimingCount: 1,
+      decisionRouteTimingCount: 1,
+      promptTimingCount: 1,
       maxCommandMs: 4010,
       maxTransitionMs: 5001,
+      maxDecisionRouteMs: 33,
+      maxPromptMs: 21,
       maxRedisCommitCount: 2,
       maxViewCommitCount: 1,
       slowCommandCount: 0,
@@ -667,6 +675,88 @@ describe("fullStackProtocolHarness", () => {
     expect(result.failures).not.toEqual(
       expect.arrayContaining([expect.stringContaining("backend command exceeded")]),
     );
+  });
+
+  it("summarizes protocol throughput from frontend traces and backend timing phases", () => {
+    const summary = summarizeProtocolThroughput({
+      durationMs: 60_000,
+      traces: [
+        { event: "decision_sent", ts_ms: 100, session_id: "sess", player_id: 1, request_id: "r1" },
+        { event: "decision_ack", ts_ms: 160, session_id: "sess", player_id: 1, request_id: "r1", status: "accepted" },
+        { event: "decision_sent", ts_ms: 300, session_id: "sess", player_id: 2, request_id: "r2" },
+        { event: "view_commit_seen", ts_ms: 50, session_id: "sess", player_id: 1, commit_seq: 1 },
+        { event: "view_commit_seen", ts_ms: 250, session_id: "sess", player_id: 1, commit_seq: 2 },
+        { event: "view_commit_seen", ts_ms: 250, session_id: "sess", player_id: 2, commit_seq: 2 },
+        { event: "view_commit_seen", ts_ms: 550, session_id: "sess", player_id: 1, commit_seq: 3 },
+      ],
+      backendEvents: [
+        {
+          event: "decision_route_timing",
+          total_ms: 40,
+          submit_decision_ms: 22,
+          ack_publish_ms: 8,
+        },
+        {
+          event: "runtime_command_process_timing",
+          total_ms: 120,
+          command_boundary_finalization_ms: 30,
+          authoritative_commit_ms: 45,
+        },
+      ],
+    });
+
+    expect(summary).toMatchObject({
+      decisionCount: 2,
+      acceptedAckCount: 1,
+      missingAckCount: 1,
+      uniqueViewCommitCount: 3,
+      decisionsPerMinute: 2,
+      ackLatencyMs: { count: 1, p50: 60, p95: 60, max: 60 },
+      commitGapMs: { count: 2, p50: 200, p95: 300, max: 300 },
+      backend: {
+        decisionRoute: {
+          count: 1,
+          phases: {
+            submit_decision_ms: { count: 1, p50: 22, p95: 22, max: 22 },
+          },
+        },
+        command: {
+          count: 1,
+          phases: {
+            authoritative_commit_ms: { count: 1, p50: 45, p95: 45, max: 45 },
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps timeout hard by default but can continue while observable progress is flowing", () => {
+    expect(resolveProtocolTimeoutPolicy({ profile: "live", timeoutMs: 600_000 })).toEqual({
+      timeoutMs: 600_000,
+      hardTimeoutMs: 600_000,
+      continueWhileProgressing: false,
+    });
+
+    expect(
+      resolveProtocolTimeoutPolicy({
+        profile: "live",
+        timeoutMs: 600_000,
+        continueWhileProgressing: true,
+      }),
+    ).toEqual({
+      timeoutMs: 600_000,
+      hardTimeoutMs: 1_200_000,
+      continueWhileProgressing: true,
+    });
+
+    expect(
+      resolveProtocolTimeoutPolicy({
+        profile: "live",
+        timeoutMs: 600_000,
+        hardTimeoutMs: 900_000,
+        continueWhileProgressing: true,
+      }).hardTimeoutMs,
+    ).toBe(900_000);
   });
 
   it("does not treat heartbeat, repeated snapshots, resume requests, or reconnects as game progress", () => {

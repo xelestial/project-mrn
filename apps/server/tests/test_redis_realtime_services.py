@@ -142,6 +142,64 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         asyncio.run(_run())
         self.assertEqual(self.fake_redis._expires_at_ms[stream_store._event_index_key("s-event-index")], 3600)
 
+    def test_stream_publish_pipelines_stream_indexes_in_one_round_trip(self) -> None:
+        stream_store = RedisStreamStore(self.connection)
+
+        ack = stream_store.publish(
+            "s-ack-pipeline",
+            "decision_ack",
+            {
+                "event_id": "evt_ack_1",
+                "request_id": "req_ack_1",
+                "player_id": 2,
+                "status": "accepted",
+            },
+            server_time_ms=100,
+            max_buffer=20,
+        )
+
+        self.assertEqual(ack["seq"], 1)
+        self.assertEqual(
+            self.fake_redis.pipeline_executions,
+            [["xadd", "xadd", "hset", "expire", "hset", "expire"]],
+        )
+        self.assertIsNotNone(stream_store.load_event_index("s-ack-pipeline", "evt_ack_1"))
+        self.assertEqual(
+            [
+                (row["stream_seq"], row["viewer_scope"], row["message_type"])
+                for row in stream_store.load_viewer_outbox_index("s-ack-pipeline")
+            ],
+            [(1, "player:2", "decision_ack")],
+        )
+
+    def test_stream_snapshot_replay_and_window_are_sorted_by_sequence(self) -> None:
+        stream_store = RedisStreamStore(self.connection)
+        stream_key = stream_store._stream_key("s-out-of-order")
+        source_key = stream_store._source_stream_key("s-out-of-order")
+        later = {
+            "seq": "2",
+            "type": "decision_ack",
+            "session_id": "s-out-of-order",
+            "server_time_ms": "100",
+            "payload": '{"request_id":"req_2"}',
+        }
+        earlier = {
+            "seq": "1",
+            "type": "event",
+            "session_id": "s-out-of-order",
+            "server_time_ms": "101",
+            "payload": '{"event_type":"decision_requested","request_id":"req_1"}',
+        }
+        self.fake_redis.xadd(stream_key, later)
+        self.fake_redis.xadd(stream_key, earlier)
+        self.fake_redis.xadd(source_key, later)
+        self.fake_redis.xadd(source_key, earlier)
+
+        self.assertEqual([item["seq"] for item in stream_store.snapshot("s-out-of-order")], [1, 2])
+        self.assertEqual([item["seq"] for item in stream_store.source_snapshot("s-out-of-order")], [1, 2])
+        self.assertEqual([item["seq"] for item in stream_store.replay_from("s-out-of-order", 1)], [2])
+        self.assertEqual(stream_store.replay_window("s-out-of-order"), (1, 2))
+
     def test_stream_viewer_outbox_records_projected_delivery_scope(self) -> None:
         stream_store = RedisStreamStore(self.connection)
 
@@ -2945,6 +3003,10 @@ class _FakeRedisPipeline:
 
     def xadd(self, name: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = False) -> "_FakeRedisPipeline":
         self._ops.append(("xadd", (name, fields), {"maxlen": maxlen, "approximate": approximate}))
+        return self
+
+    def expire(self, name: str, seconds: int) -> "_FakeRedisPipeline":
+        self._ops.append(("expire", (name, seconds), {}))
         return self
 
     def execute(self) -> list[object]:

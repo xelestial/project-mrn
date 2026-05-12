@@ -1302,6 +1302,89 @@ def test_trick_choice_continues_to_resolve_module_inside_same_sequence() -> None
     assert frame.module_queue[2].status == "queued"
 
 
+def test_trick_visibility_prompt_suspends_visibility_module_without_replaying_choice() -> None:
+    class HiddenPromptRaised(RuntimeError):
+        pass
+
+    class FakeEngine:
+        _vis_session_id = "test-session"
+
+        def __init__(self) -> None:
+            self._suppress_hidden_trick_selection = False
+            self.trick_choice_calls = 0
+            self.suppressed_visibility_calls = 0
+            self.unsuppressed_visibility_calls = 0
+
+        def _use_trick_phase(self, state, player, **_kwargs):
+            self.trick_choice_calls += 1
+            state.runtime_last_trick_sequence_result = {
+                "phase": "regular",
+                "selected_trick": "test trick",
+                "resolution": {"type": "NOOP"},
+                "deferred_followups": False,
+            }
+            self._sync_trick_visibility(state, player)
+            return False
+
+        def _sync_trick_visibility(self, _state, player):
+            if self._suppress_hidden_trick_selection:
+                self.suppressed_visibility_calls += 1
+                return
+            self.unsuppressed_visibility_calls += 1
+            if self.unsuppressed_visibility_calls == 1:
+                raise HiddenPromptRaised("hidden trick selection prompt")
+            player.hidden_trick_deck_index = player.trick_hand[0].deck_index
+
+    player = SimpleNamespace(
+        player_id=0,
+        alive=True,
+        trick_hand=[SimpleNamespace(deck_index=11, name="test trick")],
+        hidden_trick_deck_index=None,
+        current_character="산적",
+    )
+    frame = build_trick_sequence_frame(
+        1,
+        0,
+        0,
+        parent_frame_id="turn:1:p0",
+        parent_module_id="mod:turn:1:p0:trickwindow",
+        session_id="test-session",
+    )
+    state = SimpleNamespace(
+        pending_actions=[],
+        pending_turn_completion={},
+        players=[player],
+        runtime_frame_stack=[frame],
+        runtime_module_journal=[],
+        rounds_completed=0,
+        current_round_order=[0],
+        turn_index=0,
+    )
+    engine = FakeEngine()
+    runner = ModuleRunner()
+
+    choice = runner.advance_engine(engine, state)
+
+    assert choice["module_type"] == "TrickChoiceModule"
+    assert engine.trick_choice_calls == 1
+    assert engine.suppressed_visibility_calls == 1
+
+    with pytest.raises(HiddenPromptRaised):
+        for _ in range(8):
+            runner.advance_engine(engine, state)
+
+    visibility_module = next(module for module in frame.module_queue if module.module_type == "TrickVisibilitySyncModule")
+    assert frame.active_module_id == visibility_module.module_id
+    assert visibility_module.status == "suspended"
+    assert engine.trick_choice_calls == 1
+
+    resumed = runner.advance_engine(engine, state)
+
+    assert resumed["module_type"] == "TrickVisibilitySyncModule"
+    assert player.hidden_trick_deck_index == 11
+    assert engine.trick_choice_calls == 1
+
+
 def test_trick_resolve_followup_schedules_next_choice_in_same_sequence() -> None:
     class FakeEngine:
         _vis_session_id = "test-session"

@@ -1,8 +1,22 @@
 import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildProtocolGateRunArtifacts, resolveProtocolGateRunRoot } from "./protocolGateRunArtifacts";
+import {
+  buildProtocolGateFailurePointer,
+  buildProtocolGateGameProgressRecord,
+  formatProtocolGateFailurePointerLine,
+  formatProtocolGateProgressLine,
+  parseProtocolGateProgressLine,
+  writeProtocolGateGateResultArtifacts,
+  writeProtocolGateFailureSummaryArtifacts,
+  writeProtocolGateFailurePointer,
+  writeProtocolGateLatestProgressArtifacts,
+  type ProtocolGateGameProgressRecord,
+  type ProtocolGateProgressArtifacts,
+} from "./protocolGateRunProgress";
 
 type RunnerOptions = {
   games: number;
@@ -31,11 +45,16 @@ async function main(): Promise<void> {
       runRoot,
       gameIndex,
     });
-    await mkdir(artifacts.gameDir, { recursive: true });
+    await Promise.all([
+      mkdir(artifacts.rawDir, { recursive: true }),
+      mkdir(artifacts.summaryDir, { recursive: true }),
+      mkdir(artifacts.pointersDir, { recursive: true }),
+    ]);
     const seedArgs = options.seedBase === undefined ? [] : ["--seed", String(options.seedBase + gameIndex)];
     const gateArgs = [
       ...options.gateArgs,
       ...seedArgs,
+      ...defaultGateArgs(options.gateArgs, artifacts.backendLogOut),
       "--out",
       artifacts.traceOut,
       "--replay-out",
@@ -45,18 +64,36 @@ async function main(): Promise<void> {
     ];
 
     process.stderr.write(
-      `PROTOCOL_GATE_GAME_START index=${gameIndex} dir=${artifacts.gameDir} summary=${artifacts.summaryOut}\n`,
+      `PROTOCOL_GATE_GAME_START index=${gameIndex} dir=${artifacts.gameDir} summary=${artifacts.summaryOut} log=${artifacts.protocolLogOut}\n`,
     );
     const abortController = new AbortController();
     activeRuns.add(abortController);
     let status = 1;
+    let latestProgress: ProtocolGateGameProgressRecord | null = null;
     try {
-      status = await runGate(gateArgs, abortController);
+      const result = await runGate(gateArgs, abortController, artifacts, gameIndex);
+      status = result.status;
+      latestProgress = result.latestProgress;
     } finally {
       activeRuns.delete(abortController);
     }
+    await writeProtocolGateGateResultArtifacts({
+      gameIndex,
+      status,
+      artifacts,
+      latestProgress,
+    });
     process.stderr.write(`PROTOCOL_GATE_GAME_END index=${gameIndex} status=${status} dir=${artifacts.gameDir}\n`);
     if (status !== 0) {
+      const pointer = await buildProtocolGateFailurePointer({
+        gameIndex,
+        status,
+        artifacts,
+        latestProgress,
+      });
+      await writeProtocolGateFailurePointer(pointer);
+      await writeProtocolGateFailureSummaryArtifacts(pointer);
+      process.stderr.write(`${formatProtocolGateFailurePointerLine(pointer)}\n`);
       process.stderr.write(`PROTOCOL_GATE_FAIL_FAST index=${gameIndex} dir=${artifacts.gameDir}\n`);
       failedStatus = status;
       for (const activeRun of activeRuns) {
@@ -125,8 +162,10 @@ function parseArgs(args: string[]): RunnerOptions {
           "  --label backend-timing-gate",
           "  --seed-base 2026051100",
           "",
-          "The runner writes trace, replay, and summary artifacts with absolute paths.",
-          "Do not pipe through tee for summary capture; use the generated summary.json files.",
+          "The runner writes raw logs under game-N/raw, compact reports under game-N/summary, and inspection pointers under game-N/pointers.",
+          "Progress is emitted as compact PROTOCOL_GATE_GAME_PROGRESS lines and persisted to raw/progress.ndjson plus summary/progress.json.",
+          "Failures emit PROTOCOL_GATE_FAILURE_POINTER and persist summary/failure_reason.json plus pointers/failure_pointer.json.",
+          "Do not pipe through tee for summary capture; use summary/gate_result.json first and raw/protocol_gate.log only from a pointer.",
         ].join("\n") + "\n",
       );
       process.exit(0);
@@ -159,32 +198,148 @@ function validateSeedArgs(options: RunnerOptions): void {
   }
 }
 
-function runGate(args: string[], abortController: AbortController): Promise<number> {
+function defaultGateArgs(gateArgs: string[], backendLogOut: string): string[] {
+  const args: string[] = [];
+  if (!hasCliFlag(gateArgs, "--backend-log-out")) {
+    args.push("--backend-log-out", backendLogOut);
+  }
+  return args;
+}
+
+function hasCliFlag(args: string[], flag: string): boolean {
+  return args.includes(flag) || args.some((arg) => arg.startsWith(`${flag}=`));
+}
+
+function runGate(
+  args: string[],
+  abortController: AbortController,
+  artifacts: ProtocolGateProgressArtifacts,
+  gameIndex: number,
+): Promise<{ status: number; latestProgress: ProtocolGateGameProgressRecord | null }> {
   return new Promise((resolveStatus, reject) => {
-    const child = spawn("npm", ["run", "rl:protocol-gate", "--", ...args], {
-      cwd: webRoot,
-      stdio: ["ignore", "inherit", "inherit"],
-      signal: abortController.signal,
+    const protocolLog = createWriteStream(artifacts.protocolLogOut, { flags: "w" });
+    const progressLog = createWriteStream(artifacts.progressOut, { flags: "w" });
+    let latestProgress: ProtocolGateGameProgressRecord | null = null;
+    const observeChildOutput = createChildOutputObserver({
+      gameIndex,
+      artifacts,
+      protocolLog,
+      progressLog,
+      onProgress: (record) => {
+        latestProgress = record;
+        process.stderr.write(`${formatProtocolGateProgressLine(record)}\n`);
+      },
     });
-    child.on("error", (error) => {
-      if (abortController.signal.aborted && error.name === "AbortError") {
-        resolveStatus(130);
+    let settled = false;
+    const settle = (status: number | undefined, error?: unknown): void => {
+      if (settled) {
         return;
       }
+      settled = true;
+      observeChildOutput.flush().then(
+        () => {
+          progressLog.end(() => {
+            protocolLog.end(() => {
+              if (error) {
+                reject(error);
+                return;
+              }
+              resolveStatus({ status: status ?? 1, latestProgress });
+            });
+          });
+        },
+        (flushError: unknown) => {
+          progressLog.end(() => {
+            protocolLog.end(() => reject(flushError));
+          });
+        });
+    };
+
+    protocolLog.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       reject(error);
+    });
+
+    const child = spawn("npm", ["run", "rl:protocol-gate", "--", ...args], {
+      cwd: webRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      signal: abortController.signal,
+    });
+    child.stdout?.on("data", observeChildOutput.write);
+    child.stderr?.on("data", observeChildOutput.write);
+    child.on("error", (error) => {
+      if (abortController.signal.aborted && error.name === "AbortError") {
+        settle(130);
+        return;
+      }
+      settle(undefined, error);
     });
     child.on("close", (code, signal) => {
       if (signal) {
         if (abortController.signal.aborted) {
-          resolveStatus(130);
+          settle(130);
           return;
         }
-        reject(new Error(`protocol gate terminated by signal ${signal}`));
+        settle(undefined, new Error(`protocol gate terminated by signal ${signal}`));
         return;
       }
-      resolveStatus(code ?? 1);
+      settle(code ?? 1);
     });
   });
+}
+
+function createChildOutputObserver(args: {
+  gameIndex: number;
+  artifacts: ProtocolGateProgressArtifacts;
+  protocolLog: NodeJS.WritableStream;
+  progressLog: NodeJS.WritableStream;
+  onProgress: (record: ProtocolGateGameProgressRecord) => void;
+}): {
+  write: (chunk: Buffer | string) => void;
+  flush: () => Promise<void>;
+} {
+  let pendingLine = "";
+  let writeChain = Promise.resolve();
+
+  const consumeLine = (line: string): void => {
+    const progress = parseProtocolGateProgressLine(line);
+    if (!progress) {
+      return;
+    }
+    const record = buildProtocolGateGameProgressRecord({
+      gameIndex: args.gameIndex,
+      artifacts: args.artifacts,
+      progress,
+    });
+    args.progressLog.write(`${JSON.stringify(record)}\n`);
+    writeChain = writeChain.then(() => writeProtocolGateLatestProgressArtifacts(record));
+    args.onProgress(record);
+  };
+
+  return {
+    write: (chunk) => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk;
+      args.protocolLog.write(text);
+      pendingLine += text;
+      const lines = pendingLine.split(/\r?\n/);
+      pendingLine = lines.pop() ?? "";
+      for (const line of lines) {
+        consumeLine(line);
+      }
+    },
+    flush: async () => {
+      if (!pendingLine) {
+        await writeChain;
+        return;
+      }
+      consumeLine(pendingLine);
+      pendingLine = "";
+      await writeChain;
+    },
+  };
 }
 
 void main().catch((error) => {

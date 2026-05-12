@@ -44,27 +44,15 @@ class RedisStreamStore:
             "server_time_ms": str(server_time_ms),
             "payload": _json_dump(persisted_payload),
         }
-        stream_id = client.xadd(self._stream_key(session_id), fields, maxlen=max(1, int(max_buffer)), approximate=False)
-        if msg_type not in {"view_commit", "snapshot_pulse"}:
-            client.xadd(
-                self._source_stream_key(session_id),
-                fields,
-                maxlen=max(1, int(max_buffer)),
-                approximate=False,
-            )
-            self._remember_event_mapping(
-                session_id,
-                seq=seq,
-                msg_type=msg_type,
-                payload=payload,
-                server_time_ms=server_time_ms,
-            )
-        self._remember_viewer_outbox(
+        stream_id = self._publish_stream_record(
+            client,
             session_id,
+            msg_type,
+            fields,
             seq=seq,
-            msg_type=msg_type,
             payload=payload,
             server_time_ms=server_time_ms,
+            max_buffer=max_buffer,
         )
         return {
             "stream_id": str(stream_id),
@@ -128,36 +116,41 @@ class RedisStreamStore:
         }
 
     def snapshot(self, session_id: str) -> list[dict[str, Any]]:
-        return [self._decode_stream_entry(entry_id, fields) for entry_id, fields in self._connection.client().xrange(self._stream_key(session_id))]
+        return self._sort_stream_records(
+            [
+                self._decode_stream_entry(entry_id, fields)
+                for entry_id, fields in self._connection.client().xrange(self._stream_key(session_id))
+            ]
+        )
 
     def source_snapshot(self, session_id: str, through_seq: int | None = None) -> list[dict[str, Any]]:
         client = self._connection.client()
         source_entries = client.xrange(self._source_stream_key(session_id))
         if source_entries:
-            return [
+            return self._sort_stream_records(
+                [
+                    self._decode_stream_entry(entry_id, fields)
+                    for entry_id, fields in source_entries
+                    if through_seq is None or self._entry_seq(fields) <= int(through_seq)
+                ]
+            )
+        return self._sort_stream_records(
+            [
                 self._decode_stream_entry(entry_id, fields)
-                for entry_id, fields in source_entries
-                if through_seq is None or self._entry_seq(fields) <= int(through_seq)
+                for entry_id, fields in client.xrange(self._stream_key(session_id))
+                if str(fields.get("type") or "") not in {"view_commit", "snapshot_pulse"}
+                and (through_seq is None or self._entry_seq(fields) <= int(through_seq))
             ]
-        return [
-            self._decode_stream_entry(entry_id, fields)
-            for entry_id, fields in client.xrange(self._stream_key(session_id))
-            if str(fields.get("type") or "") not in {"view_commit", "snapshot_pulse"}
-            and (through_seq is None or self._entry_seq(fields) <= int(through_seq))
-        ]
+        )
 
     def replay_from(self, session_id: str, last_seq: int) -> list[dict[str, Any]]:
         return [message for message in self.snapshot(session_id) if int(message.get("seq", 0)) > int(last_seq)]
 
     def replay_window(self, session_id: str) -> tuple[int, int]:
-        client = self._connection.client()
-        oldest_raw = client.xrange(self._stream_key(session_id), count=1)
-        latest_raw = client.xrevrange(self._stream_key(session_id), count=1)
-        if not oldest_raw or not latest_raw:
+        records = self.snapshot(session_id)
+        if not records:
             return (0, 0)
-        oldest = self._decode_stream_entry(oldest_raw[0][0], oldest_raw[0][1])
-        latest = self._decode_stream_entry(latest_raw[0][0], latest_raw[0][1])
-        return (int(oldest.get("seq", 0)), int(latest.get("seq", 0)))
+        return (int(records[0].get("seq", 0)), int(records[-1].get("seq", 0)))
 
     def latest_seq(self, session_id: str) -> int:
         raw = self._connection.client().get(self._seq_key(session_id))
@@ -202,6 +195,7 @@ class RedisStreamStore:
         msg_type: str,
         payload: dict[str, Any],
         server_time_ms: int,
+        client: Any | None = None,
     ) -> None:
         event_id = str(payload.get("event_id") or "").strip()
         if not event_id:
@@ -218,7 +212,7 @@ class RedisStreamStore:
             "commit_seq": payload.get("commit_seq"),
             "server_time_ms": int(server_time_ms),
         }
-        client = self._connection.client()
+        client = client or self._connection.client()
         key = self._event_index_key(session_id)
         client.hset(key, event_id, _json_dump(mapping))
         _expire_key(client, key, DEBUG_REDIS_RETENTION_SECONDS)
@@ -231,11 +225,12 @@ class RedisStreamStore:
         msg_type: str,
         payload: dict[str, Any],
         server_time_ms: int,
+        client: Any | None = None,
     ) -> None:
         scopes = _viewer_outbox_scopes(str(msg_type), payload)
         if not scopes:
             return
-        client = self._connection.client()
+        client = client or self._connection.client()
         key = self._viewer_outbox_index_key(session_id)
         for scope in sorted(set(scopes)):
             record = {
@@ -252,6 +247,65 @@ class RedisStreamStore:
             }
             client.hset(key, f"{int(seq):020d}:{scope}", _json_dump(record))
         _expire_key(client, key, DEBUG_REDIS_RETENTION_SECONDS)
+
+    def _publish_stream_record(
+        self,
+        client: Any,
+        session_id: str,
+        msg_type: str,
+        fields: dict[str, str],
+        *,
+        seq: int,
+        payload: dict[str, Any],
+        server_time_ms: int,
+        max_buffer: int,
+    ) -> str:
+        stream_kwargs = {"maxlen": max(1, int(max_buffer)), "approximate": False}
+        pipeline_factory = getattr(client, "pipeline", None)
+        if not callable(pipeline_factory):
+            stream_id = client.xadd(self._stream_key(session_id), fields, **stream_kwargs)
+            if msg_type not in {"view_commit", "snapshot_pulse"}:
+                client.xadd(self._source_stream_key(session_id), fields, **stream_kwargs)
+                self._remember_event_mapping(
+                    session_id,
+                    seq=seq,
+                    msg_type=msg_type,
+                    payload=payload,
+                    server_time_ms=server_time_ms,
+                    client=client,
+                )
+            self._remember_viewer_outbox(
+                session_id,
+                seq=seq,
+                msg_type=msg_type,
+                payload=payload,
+                server_time_ms=server_time_ms,
+                client=client,
+            )
+            return str(stream_id)
+
+        pipeline = pipeline_factory(transaction=True)
+        pipeline.xadd(self._stream_key(session_id), fields, **stream_kwargs)
+        if msg_type not in {"view_commit", "snapshot_pulse"}:
+            pipeline.xadd(self._source_stream_key(session_id), fields, **stream_kwargs)
+            self._remember_event_mapping(
+                session_id,
+                seq=seq,
+                msg_type=msg_type,
+                payload=payload,
+                server_time_ms=server_time_ms,
+                client=pipeline,
+            )
+        self._remember_viewer_outbox(
+            session_id,
+            seq=seq,
+            msg_type=msg_type,
+            payload=payload,
+            server_time_ms=server_time_ms,
+            client=pipeline,
+        )
+        results = pipeline.execute()
+        return str(results[0]) if results else ""
 
     def _stream_key(self, session_id: str) -> str:
         return self._connection.key("stream", session_id, "events")
@@ -277,6 +331,16 @@ class RedisStreamStore:
             return int(fields.get("seq", 0))
         except (TypeError, ValueError):
             return 0
+
+    @staticmethod
+    def _sort_stream_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            records,
+            key=lambda record: (
+                int(record.get("seq", 0) or 0),
+                str(record.get("stream_id", "")),
+            ),
+        )
 
     @staticmethod
     def _decode_stream_entry(entry_id: str, fields: dict[str, Any]) -> dict[str, Any]:
