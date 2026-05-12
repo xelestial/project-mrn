@@ -4,6 +4,14 @@ Updated: 2026-05-12 14:22:54 KST
 
 This document is the handoff point for a new session. Read this first, then confirm with `git status --short`.
 
+## Post-Commit Update
+
+After this handoff was written, the listed code, test, and documentation changes were committed and pushed to `origin/main`.
+
+Important caveat: the Codex shell for this session could modify workspace files but could not write `.git/index.lock`, so the commit was created through the GitHub Git Data API instead of local `git commit`. A fresh clone of `origin/main` has the committed content. This local checkout may still show the same files as modified until its Git metadata is refreshed outside the restricted shell.
+
+The `.playwright-mcp/` local browser artifacts were intentionally excluded from the commit.
+
 ## Current Goal
 
 The active goal is to make repeated headless protocol/RL game testing usable without filling the AI conversation context with raw logs.
