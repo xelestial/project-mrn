@@ -14,7 +14,8 @@ Read these first:
 Canonical backend references:
 
 - `docs/current/backend/runtime-logging-policy.md`
-- `docs/current/engineering/[PLAN]_BACKEND_SELECTOR_AND_MIDDLEWARE_VIEWMODEL_MIGRATION.md`
+- `docs/current/runtime/end-to-end-contract.md`
+- `docs/current/runtime/round-action-control-matrix.md`
 - `docs/current/engineering/[PLAN]_ROOM_SERVER_CLIENT_ELECTRON_ARCHITECTURE.md`
 
 Operational defaults:

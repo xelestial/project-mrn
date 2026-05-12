@@ -46,6 +46,15 @@ Queued action envelopes split recoverable work into explicit module steps:
 
 Completed modules must not be re-run when a child sequence resumes.
 
+Multi-prompt action steps must persist selected intermediate targets before
+opening the next prompt. Forced-trade fortune actions store the actor-owned
+tile in `ActionEnvelope.payload["forced_trade_own_pos"]` before asking for the
+other player's tile; resumed actions reuse that value and reject stale ownership
+with `stale_forced_trade_own_target`. Matchmaker adjacent purchases store
+`pending_matchmaker_adjacent_target` in `state.pending_action_log` with the
+player, landing tile, selected target, and turn index until the purchase
+confirmation resolves or aborts.
+
 ## Rule Boundaries
 
 Rule data flows through `GameRules`, tile metadata, modifier registries, and module contexts. Frontend code renders decisions and events; it does not reconstruct gameplay rules.
@@ -54,6 +63,17 @@ Hidden trick selection is also routed through the engine decision boundary so a 
 
 Start resource metadata is owned by `GameRules.start_reward`. At game start, the engine runs the same allocation-style decision boundary as LAP reward before weather reveal and draft, then consumes the start reward pools.
 
+Prompt-producing rule branches must not open a decision boundary with an empty
+legal choice set. Baksu transfer reward resolution stops drawing rewards when
+the trick draw pile is empty, emits `baksu_transfer_reward_empty`, and records
+the remaining burden count instead of asking policy or UI code to choose from
+no cards.
+
 ## Observability
 
 The engine emits semantic events and action-log entries so backend stream guards and debug-log audits can verify module ownership.
+
+Protocol/debug audits rely on machine-readable edge-case reasons for resumable
+actions. Stale forced-trade ownership, empty Baksu reward draws, and resolved
+matchmaker purchase targets must remain explicit in events, action payloads, or
+pending action logs rather than being hidden as generic no-op state changes.

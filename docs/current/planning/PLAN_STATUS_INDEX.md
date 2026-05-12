@@ -47,7 +47,7 @@ Read and maintain these:
 7. `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
 8. `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
 9. `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
-10. `docs/current/engineering/[PLAN]_VISIBILITY_PROJECTION_REDIS.md`
+10. `docs/current/backend/runtime-logging-policy.md`
 11. `docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`
 
 ## Current Reference Sets

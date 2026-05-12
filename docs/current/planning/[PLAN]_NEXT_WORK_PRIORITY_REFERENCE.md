@@ -53,7 +53,7 @@ Use:
 
 - `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
 - `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
-- `docs/current/engineering/[PLAN]_VISIBILITY_PROJECTION_REDIS.md`
+- `docs/current/runtime/end-to-end-contract.md`
 - `docs/current/backend/runtime-logging-policy.md`
 
 Current goal:

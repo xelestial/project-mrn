@@ -17,10 +17,11 @@ It does two jobs:
 
 1. `docs/current/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
 2. `docs/current/engineering/1_HUMAN_GAME_PIPELINES_AND_RUNTIME_REFERENCE.md`
-3. `docs/current/engineering/[PLAN]_BACKEND_SELECTOR_AND_MIDDLEWARE_VIEWMODEL_MIGRATION.md`
-4. `docs/current/backend/online-game-interface-spec.md`
-5. `docs/current/backend/turn-structure-and-order-source-map.md`
-6. `docs/current/api/online-game-api-spec.md`
+3. `docs/current/runtime/end-to-end-contract.md`
+4. `docs/current/runtime/round-action-control-matrix.md`
+5. `docs/current/backend/online-game-interface-spec.md`
+6. `docs/current/backend/turn-structure-and-order-source-map.md`
+7. `docs/current/api/online-game-api-spec.md`
 
 ## Current Architecture Summary
 
