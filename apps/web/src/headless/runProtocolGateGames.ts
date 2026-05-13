@@ -5,6 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildProtocolGateRunArtifacts, resolveProtocolGateRunRoot } from "./protocolGateRunArtifacts";
 import {
+  buildProtocolGateGamesHelpText,
+  parseProtocolGateGameRunnerArgs,
+  type ProtocolGateGameRunnerOptions,
+} from "./protocolGateGameRunnerOptions";
+import {
   buildProtocolGateFailurePointer,
   buildProtocolGateGameProgressRecord,
   formatProtocolGateFailurePointerLine,
@@ -18,25 +23,16 @@ import {
   type ProtocolGateProgressArtifacts,
 } from "./protocolGateRunProgress";
 
-type RunnerOptions = {
-  games: number;
-  concurrency: number;
-  runRoot?: string;
-  label?: string;
-  seedBase?: number;
-  quietProgress: boolean;
-  baseUrlTemplate?: string;
-  redisUrlTemplate?: string;
-  backendDockerComposeProjectTemplate?: string;
-  gateArgs: string[];
-};
-
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(moduleDir, "../..");
 const repoRoot = resolve(webRoot, "../..");
 
 async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
+  const options = parseProtocolGateGameRunnerArgs(process.argv.slice(2));
+  if (options.helpRequested) {
+    process.stdout.write(`${buildProtocolGateGamesHelpText()}\n`);
+    process.exit(0);
+  }
   validateSeedArgs(options);
   const runRoot = resolveProtocolGateRunRoot(repoRoot, options.runRoot, options.label);
   const activeRuns = new Set<AbortController>();
@@ -139,88 +135,7 @@ async function main(): Promise<void> {
   );
 }
 
-function parseArgs(args: string[]): RunnerOptions {
-  const options: RunnerOptions = {
-    games: 1,
-    concurrency: 1,
-    quietProgress: false,
-    gateArgs: [],
-  };
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    const next = args[index + 1];
-    if (arg === "--games" && next) {
-      options.games = Number(next);
-      index += 1;
-    } else if (arg === "--concurrency" && next) {
-      options.concurrency = Number(next);
-      index += 1;
-    } else if (arg === "--run-root" && next) {
-      options.runRoot = next;
-      index += 1;
-    } else if (arg === "--label" && next) {
-      options.label = next;
-      index += 1;
-    } else if (arg === "--seed-base" && next) {
-      options.seedBase = Number(next);
-      index += 1;
-    } else if (arg === "--quiet-progress") {
-      options.quietProgress = true;
-    } else if (arg === "--base-url-template" && next) {
-      options.baseUrlTemplate = next;
-      index += 1;
-    } else if (arg === "--redis-url-template" && next) {
-      options.redisUrlTemplate = next;
-      index += 1;
-    } else if (arg === "--backend-docker-compose-project-template" && next) {
-      options.backendDockerComposeProjectTemplate = next;
-      index += 1;
-    } else if (arg === "--help" || arg === "-h") {
-      process.stdout.write(
-        [
-          "Usage: vite-node src/headless/runProtocolGateGames.ts --games 5 [runner options] -- [protocol gate options]",
-          "",
-          "Runner options:",
-          "  --games 5",
-          "  --concurrency 5",
-          "  --run-root tmp/rl/full-stack-protocol/my-run",
-          "  --label backend-timing-gate",
-          "  --seed-base 2026051100",
-          "  --quiet-progress",
-          "  --base-url-template http://127.0.0.1:910{game}",
-          "  --redis-url-template redis://127.0.0.1:638{game}/0",
-          "  --backend-docker-compose-project-template project-mrn-protocol-g{game}",
-          "",
-          "Template variables: {game} is 1-based, {index} is 1-based, and {zeroBased} is 0-based.",
-          "The runner writes raw logs under game-N/raw, compact reports under game-N/summary, and inspection pointers under game-N/pointers.",
-          "Progress is emitted as compact PROTOCOL_GATE_GAME_PROGRESS lines unless --quiet-progress is set.",
-          "Progress is always persisted to raw/progress.ndjson plus summary/progress.json.",
-          "Failures emit PROTOCOL_GATE_FAILURE_POINTER and persist summary/failure_reason.json plus pointers/failure_pointer.json.",
-          "Do not pipe through tee for summary capture; use summary/gate_result.json first and raw/protocol_gate.log only from a pointer.",
-        ].join("\n") + "\n",
-      );
-      process.exit(0);
-    } else if (arg === "--") {
-      options.gateArgs.push(...args.slice(index + 1));
-      break;
-    } else {
-      options.gateArgs.push(arg);
-    }
-  }
-  if (!Number.isInteger(options.games) || options.games <= 0) {
-    throw new Error(`--games must be a positive integer: ${options.games}`);
-  }
-  if (!Number.isInteger(options.concurrency) || options.concurrency <= 0) {
-    throw new Error(`--concurrency must be a positive integer: ${options.concurrency}`);
-  }
-  options.concurrency = Math.min(options.games, options.concurrency);
-  if (options.seedBase !== undefined && !Number.isFinite(options.seedBase)) {
-    throw new Error(`--seed-base must be a number: ${options.seedBase}`);
-  }
-  return options;
-}
-
-function validateSeedArgs(options: RunnerOptions): void {
+function validateSeedArgs(options: ProtocolGateGameRunnerOptions): void {
   if (options.seedBase === undefined) {
     return;
   }
@@ -244,7 +159,7 @@ type GameRuntimeOverrides = {
   env: NodeJS.ProcessEnv;
 };
 
-function buildGameRuntimeOverrides(options: RunnerOptions, gameIndex: number): GameRuntimeOverrides {
+function buildGameRuntimeOverrides(options: ProtocolGateGameRunnerOptions, gameIndex: number): GameRuntimeOverrides {
   const redisUrl = options.redisUrlTemplate
     ? renderGameTemplate(options.redisUrlTemplate, gameIndex)
     : undefined;

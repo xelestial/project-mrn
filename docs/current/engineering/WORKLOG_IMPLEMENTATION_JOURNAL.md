@@ -189,6 +189,21 @@ materialization. The remaining 20-game/1-server failure belongs to single-server
 runtime scheduling/capacity, not prompt identity, Redis commit, view projection,
 ACK delivery, or command inbox dedupe.
 
+## 2026-05-13 Protocol Gate Output Hygiene
+
+- The repeated-game protocol gate runner now suppresses compact progress output
+  by default for multi-game runs. Single-game runs keep visible progress unless
+  `--quiet-progress` is passed.
+- `--verbose-progress` is the explicit opt-in for investigation runs where
+  progress lines are worth the terminal/chat context cost.
+- Raw child stdout/stderr and progress remain persisted under each
+  `game-N/raw/` directory, and failure diagnosis still starts from
+  `PROTOCOL_GATE_FAILURE_POINTER` plus `summary/failure_reason.json`.
+
+Responsibility result: long-run evidence ownership stays with file artifacts and
+failure pointers. Chat/terminal output is no longer responsible for carrying
+successful multi-game progress details.
+
 ## 2026-05-13 Session Loop Recovery Status Closure
 
 - Closed stale Phase 2/3 checklist items in the active server-runtime rebuild
