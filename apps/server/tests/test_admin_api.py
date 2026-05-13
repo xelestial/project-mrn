@@ -256,10 +256,16 @@ class AdminApiTests(unittest.TestCase):
         self.assertFalse(data["browser_safe"])
         self.assertEqual(data["session_id"], session.session_id)
         prompts = data["pending_prompts"]
-        self.assertEqual([prompt["request_id"] for prompt in prompts], ["ai_req_1"])
+        self.assertEqual(len(prompts), 1)
         prompt = prompts[0]
+        self.assertTrue(prompt["request_id"].startswith("req_"))
+        self.assertEqual(prompt["legacy_request_id"], "ai_req_1")
         self.assertEqual(prompt["provider"], "ai")
         self.assertEqual(prompt["player_id"], 1)
+        self.assertEqual(prompt["legacy_player_id"], 1)
+        self.assertEqual(prompt["public_player_id"], session.seats[0].public_player_id)
+        self.assertEqual(prompt["seat_id"], session.seats[0].seat_id)
+        self.assertEqual(prompt["viewer_id"], session.seats[0].viewer_id)
         self.assertEqual(prompt["request_type"], "movement")
         self.assertEqual([choice["choice_id"] for choice in prompt["legal_choices"]], ["roll", "skip"])
         self.assertTrue(prompt["prompt_fingerprint"])

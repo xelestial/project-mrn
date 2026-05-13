@@ -949,7 +949,8 @@ class SessionsApiTests(unittest.TestCase):
         decision = state.prompt_service.wait_for_decision("ai_req_public_1", timeout_ms=0, session_id=session_id)
         self.assertIsNotNone(decision)
         assert decision is not None
-        self.assertEqual(decision["request_id"], "ai_req_public_1")
+        self.assertEqual(decision["request_id"], public_request_id)
+        self.assertEqual(decision["legacy_request_id"], "ai_req_public_1")
         self.assertEqual(decision["public_request_id"], public_request_id)
 
     def test_start_response_includes_parameter_manifest(self) -> None:

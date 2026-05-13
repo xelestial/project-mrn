@@ -40,12 +40,19 @@ def _ok(data: dict) -> dict:
     return {"ok": True, "data": data, "error": None}
 
 
-def _external_ai_pending_prompt_payload(pending: PendingPrompt) -> dict:
+def _external_ai_pending_prompt_payload(pending: PendingPrompt, sessions: SessionService) -> dict:
     payload = dict(pending.payload)
     public_context = payload.get("public_context")
     legal_choices = payload.get("legal_choices")
-    return {
+    identity_fields = dict(sessions.protocol_identity_fields(pending.session_id, pending.player_id) or {})
+    for key in ("legacy_player_id", "public_player_id", "seat_id", "viewer_id"):
+        value = payload.get(key)
+        if value is not None and str(value).strip():
+            identity_fields[key] = value
+    result = {
         "request_id": pending.request_id,
+        "legacy_request_id": str(payload.get("legacy_request_id") or pending.request_id),
+        "public_request_id": str(payload.get("public_request_id") or pending.request_id),
         "session_id": pending.session_id,
         "player_id": pending.player_id,
         "seat": payload.get("seat"),
@@ -65,6 +72,11 @@ def _external_ai_pending_prompt_payload(pending: PendingPrompt) -> dict:
         if isinstance(payload.get("required_capabilities"), list)
         else [],
     }
+    public_prompt_instance_id = payload.get("public_prompt_instance_id")
+    if public_prompt_instance_id is not None and str(public_prompt_instance_id).strip():
+        result["public_prompt_instance_id"] = str(public_prompt_instance_id)
+    result.update(identity_fields)
+    return result
 
 
 @router.get("/sessions/{session_id}/recovery", dependencies=[Depends(require_admin)])
@@ -125,7 +137,7 @@ def admin_external_ai_pending_prompts(
     except SessionNotFoundError:
         admin_error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
     pending = [
-        _external_ai_pending_prompt_payload(item)
+        _external_ai_pending_prompt_payload(item, sessions)
         for item in prompts.list_pending_prompts(session_id=session_id)
         if str(item.payload.get("provider") or "").strip().lower() == "ai"
     ]

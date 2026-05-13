@@ -36,6 +36,9 @@ in the active plans, status index, tests, or canonical contract documents.
   `command_seq`, matching the REST/external-AI decision callback boundary and
   letting clients correlate an accepted prompt decision with the queued runtime
   command.
+- Admin external-AI pending prompt reads now expose the public canonical
+  request id, legacy request alias, public player id, seat id, and viewer id
+  while retaining numeric `player_id` as a compatibility routing alias.
 - `PromptService.wait_for_decision()` now resolves already-submitted public
   request aliases through lifecycle metadata for both in-memory and Redis
   stores. Zero-timeout missing-decision probes still avoid pending/resolved hash
