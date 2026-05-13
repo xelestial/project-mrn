@@ -309,6 +309,32 @@ inside the current 5s command SLO at eight concurrent games and outside it at
 ten concurrent games. Further 12/15-game one-server runs would characterize
 overload, not find the first boundary, so they were not run.
 
+## 2026-05-13 Protocol Evidence And Remote Gate Closure
+
+- Committed and pushed fail-closed remote evidence gates as `fe882c7c`
+  (`Harden external evidence gates`) on
+  `codex/external-topology-protocol-ops`.
+- Confirmed missing remote inputs are blocked by design: local Redis platform
+  manifests fail with `--require-external-topology`, loopback worker URLs fail
+  with `--require-non-local-endpoint`, and loopback game-server URLs fail with
+  `--require-non-local-server`.
+- Synchronized the runtime protocol plan status with actual evidence. Phase 0
+  additive identity, Redis debug retention, baseline prompt lifecycle, and
+  Redis viewer-outbox debug/indexing are implemented; globally opaque prompt
+  request IDs, UUID prompt instance IDs, first-class stale/resolved lifecycle
+  states, and real outbox read mode remain explicit residual work.
+- Local validation passed: 190 server protocol/lifecycle/outbox tests, 76
+  frontend headless/stream tests, smoke workflow gate, live protocol gate,
+  bounded UI full-game progress, and full-stack live RL smoke at
+  `tmp/rl/full-stack-protocol/codex-all-20260513`.
+
+Responsibility result: no runtime ownership was silently moved in this
+checkpoint. Evidence classification moved into scripts and status docs:
+loopback/local runs are local evidence only, while remote/external evidence
+requires non-local endpoint URLs, auth, and platform-filled Redis commands.
+Protocol-plan responsibility also became explicit: completed additive/debug
+foundations are separated from residual identity and outbox migration work.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

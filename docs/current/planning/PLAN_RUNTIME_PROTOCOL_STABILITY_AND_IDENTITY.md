@@ -643,32 +643,36 @@ Snapshots can still grow if they include long lists.
 
 Store latest-N summaries plus stream pointers. Full source streams and viewer outboxes remain available until their one-hour TTL expires after archival.
 
-## Implementation Order
+## Implementation Order And Current Status
 
 ### Phase 0. Additive Identity And Debug Foundations
 
-- [ ] Add `protocol_identity.py` and `protocol_ids.py`.
-- [ ] Add public UUID player IDs, seat IDs, viewer IDs, event IDs, request IDs, and prompt instance IDs without removing legacy aliases.
-- [ ] Add `round_index`, `turn_index`, and `turn_label` to `view_commit`.
-- [ ] Add Redis ID maps for events and requests.
-- [ ] Add one-hour debug retention settings and debug snapshot writing.
-- [ ] Verify with `apps/server/tests/test_session_service.py`.
-- [ ] Verify with `apps/server/tests/test_redis_realtime_services.py`.
-- [ ] Verify with `apps/server/tests/test_runtime_settings.py`.
+- [x] Add `protocol_identity.py` and `protocol_ids.py`.
+- [x] Add public UUID player IDs, seat IDs, viewer IDs, event IDs, and request ID helpers without removing legacy aliases.
+- [ ] Migrate prompt request IDs and prompt instance IDs to globally opaque IDs. Current Phase 0 intentionally keeps legacy semantic prompt request IDs and numeric `prompt_instance_id`; this remains a later boundary because batch continuation and resume parsing still read semantics from those fields.
+- [x] Add `round_index`, `turn_index`, and `turn_label` to `view_commit`.
+- [x] Add Redis event ID maps and prompt lifecycle records that expose recent request IDs for inspection.
+- [ ] Add a dedicated Redis request ID map only if the lifecycle records are insufficient for the next migration phase.
+- [x] Add one-hour debug retention settings and debug snapshot writing.
+- [x] Verify with `apps/server/tests/test_session_service.py`.
+- [x] Verify with `apps/server/tests/test_redis_realtime_services.py`.
+- [x] Verify with `apps/server/tests/test_runtime_settings.py`.
 
 ### Phase 1. Prompt Lifecycle
 
-- [ ] Add prompt lifecycle domain model.
-- [ ] Persist prompt states through created, delivered, decision received, accepted, rejected, stale, resolved, and expired.
-- [ ] Stop using TTL for active prompt cleanup.
+- [x] Add prompt lifecycle domain model.
+- [x] Persist baseline prompt states through created, delivered, accepted, rejected, and expired.
+- [ ] Complete lifecycle coverage for decision received, stale, and resolved as first-class audited states.
+- [ ] Prove active prompts do not depend on TTL cleanup in the Redis-backed path.
 - [ ] Record stale decisions without deleting active prompts.
-- [ ] Verify with `apps/server/tests/test_prompt_service.py`.
-- [ ] Verify with `apps/server/tests/test_stream_api.py`.
-- [ ] Verify with `apps/web/src/domain/stream/decisionProtocol.spec.ts`.
+- [x] Verify baseline lifecycle coverage with `apps/server/tests/test_prompt_service.py`.
+- [x] Verify pending prompt delivery repair with `apps/server/tests/test_stream_api.py`.
+- [ ] Verify frontend decision protocol lifecycle handling with `apps/web/src/domain/stream/decisionProtocol.spec.ts`.
 
 ### Phase 2. Strict `view_commit` Recovery
 
-- [ ] Ensure latest `view_commit` is sent on connect, resume, heartbeat repair, round start, and turn start.
+- [x] Ensure latest `view_commit` is sent on connect and resume repair.
+- [ ] Prove latest `view_commit` on heartbeat repair, round start, and turn start.
 - [ ] Treat raw prompt messages as wake-up hints only.
 - [ ] Make React and headless clients decide only from active prompt state in `view_commit`.
 - [ ] Verify with `apps/server/tests/test_runtime_end_to_end_contract.py`.
@@ -677,13 +681,14 @@ Store latest-N summaries plus stream pointers. Full source streams and viewer ou
 
 ### Phase 3. Viewer Outbox Dual-Write
 
-- [ ] Add viewer outbox persistence.
-- [ ] Project messages into viewer outboxes while keeping the old publish path active.
-- [ ] Add outbox audit checks for target-only prompt and ack delivery.
-- [ ] Add spectator hidden payload tests.
-- [ ] Verify with `apps/server/tests/test_stream_service.py`.
-- [ ] Verify with `apps/server/tests/test_stream_api.py`.
-- [ ] Verify with `apps/server/tests/test_visibility_projection.py`.
+- [x] Add Redis viewer outbox debug/index persistence.
+- [x] Record projected delivery scopes while keeping the old publish path active.
+- [x] Add outbox audit checks for target-only prompt and ack delivery.
+- [x] Add spectator hidden payload tests.
+- [ ] Add real per-viewer outbox read mode behind `MRN_STREAM_OUTBOX_MODE`.
+- [x] Verify with `apps/server/tests/test_stream_service.py`.
+- [x] Verify with `apps/server/tests/test_stream_api.py`.
+- [x] Verify with `apps/server/tests/test_visibility_projection.py`.
 
 ### Phase 4. Full-Stack Protocol Gate
 

@@ -153,7 +153,11 @@ Those themes should reopen only if a concrete regression or rollout need appears
    `apps/server/`, and `apps/web/` as new rule changes land. The Phase 0
    checklist in the protocol plan is synchronized to the current 2026-05-13
    implementation evidence; request IDs and prompt instance IDs remain explicit
-   residual migration boundaries rather than hidden completion.
+   residual migration boundaries rather than hidden completion. The current
+   local evidence pass includes server identity/lifecycle/outbox tests, frontend
+   headless protocol tests, the smoke workflow gate, the live protocol gate,
+   bounded UI full-game progress, and the full-stack live RL smoke artifact at
+   `tmp/rl/full-stack-protocol/codex-all-20260513`.
 3. UI/UX follow-up. Effect cause visibility now preserves backend
    `effect_context` source player, source family, source name, and resource
    delta through the prompt overlay. The 2026-05-04 automated evidence pass
@@ -172,7 +176,9 @@ Those themes should reopen only if a concrete regression or rollout need appears
    evidence commands now have fail-closed flags requiring a non-local server,
    non-local worker, worker auth, and summary-file output. A remote non-local
    external AI endpoint still needs its actual base URL and credential/config
-   values before it can be called deployment evidence.
+   values before it can be called deployment evidence. The 2026-05-13 negative
+   evidence checks confirmed that loopback worker/server URLs and local Redis
+   manifests are rejected when remote/external evidence is required.
 
 ## Rule For New Work
 
