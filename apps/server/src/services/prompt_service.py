@@ -1302,8 +1302,6 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
     fields: dict[str, object] = {}
     for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor", "batch_id"):
         value = str(decision.get(field) or prompt.get(field) or "").strip()
-        if field == "batch_id" and not value:
-            value = _derive_batch_id_from_request_id(str(decision.get("request_id") or prompt.get("request_id") or ""))
         if value:
             fields[field] = value
     prompt_instance_id = _int_or_none(decision.get("prompt_instance_id"))
@@ -1327,16 +1325,6 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
         if isinstance(value, (list, dict)):
             fields[field] = value
     return fields
-
-
-def _derive_batch_id_from_request_id(request_id: str) -> str:
-    request_id = str(request_id or "").strip()
-    if not request_id.startswith("batch:") or ":p" not in request_id:
-        return ""
-    batch_id, player_suffix = request_id.rsplit(":p", 1)
-    if not player_suffix.isdigit():
-        return ""
-    return batch_id
 
 
 def _ensure_prompt_protocol_identity(prompt: dict, *, request_id: str) -> None:

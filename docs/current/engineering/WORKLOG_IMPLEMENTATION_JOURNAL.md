@@ -65,7 +65,8 @@ in the active plans, status index, tests, or canonical contract documents.
   Legacy numeric `responses_by_player_id` payloads are still accepted.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Runtime batch resume/enrichment also no
-  longer manufactures `batch_id` from request-id suffixes; producers must carry
+  longer manufactures `batch_id` from request-id suffixes. `PromptService`
+  command materialization now follows the same rule; producers must carry
   explicit batch identity. Compatibility storage and replay still keep the
   legacy request id key until the canonical opaque prompt-key migration is done
   as a separate, larger change.
@@ -76,6 +77,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_does_not_derive_batch_id_from_batch_request_id apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_boundary_enrichment_uses_explicit_batch_and_player_for_opaque_request_id -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_module_decision_command_does_not_derive_batch_id_from_request_id apps/server/tests/test_prompt_service.py::PromptServiceTests::test_module_decision_command_carries_prompt_instance_id_for_public_request_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_mark_prompt_delivered_resolves_public_request_id_alias apps/server/tests/test_prompt_service.py::PromptServiceTests::test_external_decision_result_resolves_public_request_id_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`

@@ -376,6 +376,30 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(command_store.commands[0]["payload"]["request_id"], pending.request_id)
         self.assertEqual(command_store.commands[0]["payload"]["prompt_instance_id"], 31)
 
+    def test_module_decision_command_does_not_derive_batch_id_from_request_id(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        prompt_payload = _batch_prompt(player_id=1)
+        prompt_payload.pop("batch_id", None)
+        prompt_payload["request_type"] = "module_action"
+        prompt_payload["module_type"] = "TestModule"
+        prompt_payload["module_cursor"] = "await_module_action:1"
+        pending = service.create_prompt("s1", prompt_payload)
+
+        result = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": pending.request_id,
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+
+        command_payload = command_store.commands[0]["payload"]
+        self.assertEqual(result["status"], "accepted")
+        self.assertNotIn("batch_id", command_payload)
+        self.assertNotIn("batch_id", command_payload["decision"])
+
     def test_decision_command_carries_prompt_player_identity_fields(self) -> None:
         command_store = CapturingCommandStore()
         service = PromptService(command_store=command_store)
