@@ -13,11 +13,18 @@ in the active plans, status index, tests, or canonical contract documents.
 
 ## 2026-05-14 Runtime Protocol Identity Continuation
 
-- Added opaque prompt identity companions while keeping legacy request IDs as
-  the canonical prompt storage/resume key for compatibility.
+- Flipped new `PromptService` prompt storage and command-resume payloads to use
+  the opaque public request id as the canonical `request_id`.
+- Legacy semantic request IDs remain as `legacy_request_id` plus bounded
+  in-memory/Redis aliases, so older callbacks and debug lookups still resolve
+  to the public canonical key.
 - `PromptService` now accepts a submitted `public_request_id` at the protocol
-  boundary, resolves it to the legacy prompt key internally, and preserves the
-  submitted public id in the decision payload.
+  boundary, preserves it as the canonical prompt key, and accepts submitted
+  legacy request IDs as compatibility aliases.
+- `DecisionGateway` now switches its local request-id variable to the
+  `PromptService` canonical public id after prompt creation/reuse, so prompt
+  messages plus requested/resolved/timeout events share the same opaque
+  `request_id` while carrying `legacy_request_id` for compatibility.
 - Module decision commands now carry explicit `prompt_instance_id`, and runtime
   resume matching and prompt sequence seeding now use that explicit field
   without parsing legacy request-id suffixes for prompt instance recovery.
@@ -34,12 +41,11 @@ in the active plans, status index, tests, or canonical contract documents.
   stores. Zero-timeout missing-decision probes still avoid pending/resolved hash
   scans.
 - Public request alias lookup now has an in-memory request alias index and
-  Redis prompt-hash alias indexes. Pending-read, accept, wait, and lifecycle
-  reads can resolve `public_request_id` without scanning the pending, decision,
-  or lifecycle hashes in the covered paths.
-- `PromptService.get_prompt_lifecycle()` now accepts the same public request
-  alias and returns the legacy-key lifecycle record, which keeps debug/status
-  reads usable before the canonical prompt key migration.
+  Redis prompt-hash alias indexes. Pending-read, accept, wait, lifecycle-read,
+  timeout, resolved, and command-replay paths can resolve legacy/public request
+  aliases without making legacy semantic IDs the canonical key.
+- `PromptService.get_prompt_lifecycle()` now accepts both public and legacy
+  request aliases and returns the public-key lifecycle record.
 - `PromptService.get_pending_prompt()` now accepts public request aliases for
   active pending prompts. It resolves only against active pending records, so
   completed prompts do not reappear as pending through lifecycle metadata.
@@ -71,14 +77,16 @@ in the active plans, status index, tests, or canonical contract documents.
   that a public-only batch completion command reaches the engine batch by way
   of the runtime bridge. The remaining numeric `responses_by_player_id` map is
   an internal engine actor-index structure, not a public protocol requirement.
-- Responsibility moved: prompt continuation matching no longer relies first on
-  semantic `request_id` strings. Runtime batch resume/enrichment also no
-  longer manufactures `batch_id` from request-id suffixes. `PromptService`
-  command materialization now follows the same rule; producers must carry
-  explicit batch identity. Public prompt-id lookup responsibility moved into
-  the prompt service/store alias indexes, but compatibility storage and replay
-  still keep the legacy request id key until the canonical opaque prompt-key
-  migration is done as a separate, larger change.
+- Responsibility moved: prompt continuation matching and prompt
+  storage/resume no longer rely first on semantic `request_id` strings.
+  Decision event publication also no longer keeps the pre-create legacy id as
+  the event key after `PromptService` has assigned a public id.
+  Runtime batch resume/enrichment also no longer manufactures `batch_id` from
+  request-id suffixes. `PromptService` command materialization now follows the
+  same rule; producers must carry explicit batch identity. Public prompt-id
+  lookup responsibility moved into the prompt service/store alias indexes, and
+  legacy request IDs now remain compatibility inputs rather than the canonical
+  storage key.
 
 Verification:
 
@@ -86,6 +94,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_does_not_derive_batch_id_from_batch_request_id apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_boundary_enrichment_uses_explicit_batch_and_player_for_opaque_request_id -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_public_request_alias_resolution_uses_index_before_scans -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_module_decision_command_does_not_derive_batch_id_from_request_id apps/server/tests/test_prompt_service.py::PromptServiceTests::test_module_decision_command_carries_prompt_instance_id_for_public_request_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_mark_prompt_delivered_resolves_public_request_id_alias apps/server/tests/test_prompt_service.py::PromptServiceTests::test_external_decision_result_resolves_public_request_id_alias -q`

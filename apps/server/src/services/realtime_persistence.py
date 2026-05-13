@@ -730,6 +730,14 @@ class RedisPromptStore:
             return str(alias)
         if normalized_session_id:
             return None
+        alias_matches: list[str] = []
+        for alias_field, canonical_field in client.hgetall(self._prompt_alias_key(hash_key)).items():
+            if _request_id_from_scoped_key(str(alias_field)) != normalized_request_id:
+                continue
+            if client.hget(hash_key, str(canonical_field)) is not None:
+                alias_matches.append(str(canonical_field))
+        if len(set(alias_matches)) == 1:
+            return alias_matches[0]
         matches: list[str] = []
         for field, raw in client.hgetall(hash_key).items():
             parsed = _json_load_dict(raw)

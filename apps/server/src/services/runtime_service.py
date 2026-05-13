@@ -426,6 +426,30 @@ def _clear_resolved_runtime_prompt_continuation(state: object | None, step: dict
         state.runtime_active_prompt_batch = None
 
 
+def _sync_state_prompt_request_id(state: object | None, prompt_payload: dict | None) -> None:
+    if state is None or not isinstance(prompt_payload, dict):
+        return
+    request_id = str(prompt_payload.get("request_id") or "").strip()
+    if not request_id:
+        return
+    if hasattr(state, "pending_prompt_request_id"):
+        state.pending_prompt_request_id = request_id
+    prompt_instance_id = _optional_int(prompt_payload.get("prompt_instance_id"))
+    active_prompt = getattr(state, "runtime_active_prompt", None)
+    if active_prompt is not None and (
+        prompt_instance_id is None
+        or int(getattr(active_prompt, "prompt_instance_id", 0) or 0) == prompt_instance_id
+    ):
+        active_prompt.request_id = request_id
+    active_batch = getattr(state, "runtime_active_prompt_batch", None)
+    prompts_by_player_id = getattr(active_batch, "prompts_by_player_id", None) if active_batch is not None else None
+    if isinstance(prompts_by_player_id, dict):
+        for continuation in prompts_by_player_id.values():
+            if prompt_instance_id is not None and int(getattr(continuation, "prompt_instance_id", 0) or 0) != prompt_instance_id:
+                continue
+            continuation.request_id = request_id
+
+
 def _active_runtime_module_debug_fields(state: object | None) -> dict[str, str]:
     if state is None:
         return {}
@@ -2460,6 +2484,14 @@ class RuntimeService:
                     state=state,
                     publish=False,
                 )
+                if prompt_publish_payload is not None:
+                    _sync_state_prompt_request_id(state, prompt_publish_payload)
+                    payload = state.to_checkpoint_payload()
+                    validate_checkpoint_payload(payload)
+                    runtime_active_prompt = payload.get("runtime_active_prompt")
+                    runtime_active_prompt = runtime_active_prompt if isinstance(runtime_active_prompt, dict) else {}
+                    runtime_active_prompt_batch = payload.get("runtime_active_prompt_batch")
+                    runtime_active_prompt_batch = runtime_active_prompt_batch if isinstance(runtime_active_prompt_batch, dict) else {}
             _mark_phase("prompt_materialize")
             commit_seq = base_commit_seq + 1
             module_debug_fields = _runtime_module_debug_fields(
@@ -4993,6 +5025,27 @@ def _is_matching_prompt_continuation(
     )
 
 
+def _is_matching_prompt_boundary(
+    continuation,
+    *,
+    frame_id: str,
+    module_id: str,
+    player_id: int,
+    request_type: str,
+) -> bool:  # noqa: ANN001
+    if continuation is None:
+        return False
+    continuation_player_id = getattr(continuation, "player_id", None)
+    if continuation_player_id is None:
+        return False
+    return (
+        str(getattr(continuation, "frame_id", "") or "") == frame_id
+        and str(getattr(continuation, "module_id", "") or "") == module_id
+        and int(continuation_player_id) == int(player_id)
+        and str(getattr(continuation, "request_type", "") or "") == request_type
+    )
+
+
 def _active_frame_and_module(state) -> tuple[object | None, object | None]:  # noqa: ANN001
     frames = getattr(state, "runtime_frame_stack", None)
     if not isinstance(frames, list):
@@ -5034,17 +5087,26 @@ def _attach_active_module_continuation_to_envelope(
     if not isinstance(existing_runtime_module, dict):
         existing_runtime_module = {}
     envelope["runtime_module"] = {**boundary_fields, **existing_runtime_module}
-    public_context = dict(envelope.get("public_context") or {})
-    if not str(envelope.get("request_id") or "").strip() and callable(stable_request_id_resolver):
-        envelope["request_id"] = str(stable_request_id_resolver(envelope, public_context))
-    request_id = str(envelope.get("request_id") or "").strip()
-    if not request_id:
-        return
     request = getattr(active_call, "request", None)
     request_type = str(envelope.get("request_type") or getattr(request, "request_type", "") or "")
     internal_player_id = getattr(request, "player_id", None)
     if internal_player_id is None:
         internal_player_id = int(envelope.get("player_id", 1) or 1) - 1
+    public_context = dict(envelope.get("public_context") or {})
+    existing_continuation = getattr(state, "runtime_active_prompt", None)
+    if not str(envelope.get("request_id") or "").strip() and _is_matching_prompt_boundary(
+        existing_continuation,
+        frame_id=str(getattr(frame, "frame_id", "") or ""),
+        module_id=str(getattr(module, "module_id", "") or ""),
+        player_id=int(internal_player_id),
+        request_type=request_type,
+    ):
+        envelope["request_id"] = str(getattr(existing_continuation, "request_id", "") or "")
+    if not str(envelope.get("request_id") or "").strip() and callable(stable_request_id_resolver):
+        envelope["request_id"] = str(stable_request_id_resolver(envelope, public_context))
+    request_id = str(envelope.get("request_id") or "").strip()
+    if not request_id:
+        return
     legal_choices = envelope.get("legal_choices")
     if not isinstance(legal_choices, list):
         legal_choices = list(getattr(active_call, "legal_choices", []) or [])
@@ -5052,7 +5114,6 @@ def _attach_active_module_continuation_to_envelope(
     RuntimeService._ensure_engine_import_path()
     from runtime_modules.prompts import PromptApi
 
-    existing_continuation = getattr(state, "runtime_active_prompt", None)
     if _is_matching_prompt_continuation(
         existing_continuation,
         request_id=request_id,

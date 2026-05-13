@@ -1889,8 +1889,9 @@ def build_decision_timeout_fallback_payload(
     provider: DecisionProvider = "human",
     round_index: int | None = None,
     turn_index: int | None = None,
+    identity_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "event_type": "decision_timeout_fallback",
         "request_id": request_id,
         "player_id": player_id,
@@ -1902,6 +1903,9 @@ def build_decision_timeout_fallback_payload(
         "round_index": round_index,
         "turn_index": turn_index,
     }
+    if identity_fields:
+        payload.update(dict(identity_fields))
+    return payload
 
 
 class DecisionGateway:
@@ -1964,6 +1968,7 @@ class DecisionGateway:
         choice_id: str | None,
         provider: DecisionProvider,
         public_context: dict[str, Any],
+        identity_fields: dict[str, Any] | None = None,
     ) -> None:
         self.publish(
             "event",
@@ -1977,6 +1982,7 @@ class DecisionGateway:
                 round_index=public_context.get("round_index"),
                 turn_index=public_context.get("turn_index"),
                 public_context=public_context,
+                identity_fields=identity_fields,
             ),
         )
 
@@ -1991,6 +1997,7 @@ class DecisionGateway:
         fallback_choice_id: str | None,
         provider: DecisionProvider,
         public_context: dict[str, Any],
+        identity_fields: dict[str, Any] | None = None,
     ) -> None:
         self.publish(
             "event",
@@ -2004,6 +2011,7 @@ class DecisionGateway:
                 provider=provider,
                 round_index=public_context.get("round_index"),
                 turn_index=public_context.get("turn_index"),
+                identity_fields=identity_fields,
             ),
         )
 
@@ -2041,8 +2049,9 @@ class DecisionGateway:
             )
             _mark_phase("replay_wait")
             if replayed_response is not None:
+                resolved_request_id = str(replayed_response.get("request_id") or request_id)
                 self._require_matching_prompt_fingerprint(
-                    request_id=request_id,
+                    request_id=resolved_request_id,
                     player_id=player_id,
                     request_type=request_type,
                     public_context=public_context,
@@ -2051,7 +2060,7 @@ class DecisionGateway:
                 )
                 _mark_phase("replay_fingerprint")
                 return self._parse_human_response(
-                    request_id=request_id,
+                    request_id=resolved_request_id,
                     player_id=player_id,
                     request_type=request_type,
                     public_context=public_context,
@@ -2063,6 +2072,7 @@ class DecisionGateway:
             try:
                 pending_prompt = self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
                 envelope = ensure_prompt_fingerprint(dict(pending_prompt.payload))
+                request_id = pending_prompt.request_id
                 _mark_phase("create_prompt")
             except ValueError as exc:
                 _mark_phase("create_prompt_error")
@@ -2077,6 +2087,7 @@ class DecisionGateway:
                     if prompt_fingerprint_mismatch(prompt_payload, envelope):
                         raise PromptFingerprintMismatch(request_id=request_id) from exc
                     envelope = ensure_prompt_fingerprint(prompt_payload)
+                    request_id = pending.request_id
                     lifecycle = self._prompt_service.get_prompt_lifecycle(
                         request_id,
                         session_id=self._session_id,
@@ -2094,6 +2105,8 @@ class DecisionGateway:
                         timeout_ms=1,
                         session_id=self._session_id,
                     )
+                    if response is not None:
+                        request_id = str(response.get("request_id") or request_id)
                     _mark_phase("duplicate_recent_replay_wait")
                 if not self._blocking_human_prompts:
                     self._touch_activity(self._session_id)
@@ -2172,6 +2185,7 @@ class DecisionGateway:
                     player_id=player_id,
                     reason="prompt_timeout",
                     provider="human",
+                    identity_fields=_prompt_protocol_identity_payload(envelope),
                 ),
             )
             self._publish_decision_resolved(
@@ -2182,6 +2196,7 @@ class DecisionGateway:
                 choice_id=fallback_result.get("choice_id"),
                 provider="human",
                 public_context=public_context,
+                identity_fields=_prompt_protocol_identity_payload(envelope),
             )
             self._publish_decision_timeout_fallback(
                 request_id=request_id,
@@ -2192,6 +2207,7 @@ class DecisionGateway:
                 fallback_choice_id=fallback_result.get("choice_id"),
                 provider="human",
                 public_context=public_context,
+                identity_fields=_prompt_protocol_identity_payload(envelope),
             )
             return fallback_fn()
 
@@ -2292,6 +2308,7 @@ class DecisionGateway:
                 choice_id=str(response.get("choice_id", "")),
                 provider="human",
                 public_context=public_context,
+                identity_fields=_prompt_protocol_identity_payload(response),
             )
             return fallback_fn()
 
@@ -2303,6 +2320,7 @@ class DecisionGateway:
             choice_id=str(response.get("choice_id", "")),
             provider="human",
             public_context=public_context,
+            identity_fields=_prompt_protocol_identity_payload(response),
         )
         return parsed
 
@@ -2384,6 +2402,7 @@ class DecisionGateway:
         try:
             pending_prompt = self._prompt_service.create_prompt(session_id=self._session_id, prompt=prompt_payload)
             prompt_payload = dict(pending_prompt.payload)
+            resolved_request_id = pending_prompt.request_id
         except ValueError as exc:
             prompt_error = str(exc)
             if prompt_error == "prompt_fingerprint_mismatch":
@@ -2396,6 +2415,7 @@ class DecisionGateway:
                 if prompt_fingerprint_mismatch(pending_payload, prompt_payload):
                     raise PromptFingerprintMismatch(request_id=resolved_request_id) from exc
                 prompt_payload = pending_payload
+                resolved_request_id = pending.request_id
                 should_publish_requested = False
             elif prompt_error == "duplicate_recent_request_id":
                 should_publish_requested = False
@@ -2410,6 +2430,7 @@ class DecisionGateway:
                 fallback_policy="ai",
                 provider="ai",
                 public_context=public_context,
+                identity_fields=_prompt_protocol_identity_payload(prompt_payload),
             )
         self._touch_activity(self._session_id)
         raise PromptRequired(prompt_payload)

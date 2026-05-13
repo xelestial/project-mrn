@@ -282,6 +282,14 @@ class RuntimeServiceTests(unittest.TestCase):
         }
         return decision
 
+    def _assert_public_prompt_request_id(self, prompt: dict, legacy_request_id: str) -> str:
+        public_request_id = str(prompt.get("request_id") or "")
+        self.assertTrue(public_request_id.startswith("req_"))
+        self.assertEqual(prompt.get("public_request_id"), public_request_id)
+        self.assertEqual(prompt.get("legacy_request_id"), legacy_request_id)
+        self.assertNotEqual(public_request_id, legacy_request_id)
+        return public_request_id
+
     def test_checkpoint_prompt_boundary_normalizes_sequence_frame_type(self) -> None:
         payload = RuntimeService._prompt_boundary_payload_from_continuation(
             {
@@ -5145,11 +5153,19 @@ class RuntimeServiceTests(unittest.TestCase):
                 self.stream_service.snapshot("sess_bridge_test"),
                 loop,
             ).result(timeout=2.0)
-            self.assertTrue(any(msg.type == "prompt" and msg.payload.get("request_id") == "bridge_req_1" for msg in published))
+            public_request_id = pending_prompt.request_id
+            self.assertTrue(
+                any(
+                    msg.type == "prompt"
+                    and msg.payload.get("request_id") == public_request_id
+                    and msg.payload.get("legacy_request_id") == "bridge_req_1"
+                    for msg in published
+                )
+            )
             bridge_events = [
                 msg
                 for msg in published
-                if msg.type == "event" and msg.payload.get("request_id") == "bridge_req_1"
+                if msg.type == "event" and msg.payload.get("request_id") == public_request_id
             ]
             requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
             resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
@@ -5157,6 +5173,8 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertIsNotNone(requested)
             self.assertIsNotNone(resolved)
             self.assertEqual(len(resolved_all), 1)
+            self.assertEqual(requested.payload.get("legacy_request_id"), "bridge_req_1")
+            self.assertEqual(resolved.payload.get("legacy_request_id"), "bridge_req_1")
             self.assertLess(requested.seq, resolved.seq)
             self.assertEqual(resolved.payload.get("resolution"), "accepted")
             self.assertEqual(resolved.payload.get("choice_id"), "roll")
@@ -5204,7 +5222,10 @@ class RuntimeServiceTests(unittest.TestCase):
                     lambda: "fallback",
                 )
 
-            self.assertEqual(raised.exception.prompt["request_id"], "bridge_req_nonblocking_1")
+            public_request_id = self._assert_public_prompt_request_id(
+                raised.exception.prompt,
+                "bridge_req_nonblocking_1",
+            )
             self.assertTrue(self.prompt_service.has_pending_for_session("sess_bridge_nonblocking_test"))
             lifecycle = self.prompt_service.get_prompt_lifecycle(
                 "bridge_req_nonblocking_1",
@@ -5213,6 +5234,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertIsNotNone(lifecycle)
             assert lifecycle is not None
             self.assertEqual(lifecycle["state"], "created")
+            self.assertEqual(lifecycle["request_id"], public_request_id)
             published = asyncio.run_coroutine_threadsafe(
                 self.stream_service.snapshot("sess_bridge_nonblocking_test"),
                 loop,
@@ -5284,8 +5306,8 @@ class RuntimeServiceTests(unittest.TestCase):
 
             prompt = raised.exception.prompt
             self.assertEqual(prompt["prompt_instance_id"], 5)
-            self.assertEqual(
-                prompt["request_id"],
+            self._assert_public_prompt_request_id(
+                prompt,
                 (
                     "sess_bridge_prompt_seq_test:prompt:frame:turn%3A1%3Ap0:"
                     "module:mod%3Aturn%3A1%3Ap0%3Atest_prompt:cursor:test%3Aawait_choice:"
@@ -8735,8 +8757,8 @@ class RuntimeServiceTests(unittest.TestCase):
                 )
 
             prompt = raised.exception.prompt
-            self.assertEqual(
-                prompt["request_id"],
+            self._assert_public_prompt_request_id(
+                prompt,
                 (
                     "sess_sparse_prompt_id_test:prompt:frame:turn%3A1%3Ap0:"
                     "module:mod%3Aturn%3A1%3Ap0%3Atest_prompt:cursor:test%3Aawait_choice:"
@@ -8798,7 +8820,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 if msg.type == "event" and msg.payload.get("event_type") == "decision_requested"
             ]
 
-            self.assertEqual(raised.exception.prompt["request_id"], "repair_req_1")
+            public_request_id = self._assert_public_prompt_request_id(raised.exception.prompt, "repair_req_1")
             lifecycle = self.prompt_service.get_prompt_lifecycle(
                 "repair_req_1",
                 session_id="sess_pending_prompt_repair",
@@ -8806,6 +8828,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertIsNotNone(lifecycle)
             assert lifecycle is not None
             self.assertEqual(lifecycle["state"], "created")
+            self.assertEqual(lifecycle["request_id"], public_request_id)
             self.assertEqual(messages, [])
 
             self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
@@ -8821,10 +8844,12 @@ class RuntimeServiceTests(unittest.TestCase):
                 if msg.type == "event" and msg.payload.get("event_type") == "decision_requested"
             ]
             self.assertEqual(len(prompt_messages), 1)
-            self.assertEqual(prompt_messages[0].payload["request_id"], "repair_req_1")
+            self.assertEqual(prompt_messages[0].payload["request_id"], public_request_id)
+            self.assertEqual(prompt_messages[0].payload["legacy_request_id"], "repair_req_1")
             self.assertEqual(prompt_messages[0].payload["legal_choices"][0]["label"], "박수")
             self.assertEqual(len(requested_events), 1)
-            self.assertEqual(requested_events[0].payload["request_id"], "repair_req_1")
+            self.assertEqual(requested_events[0].payload["request_id"], public_request_id)
+            self.assertEqual(requested_events[0].payload["legacy_request_id"], "repair_req_1")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -8949,7 +8974,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.assertFalse(wait_thread.is_alive())
             self.assertEqual(errors, [])
-            self.assertEqual(observed_prompt["request_id"], "blocking_reuse_req_1")
+            self._assert_public_prompt_request_id(observed_prompt, "blocking_reuse_req_1")
             self.assertEqual(result.get("choice"), "roll")
 
             messages = asyncio.run_coroutine_threadsafe(
@@ -9020,13 +9045,17 @@ class RuntimeServiceTests(unittest.TestCase):
             ]
 
             self.assertEqual(len(prompt_messages), 1)
-            self.assertEqual(prompt_messages[0].payload["request_id"], "runtime_boundary_req_1")
+            public_request_id = self._assert_public_prompt_request_id(
+                prompt_messages[0].payload,
+                "runtime_boundary_req_1",
+            )
             self.assertEqual(
                 [choice["label"] for choice in prompt_messages[0].payload["legal_choices"]],
                 ["박수", "건설업자"],
             )
             self.assertEqual(len(requested_events), 1)
-            self.assertEqual(requested_events[0].payload["request_id"], "runtime_boundary_req_1")
+            self.assertEqual(requested_events[0].payload["request_id"], public_request_id)
+            self.assertEqual(requested_events[0].payload["legacy_request_id"], "runtime_boundary_req_1")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -9070,6 +9099,10 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.assertIsNotNone(payload)
             self.assertIsNotNone(self.prompt_service.get_pending_prompt("runtime_boundary_delayed_req_1"))
+            public_request_id = self._assert_public_prompt_request_id(
+                payload,
+                "runtime_boundary_delayed_req_1",
+            )
             messages_before_publish = asyncio.run_coroutine_threadsafe(
                 self.stream_service.snapshot(session.session_id),
                 loop,
@@ -9087,12 +9120,20 @@ class RuntimeServiceTests(unittest.TestCase):
             ).result(timeout=2.0)
 
             self.assertEqual([msg.type for msg in messages_after_publish], ["prompt", "event"])
-            self.assertEqual(messages_after_publish[0].payload["request_id"], "runtime_boundary_delayed_req_1")
+            self.assertEqual(messages_after_publish[0].payload["request_id"], public_request_id)
+            self.assertEqual(
+                messages_after_publish[0].payload["legacy_request_id"],
+                "runtime_boundary_delayed_req_1",
+            )
             self.assertEqual(messages_after_publish[0].payload["public_player_id"], seat.public_player_id)
             self.assertEqual(messages_after_publish[0].payload["seat_id"], seat.seat_id)
             self.assertEqual(messages_after_publish[0].payload["viewer_id"], seat.viewer_id)
             self.assertEqual(messages_after_publish[1].payload["event_type"], "decision_requested")
-            self.assertEqual(messages_after_publish[1].payload["request_id"], "runtime_boundary_delayed_req_1")
+            self.assertEqual(messages_after_publish[1].payload["request_id"], public_request_id)
+            self.assertEqual(
+                messages_after_publish[1].payload["legacy_request_id"],
+                "runtime_boundary_delayed_req_1",
+            )
             self.assertEqual(messages_after_publish[1].payload["public_player_id"], seat.public_player_id)
             self.assertEqual(messages_after_publish[1].payload["seat_id"], seat.seat_id)
             self.assertEqual(messages_after_publish[1].payload["viewer_id"], seat.viewer_id)
@@ -9507,10 +9548,17 @@ class RuntimeServiceTests(unittest.TestCase):
                 self.stream_service.snapshot("sess_bridge_timeout"),
                 loop,
             ).result(timeout=2.0)
+            prompt_message = next((msg for msg in published if msg.type == "prompt"), None)
+            self.assertIsNotNone(prompt_message)
+            assert prompt_message is not None
+            public_request_id = self._assert_public_prompt_request_id(
+                prompt_message.payload,
+                "bridge_timeout_1",
+            )
             bridge_events = [
                 msg
                 for msg in published
-                if msg.type == "event" and msg.payload.get("request_id") == "bridge_timeout_1"
+                if msg.type == "event" and msg.payload.get("request_id") == public_request_id
             ]
             requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
             resolved = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"), None)
@@ -9526,6 +9574,9 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertLess(requested.seq, resolved.seq)
             self.assertLess(resolved.seq, timeout_event.seq)
             self.assertEqual(resolved.payload.get("resolution"), "timeout_fallback")
+            self.assertEqual(requested.payload.get("legacy_request_id"), "bridge_timeout_1")
+            self.assertEqual(resolved.payload.get("legacy_request_id"), "bridge_timeout_1")
+            self.assertEqual(timeout_event.payload.get("legacy_request_id"), "bridge_timeout_1")
             self.assertEqual(requested.payload.get("provider"), "human")
             self.assertEqual(resolved.payload.get("provider"), "human")
             self.assertEqual(timeout_event.payload.get("provider"), "human")
@@ -9597,15 +9648,18 @@ class RuntimeServiceTests(unittest.TestCase):
                 self.stream_service.snapshot("sess_bridge_parser_fallback"),
                 loop,
             ).result(timeout=2.0)
+            public_request_id = pending_prompt.request_id
             bridge_events = [
                 msg
                 for msg in published
-                if msg.type == "event" and msg.payload.get("request_id") == "bridge_parser_1"
+                if msg.type == "event" and msg.payload.get("request_id") == public_request_id
             ]
             requested = next((msg for msg in bridge_events if msg.payload.get("event_type") == "decision_requested"), None)
             resolved_all = [msg for msg in bridge_events if msg.payload.get("event_type") == "decision_resolved"]
             self.assertIsNotNone(requested)
             self.assertEqual(len(resolved_all), 1)
+            self.assertEqual(requested.payload.get("legacy_request_id"), "bridge_parser_1")
+            self.assertEqual(resolved_all[0].payload.get("legacy_request_id"), "bridge_parser_1")
             self.assertEqual(resolved_all[0].payload.get("resolution"), "parser_error_fallback")
             self.assertEqual(resolved_all[0].payload.get("choice_id"), "roll")
             self.assertLess(requested.seq, resolved_all[0].seq)

@@ -1346,7 +1346,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         prompt_store = RedisPromptStore(self.connection)
         command_store = RedisCommandStore(self.connection)
         service = PromptService(prompt_store=prompt_store, command_store=command_store)
-        service.create_prompt(
+        pending = service.create_prompt(
             "s-atomic",
             {
                 "request_id": "r-atomic",
@@ -1355,6 +1355,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "timeout_ms": 30000,
             },
         )
+        public_request_id = pending.request_id
 
         result = service.submit_decision({"request_id": "r-atomic", "player_id": 1, "choice_id": "roll"})
 
@@ -1372,7 +1373,9 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         )
         commands = command_store.list_commands("s-atomic")
         self.assertEqual(len(commands), 1)
-        self.assertEqual(commands[0]["payload"]["request_id"], "r-atomic")
+        self.assertEqual(commands[0]["payload"]["request_id"], public_request_id)
+        self.assertEqual(commands[0]["payload"]["legacy_request_id"], "r-atomic")
+        self.assertEqual(commands[0]["payload"]["public_request_id"], public_request_id)
         self.assertEqual(command_store.load_command_state("s-atomic", int(commands[0]["seq"]))["status"], "accepted")
         self.assertEqual(result["session_id"], "s-atomic")
         self.assertEqual(result["command_seq"], int(commands[0]["seq"]))
@@ -1441,7 +1444,11 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(first.session_id, "s-redis-a")
         self.assertEqual(second.session_id, "s-redis-b")
         self.assertEqual(
-            sorted(item["session_id"] for item in prompt_store.list_pending() if item["request_id"] == "shared-redis-pending:p0"),
+            sorted(
+                item["session_id"]
+                for item in prompt_store.list_pending()
+                if item["request_id"] in {first.request_id, second.request_id}
+            ),
             ["s-redis-a", "s-redis-b"],
         )
 
@@ -1509,6 +1516,48 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         assert lifecycle_by_public is not None
         self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
         self.assertEqual(lifecycle_by_public["decision"]["public_request_id"], public_request_id)
+
+    def test_prompt_service_uses_public_request_id_as_redis_canonical_key(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        legacy_request_id = "s-redis-public-canonical:r2:t3:p1:movement:16"
+        pending = service.create_prompt(
+            "s-redis-public-canonical",
+            {
+                "request_id": legacy_request_id,
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 16,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        self.assertEqual(pending.request_id, public_request_id)
+        self.assertIsNotNone(prompt_store.get_pending(public_request_id, session_id=pending.session_id))
+        self.assertEqual(prompt_store.get_pending(legacy_request_id, session_id=pending.session_id)["request_id"], public_request_id)
+
+        accepted = service.submit_decision(
+            {
+                "session_id": pending.session_id,
+                "request_id": legacy_request_id,
+                "player_id": 1,
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(accepted["status"], "accepted")
+        decision = prompt_store.get_decision(legacy_request_id, session_id=pending.session_id)
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision["request_id"], public_request_id)
+        self.assertEqual(decision["legacy_request_id"], legacy_request_id)
+        lifecycle = service.get_prompt_lifecycle(legacy_request_id, session_id=pending.session_id)
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], public_request_id)
 
     def test_prompt_service_uses_redis_alias_index_for_public_request_id_lookup(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
@@ -1731,7 +1780,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
     def test_prompt_service_supersedes_older_redis_pending_prompt_for_same_player(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
         service = PromptService(prompt_store=prompt_store)
-        service.create_prompt(
+        old = service.create_prompt(
             "s-supersede",
             {
                 "request_id": "r-old-p1",
@@ -1740,7 +1789,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "timeout_ms": 30000,
             },
         )
-        service.create_prompt(
+        keep = service.create_prompt(
             "s-supersede",
             {
                 "request_id": "r-keep-p2",
@@ -1750,7 +1799,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             },
         )
 
-        service.create_prompt(
+        new = service.create_prompt(
             "s-supersede",
             {
                 "request_id": "r-new-p1",
@@ -1762,10 +1811,11 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         self.assertIsNone(prompt_store.get_pending("r-old-p1"))
         self.assertEqual(prompt_store.get_resolved("r-old-p1")["reason"], "superseded")
+        self.assertEqual(prompt_store.get_resolved("r-old-p1")["request_id"], old.request_id)
         self.assertIsNotNone(prompt_store.get_pending("r-new-p1"))
         self.assertIsNotNone(prompt_store.get_pending("r-keep-p2"))
         pending_ids = {item["request_id"] for item in prompt_store.list_pending()}
-        self.assertEqual(pending_ids, {"r-new-p1", "r-keep-p2"})
+        self.assertEqual(pending_ids, {new.request_id, keep.request_id})
         self.assertTrue(service.has_pending_for_session("s-supersede"))
 
     def test_prompt_timeout_worker_emits_timeout_once(self) -> None:
@@ -1788,7 +1838,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             runtime_service=runtime,
             stream_service=stream_service,
         )
-        prompt_service.create_prompt(
+        pending = prompt_service.create_prompt(
             "s-timeout",
             {
                 "request_id": "req_timeout_1",
@@ -1802,6 +1852,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "public_context": {"round_index": 1, "turn_index": 1},
             },
         )
+        public_request_id = pending.request_id
 
         async def _run() -> None:
             first = await worker.run_once(now_ms=10**15, session_id="s-timeout")
@@ -1815,7 +1866,9 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             commands = command_store.list_commands("s-timeout")
             self.assertEqual(len(commands), 1)
             self.assertEqual(commands[0]["type"], "decision_submitted")
-            self.assertEqual(commands[0]["payload"]["request_id"], "req_timeout_1")
+            self.assertEqual(commands[0]["payload"]["request_id"], public_request_id)
+            self.assertEqual(commands[0]["payload"]["legacy_request_id"], "req_timeout_1")
+            self.assertEqual(commands[0]["payload"]["public_request_id"], public_request_id)
             self.assertEqual(commands[0]["payload"]["choice_id"], "dice")
             decision = prompt_store.get_decision("req_timeout_1")
             self.assertIsNotNone(decision)

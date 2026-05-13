@@ -142,10 +142,11 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(result["status"], "accepted")
 
     def test_create_prompt_adds_opaque_identity_companions_to_lifecycle(self) -> None:
+        legacy_request_id = "s1:r2:t3:p1:movement:5"
         pending = self.service.create_prompt(
             "s1",
             {
-                "request_id": "s1:r2:t3:p1:movement:5",
+                "request_id": legacy_request_id,
                 "request_type": "movement",
                 "player_id": 1,
                 "prompt_instance_id": 5,
@@ -153,15 +154,16 @@ class PromptServiceTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(pending.request_id, "s1:r2:t3:p1:movement:5")
-        self.assertEqual(pending.payload["legacy_request_id"], pending.request_id)
-        self.assertTrue(str(pending.payload["public_request_id"]).startswith("req_"))
+        self.assertEqual(pending.request_id, pending.payload["public_request_id"])
+        self.assertEqual(pending.payload["request_id"], pending.request_id)
+        self.assertEqual(pending.payload["legacy_request_id"], legacy_request_id)
+        self.assertTrue(pending.request_id.startswith("req_"))
         self.assertTrue(str(pending.payload["public_prompt_instance_id"]).startswith("pin_"))
-        self.assertNotEqual(pending.payload["public_request_id"], pending.request_id)
+        self.assertNotEqual(pending.request_id, legacy_request_id)
 
         result = self.service.submit_decision(
             {
-                "request_id": pending.request_id,
+                "request_id": legacy_request_id,
                 "player_id": 1,
                 "choice_id": "roll",
             }
@@ -171,15 +173,89 @@ class PromptServiceTests(unittest.TestCase):
         lifecycle = self.service.get_prompt_lifecycle(pending.request_id, session_id="s1")
         self.assertIsNotNone(lifecycle)
         assert lifecycle is not None
-        self.assertEqual(lifecycle["prompt"]["legacy_request_id"], pending.request_id)
+        self.assertEqual(lifecycle["prompt"]["legacy_request_id"], legacy_request_id)
         self.assertEqual(lifecycle["prompt"]["public_request_id"], pending.payload["public_request_id"])
         self.assertEqual(lifecycle["prompt"]["public_prompt_instance_id"], pending.payload["public_prompt_instance_id"])
-        self.assertEqual(lifecycle["decision"]["legacy_request_id"], pending.request_id)
+        self.assertEqual(lifecycle["decision"]["request_id"], pending.request_id)
+        self.assertEqual(lifecycle["decision"]["legacy_request_id"], legacy_request_id)
         self.assertEqual(lifecycle["decision"]["public_request_id"], pending.payload["public_request_id"])
         self.assertEqual(
             lifecycle["decision"]["public_prompt_instance_id"],
             pending.payload["public_prompt_instance_id"],
         )
+
+    def test_create_prompt_uses_public_request_id_as_canonical_key(self) -> None:
+        legacy_request_id = "s1:r2:t3:p1:movement:15"
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": legacy_request_id,
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 15,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        self.assertEqual(pending.request_id, public_request_id)
+        self.assertEqual(pending.payload["request_id"], public_request_id)
+        self.assertEqual(pending.payload["legacy_request_id"], legacy_request_id)
+        self.assertEqual(self.service.get_pending_prompt(legacy_request_id, session_id="s1").request_id, public_request_id)
+
+        accepted = self.service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": legacy_request_id,
+                "player_id": 1,
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(accepted["status"], "accepted")
+        decision = self.service.wait_for_decision(legacy_request_id, timeout_ms=0, session_id="s1")
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision["request_id"], public_request_id)
+        self.assertEqual(decision["legacy_request_id"], legacy_request_id)
+        lifecycle = self.service.get_prompt_lifecycle(legacy_request_id, session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], public_request_id)
+
+    def test_create_prompt_does_not_rewrap_public_request_id_on_replay(self) -> None:
+        first = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:16",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 16,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(first.payload["public_request_id"])
+        with self.assertRaisesRegex(ValueError, "duplicate_pending_request_id"):
+            self.service.create_prompt(
+                "s1",
+                {
+                    "request_id": public_request_id,
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "prompt_instance_id": 16,
+                    "timeout_ms": 30000,
+                    "legal_choices": [{"choice_id": "roll"}],
+                },
+            )
+
+        replayed = self.service.get_pending_prompt(public_request_id, session_id="s1")
+        self.assertIsNotNone(replayed)
+        assert replayed is not None
+        self.assertEqual(replayed.request_id, public_request_id)
+        self.assertEqual(replayed.payload["request_id"], public_request_id)
+        self.assertEqual(replayed.payload["public_request_id"], public_request_id)
 
     def test_submit_decision_accepts_public_request_id_alias(self) -> None:
         pending = self.service.create_prompt(
@@ -771,7 +847,7 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(result["reason"], "missing_choice_id")
 
     def test_timeout_pending_by_session(self) -> None:
-        self.service.create_prompt(
+        pending = self.service.create_prompt(
             "s1",
             {
                 "request_id": "r3",
@@ -782,7 +858,11 @@ class PromptServiceTests(unittest.TestCase):
         )
         timed_out = self.service.timeout_pending(now_ms=10**15, session_id="s1")
         self.assertEqual(len(timed_out), 1)
-        self.assertEqual(timed_out[0].request_id, "r3")
+        self.assertEqual(timed_out[0].request_id, pending.request_id)
+        lifecycle = self.service.get_prompt_lifecycle("r3", session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], pending.request_id)
 
     def test_rejects_duplicate_pending_request_id(self) -> None:
         payload = {

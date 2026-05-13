@@ -72,6 +72,10 @@ class PromptService:
             if not request_id:
                 raise ValueError("missing_request_id")
             _ensure_prompt_protocol_identity(prompt, request_id=request_id)
+            canonical_request_id = str(prompt.get("public_request_id") or request_id).strip()
+            prompt["legacy_request_id"] = str(prompt.get("legacy_request_id") or request_id).strip()
+            prompt["request_id"] = canonical_request_id
+            request_id = canonical_request_id
             prompt = ensure_prompt_fingerprint(prompt)
             storage_key = _scoped_request_key(session_id, request_id)
             existing = self._get_pending(request_id, session_id=session_id)
@@ -308,6 +312,7 @@ class PromptService:
                     "decision": decision_payload,
                     "submitted_at_ms": now,
                 }
+                _copy_prompt_protocol_identity(decision_payload, command_payload)
                 _copy_prompt_player_identity(decision_payload, command_payload)
                 command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
                 resolved_payload = {
@@ -546,6 +551,7 @@ class PromptService:
             "submitted_at_ms": now,
             "source": "timeout_fallback",
         }
+        _copy_prompt_protocol_identity(decision_payload, command_payload)
         _copy_prompt_player_identity(decision_payload, command_payload)
         command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         with self._lock:
@@ -753,11 +759,14 @@ class PromptService:
         with self._lock:
             resolved_request_id = self._resolve_submitted_request_id(request_id, session_id=session_id)
             lifecycle_payload = dict(payload)
+            lifecycle_payload.setdefault("submitted_request_id", request_id)
             if resolved_request_id != request_id:
                 lifecycle_payload["request_id"] = resolved_request_id
-                lifecycle_payload.setdefault("submitted_request_id", request_id)
                 lifecycle_payload.setdefault("public_request_id", request_id)
             pending = self._get_pending(resolved_request_id, session_id=session_id)
+            if pending is not None:
+                _copy_prompt_protocol_identity(pending.payload, lifecycle_payload)
+                lifecycle_payload.setdefault("public_request_id", resolved_request_id)
             return self._record_lifecycle(
                 request_id=resolved_request_id,
                 state=str(status or "rejected"),
@@ -798,6 +807,7 @@ class PromptService:
         payload = {"request_id": str(request_id), "resolved_at_ms": now, "reason": reason}
         if session_id is not None:
             payload["session_id"] = str(session_id)
+        self._copy_known_request_aliases_to_payload(request_id=request_id, session_id=session_id, payload=payload)
         if self._prompt_store is not None:
             self._prompt_store.save_resolved(request_id, payload, session_id=session_id)
         else:
@@ -1091,6 +1101,25 @@ class PromptService:
         self._set_lifecycle(normalized_request_id, record, session_id=session_id)
         return dict(record)
 
+    def _copy_known_request_aliases_to_payload(
+        self,
+        *,
+        request_id: str,
+        session_id: str | None,
+        payload: dict[str, Any],
+    ) -> None:
+        pending = self._get_pending(request_id, session_id=session_id)
+        if pending is not None:
+            _copy_prompt_protocol_identity(pending.payload, payload)
+            return
+        lifecycle = self._get_lifecycle(request_id, session_id=session_id)
+        if not isinstance(lifecycle, dict):
+            return
+        for nested_field in ("prompt", "decision"):
+            nested = lifecycle.get(nested_field)
+            if isinstance(nested, dict):
+                _copy_prompt_protocol_identity(nested, payload)
+
     @staticmethod
     def _append_lifecycle_history(
         history: Any,
@@ -1378,11 +1407,25 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
 
 
 def _ensure_prompt_protocol_identity(prompt: dict, *, request_id: str) -> None:
+    if _looks_like_public_request_id(request_id):
+        prompt.setdefault("public_request_id", request_id)
+        prompt.setdefault("legacy_request_id", request_id)
+        for key, value in prompt_protocol_identity_fields(
+            request_id=request_id,
+            prompt_instance_id=prompt.get("prompt_instance_id"),
+        ).items():
+            if key != "public_request_id":
+                prompt.setdefault(key, value)
+        return
     for key, value in prompt_protocol_identity_fields(
         request_id=request_id,
         prompt_instance_id=prompt.get("prompt_instance_id"),
     ).items():
         prompt.setdefault(key, value)
+
+
+def _looks_like_public_request_id(request_id: str) -> bool:
+    return str(request_id or "").strip().startswith("req_")
 
 
 def _copy_prompt_protocol_identity(source: dict, target: dict) -> None:
