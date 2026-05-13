@@ -63,6 +63,10 @@ in the active plans, status index, tests, or canonical contract documents.
   `responses_by_public_player_id` payloads by resolving public player IDs
   through `SessionService` and materializing the numeric engine bridge map.
   Legacy numeric `responses_by_player_id` payloads are still accepted.
+- `test_public_batch_complete_resume_applies_to_internal_engine_batch` verifies
+  that a public-only batch completion command reaches the engine batch by way
+  of the runtime bridge. The remaining numeric `responses_by_player_id` map is
+  an internal engine actor-index structure, not a public protocol requirement.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Runtime batch resume/enrichment also no
   longer manufactures `batch_id` from request-id suffixes. `PromptService`

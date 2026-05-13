@@ -100,7 +100,7 @@ Residual Phase 0 boundaries:
 
 - `stable_prompt_request_id()` intentionally keeps legacy semantic request IDs as the canonical storage/resume key until module-boundary resume parsing is removed. Prompt payloads, lifecycle records, decisions, and `decision_requested` events now expose additive opaque companions: `legacy_request_id`, `public_request_id`, and `public_prompt_instance_id`.
 - Pending prompt reads, decision submission, prompt delivery marking, prompt expiration, and external decision-result recording accept `public_request_id` as a protocol alias at the `PromptService` boundary, then normalize back to the legacy request key before pending lookup, lifecycle writes, decision storage, and command append. This is an adapter step, not a canonical storage-key migration.
-- Module decision commands now carry explicit `prompt_instance_id`, and runtime resume sequence matching consumes that field without parsing legacy request-id suffixes for prompt instance recovery. Batch-complete producer payloads now include ordered `expected_public_player_ids`, and resume materialization accepts public-only `responses_by_public_player_id` input by resolving public player IDs through `SessionService` and materializing the numeric bridge map for the engine. Runtime and `PromptService` no longer derive batch identity from `batch:*:pN` request-id suffixes. This removes the prompt-instance and server-side batch-id semantic `request_id` dependencies, but it does not yet remove the engine's numeric batch response application contract.
+- Module decision commands now carry explicit `prompt_instance_id`, and runtime resume sequence matching consumes that field without parsing legacy request-id suffixes for prompt instance recovery. Batch-complete producer payloads now include ordered `expected_public_player_ids`, and resume materialization accepts public-only `responses_by_public_player_id` input by resolving public player IDs through `SessionService` and materializing the numeric bridge map for the engine. Runtime and `PromptService` no longer derive batch identity from `batch:*:pN` request-id suffixes. This removes the prompt-instance and server-side batch-id semantic `request_id` dependencies. The engine still owns numeric actor indexes because `state.players`, `SimultaneousPromptBatchContinuation.participant_player_ids`, `responses_by_player_id`, and resupply commit logic are internal engine state structures, not public protocol identity fields.
 - Runtime prompt sequence seeding now consumes explicit `prompt_instance_id` from the current decision resume and previous checkpoint debug fields without falling back to legacy request-id parsing. This keeps opaque prompt request IDs from resetting or over-advancing the module prompt sequence during recovery.
 - Active batch prompt enrichment now requires explicit `batch_id` plus submitted `player_id` to find the active continuation when exact request-id equality does not match. Opaque submitted `request_id` values can still receive resume/module metadata, but runtime no longer parses `batch:*:pN` suffixes as a fallback.
 - `prompt_instance_id` remains numeric as the compatibility lifecycle key. `public_prompt_instance_id` is the opaque protocol companion.
@@ -881,9 +881,10 @@ Acceptance evidence status, 2026-05-14:
   `expected_player_ids` while adding `responses_by_public_player_id` and ordered `expected_public_player_ids`
   when collected responses include public player identity.
 - `apps/server/tests/test_runtime_service.py::test_decision_resume_from_batch_complete_command_uses_collected_response`
-  and `test_decision_resume_from_batch_complete_command_accepts_public_response_map` verify that runtime resume
-  materialization preserves public response companions and can consume public-only response maps while keeping
-  numeric batch response application as the engine bridge.
+  `test_decision_resume_from_batch_complete_command_accepts_public_response_map`, and
+  `test_public_batch_complete_resume_applies_to_internal_engine_batch` verify that runtime resume materialization
+  preserves public response companions, can consume public-only response maps, and then resolves them into the
+  engine's internal numeric actor-index bridge before applying collected batch responses.
 - `apps/server/tests/test_runtime_service.py::test_fanout_event_payload_adds_public_identity_for_direct_player`
   verifies that runtime fanout events with direct `player_id` include public identity fields while preserving
   the numeric compatibility alias.
