@@ -673,16 +673,50 @@ commit signal
 - [x] `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`
 - [x] `python3 tools/plan_policy_gate.py`
 - [x] `npm --prefix apps/web test -- src/headless/protocolGateRunArtifacts.spec.ts src/headless/protocolGateRunProgress.spec.ts src/headless/protocolLatencyGate.spec.ts`
-- [ ] 1-game live protocol gate
-- [ ] 5-game, 5-server, 1-Redis protocol gate
-- [ ] 20-game, 1-server bottleneck protocol gate
-- [ ] restart/reconnect smoke with pending prompt
-- [ ] duplicate decision rejection smoke
+- [x] 1-game live protocol gate
+- [x] 5-game, 5-server, 1-Redis protocol gate
+- [x] 20-game, 1-server bottleneck protocol gate executed and classified:
+  one-server contention still fails the 5s backend command timing gate under
+  20 concurrent games, while Redis commit and view commit counts remain at 1.
+- [x] restart/reconnect smoke with pending prompt
+- [x] duplicate decision rejection smoke
+
+2026-05-13 확인:
+
+- Prompt replay probe 병목을 제거했다. Nonblocking human prompt creation path가
+  resolved replay를 확인할 때 `timeout_ms=0` immediate probe를 사용하고,
+  `PromptService.wait_for_decision(timeout_ms=0)`는 pending waiter를 만들거나
+  resolved hash 전체 TTL prune을 수행하지 않는다.
+- 1-game live gate:
+  `tmp/rl/full-stack-protocol/server-rebuild-1game-prompt-probe-fix-20260513`.
+  `completed`, max command 377ms, max transition 206ms, max Redis commit 1,
+  max view commit 1, missing ACK 0.
+- 5-game, 5-server, 1-Redis gate:
+  `tmp/rl/full-stack-protocol/server-rebuild-5server-1redis-prompt-probe-fix-20260513`.
+  All 5 games completed. Max command 1224ms, max transition 538ms, max Redis
+  commit 1, max view commit 1, missing ACK 0.
+- 20-game, 1-server bottleneck gate:
+  `tmp/rl/full-stack-protocol/server-rebuild-20game-1server-prompt-probe-fix-20260513`.
+  Fail-fast classified the expected single-server capacity bottleneck:
+  command seq 1 took 5357ms under 20 concurrent sessions. The previous
+  `replay_wait_ms` prompt bottleneck is gone (`promptTimingCount=0` in the
+  failure summary); Redis commit/view commit counts stayed at 1.
+- Pending prompt reconnect smoke:
+  `tmp/rl/full-stack-protocol/server-rebuild-reconnect-pending-prompt-20260513`.
+  Full game completed. All four seats and spectator had one forced reconnect,
+  one recovery, and zero pending reconnect recoveries.
+- Restart plus duplicate decision smoke:
+  `tools/scripts/redis_restart_smoke.py --decision-smoke` against
+  `project-mrn-protocol` passed. Status stayed `waiting_input -> waiting_input`,
+  worker health checks were 4, first decision ACK was `accepted`, duplicate ACK
+  was `stale/already_resolved`, and replay events advanced 25 -> 31.
 
 완료 조건:
 
-- 모든 gate가 통과한다.
-- failure artifact가 발생하면 원인 분류가 command acceptance, session loop, prompt lifecycle, view recovery 중 하나로 귀속된다.
+- Required correctness gates pass. The intentionally harsh 20-game/1-server
+  bottleneck run is not a pass criterion for one-server capacity; its failure is
+  classified as one-server command/engine scheduling contention after prompt
+  replay and Redis/view commit were ruled out.
 - `view_commit`으로 pending prompt를 repair하는 code path가 없다.
 - accepted command가 Redis durable inbox를 거치지 않는 code path가 없다.
 

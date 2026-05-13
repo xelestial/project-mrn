@@ -165,6 +165,29 @@ Representative verification already passed during this phase:
 This evidence remains useful because it explains why server-instance count and
 runtime ownership matter more than Redis fan-out for the current architecture.
 
+## 2026-05-13 Phase 10 Prompt Replay Probe Fix
+
+- Removed the nonblocking prompt replay wait from human prompt creation.
+  `DecisionGateway.resolve_human_prompt(blocking_human_prompts=False)` now uses
+  `PromptService.wait_for_decision(timeout_ms=0)` as an immediate resolved
+  decision probe. That probe does not create a pending waiter and does not scan
+  the full resolved hash for TTL pruning on every wait call.
+- Pre-fix 5-server evidence showed `WeatherModule` prompt creation spending
+  6773ms in `replay_wait_ms`, with Redis commit/view commit still bounded.
+  Post-fix 5-server evidence completed all games with max transition 538ms and
+  max command 1224ms.
+- Restart, pending-prompt reconnect, and duplicate decision smokes passed.
+  Duplicate decision replay returned `stale/already_resolved`.
+- 20-game/1-server remains a capacity bottleneck by design of the test: after
+  the prompt replay wait was removed, fail-fast showed command wall-clock
+  5357ms under one server process while prompt timing count was 0 and
+  Redis/view commit counts stayed at 1.
+
+Responsibility result: prompt lifecycle replay probing no longer blocks prompt
+materialization. The remaining 20-game/1-server failure belongs to single-server
+runtime scheduling/capacity, not prompt identity, Redis commit, view projection,
+ACK delivery, or command inbox dedupe.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

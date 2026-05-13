@@ -8964,6 +8964,55 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_decision_gateway_checks_replay_without_waiting_for_new_prompt(self) -> None:
+        from apps.server.src.services.decision_gateway import DecisionGateway, PromptRequired
+
+        session_id = "sess_nonblocking_replay_probe"
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        original_wait = self.prompt_service.wait_for_decision
+        observed_timeouts: list[int] = []
+        try:
+            def _record_wait(request_id: str, timeout_ms: int, session_id: str | None = None) -> dict | None:
+                observed_timeouts.append(timeout_ms)
+                return original_wait(request_id, timeout_ms=timeout_ms, session_id=session_id)
+
+            self.prompt_service.wait_for_decision = _record_wait  # type: ignore[method-assign]
+            gateway = DecisionGateway(
+                session_id=session_id,
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=False,
+            )
+
+            with self.assertRaises(PromptRequired):
+                gateway.resolve_human_prompt(
+                    self._module_prompt(
+                        {
+                            "request_id": "nonblocking_probe_req_1",
+                            "request_type": "movement",
+                            "player_id": 1,
+                            "timeout_ms": 2000,
+                            "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                            "fallback_policy": "timeout_fallback",
+                            "public_context": {"round_index": 1, "turn_index": 0},
+                        }
+                    ),
+                    lambda response: str(response.get("choice_id", "")),
+                    lambda: "fallback",
+                )
+
+            self.assertEqual(observed_timeouts, [0])
+        finally:
+            self.prompt_service.wait_for_decision = original_wait  # type: ignore[method-assign]
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_decision_gateway_reuses_pending_prompt_id_when_blocking(self) -> None:
         from apps.server.src.services.decision_gateway import DecisionGateway
 

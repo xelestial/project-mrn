@@ -2014,7 +2014,7 @@ class DecisionGateway:
         try:
             replayed_response = self._prompt_service.wait_for_decision(
                 request_id=request_id,
-                timeout_ms=1,
+                timeout_ms=0,
                 session_id=self._session_id,
             )
             _mark_phase("replay_wait")

@@ -492,13 +492,12 @@ class PromptService:
         return decision_payload
 
     def wait_for_decision(self, request_id: str, timeout_ms: int, session_id: str | None = None) -> dict | None:
-        if timeout_ms <= 0:
-            timeout_ms = 1
         with self._lock:
-            self._prune_resolved()
             decision = self._get_decision(request_id, session_id=session_id)
             if decision is not None:
                 return decision
+            if timeout_ms <= 0:
+                return None
             waiter_key = self._waiter_key(request_id, session_id=session_id)
             waiter = self._waiters.get(waiter_key) if waiter_key is not None else None
             if waiter is None:

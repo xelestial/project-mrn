@@ -34,6 +34,25 @@ class LostDeletePromptStore:
         self.deleted_decisions.append((request_id, session_id))
 
 
+class CountingPromptStore:
+    def __init__(self) -> None:
+        self.list_resolved_calls = 0
+        self.get_decision_calls = 0
+        self.get_pending_calls = 0
+
+    def list_resolved(self) -> dict[str, dict[str, object]]:
+        self.list_resolved_calls += 1
+        return {}
+
+    def get_decision(self, request_id: str, session_id: str | None = None) -> dict[str, object] | None:
+        self.get_decision_calls += 1
+        return None
+
+    def get_pending(self, request_id: str, session_id: str | None = None) -> dict[str, object] | None:
+        self.get_pending_calls += 1
+        return None
+
+
 class PromptServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.service = PromptService()
@@ -438,6 +457,34 @@ class PromptServiceTests(unittest.TestCase):
         self.assertIsNotNone(expired)
         stale = self.service.submit_decision({"request_id": "r7", "player_id": 1, "choice_id": "roll"})
         self.assertEqual(stale["status"], "stale")
+
+    def test_wait_for_decision_zero_timeout_is_immediate_probe(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r8",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+            },
+        )
+        waiters_before = dict(self.service._waiters)
+
+        decision = self.service.wait_for_decision("r8", timeout_ms=0, session_id="s1")
+
+        self.assertIsNone(decision)
+        self.assertEqual(self.service._waiters, waiters_before)
+
+    def test_wait_for_decision_does_not_prune_resolved_hash_for_probe(self) -> None:
+        store = CountingPromptStore()
+        service = PromptService(prompt_store=store)
+
+        decision = service.wait_for_decision("missing", timeout_ms=0, session_id="s1")
+
+        self.assertIsNone(decision)
+        self.assertEqual(store.get_decision_calls, 1)
+        self.assertEqual(store.get_pending_calls, 0)
+        self.assertEqual(store.list_resolved_calls, 0)
 
 
 if __name__ == "__main__":
