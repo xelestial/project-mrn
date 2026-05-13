@@ -5364,6 +5364,9 @@ class _FanoutVisEventStream:
         enriched = dict(payload)
         self._merge_identity_fields(enriched, enriched.get("player_id"))
         self._merge_identity_fields(enriched, enriched.get("acting_player_id"), prefix="acting")
+        snapshot = payload.get("snapshot")
+        if isinstance(snapshot, dict):
+            enriched["snapshot"] = self._with_snapshot_protocol_identity(snapshot)
         for field_name, value in payload.items():
             if field_name in {"player_id", "acting_player_id"}:
                 continue
@@ -5379,19 +5382,53 @@ class _FanoutVisEventStream:
                 self._merge_identity_list_fields(enriched, value, prefix="winner")
         return enriched
 
+    def _with_snapshot_protocol_identity(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        enriched = dict(snapshot)
+        players = snapshot.get("players")
+        if isinstance(players, list):
+            enriched["players"] = [self._with_snapshot_player_identity(item) for item in players]
+        board = snapshot.get("board")
+        if isinstance(board, dict):
+            enriched["board"] = self._with_snapshot_board_identity(board)
+        return enriched
+
+    def _with_snapshot_player_identity(self, player: object) -> object:
+        if not isinstance(player, dict):
+            return player
+        enriched = dict(player)
+        self._merge_identity_fields(enriched, enriched.get("player_id"), include_legacy=False)
+        return enriched
+
+    def _with_snapshot_board_identity(self, board: dict[str, Any]) -> dict[str, Any]:
+        enriched = dict(board)
+        self._merge_identity_fields(enriched, enriched.get("marker_owner_player_id"), prefix="marker_owner")
+        tiles = board.get("tiles")
+        if isinstance(tiles, list):
+            enriched["tiles"] = [self._with_snapshot_tile_identity(item) for item in tiles]
+        return enriched
+
+    def _with_snapshot_tile_identity(self, tile: object) -> object:
+        if not isinstance(tile, dict):
+            return tile
+        enriched = dict(tile)
+        self._merge_identity_fields(enriched, enriched.get("owner_player_id"), prefix="owner")
+        self._merge_identity_list_fields(enriched, enriched.get("pawn_player_ids"), prefix="pawn")
+        return enriched
+
     def _merge_identity_fields(
         self,
         payload: dict[str, Any],
         player_id: object,
         *,
         prefix: str | None = None,
+        include_legacy: bool = True,
     ) -> None:
         numeric_player_id = self._numeric_player_id(player_id)
         if numeric_player_id is None or self._identity_fields_for_player is None:
             return
         identity_fields = self._identity_fields_for_player(numeric_player_id)
         for name, value in identity_fields.items():
-            if prefix is not None and name == "legacy_player_id":
+            if name == "legacy_player_id" and (prefix is not None or not include_legacy):
                 continue
             field_name = f"{prefix}_{name}" if prefix else name
             payload.setdefault(field_name, value)

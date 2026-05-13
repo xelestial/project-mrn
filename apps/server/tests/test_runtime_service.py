@@ -1396,6 +1396,81 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_fanout_snapshot_payload_adds_public_identity_companions(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            stream = _IdempotentStreamServiceStub()
+            fanout = _FanoutVisEventStream(
+                loop,
+                stream,
+                "sess_snapshot_identity_fanout",
+                lambda _session_id: None,
+                identity_fields_for_player=lambda player_id: {
+                    "legacy_player_id": player_id,
+                    "seat_index": player_id,
+                    "turn_order_index": player_id - 1,
+                    "player_label": f"P{player_id}",
+                    "public_player_id": f"player_{player_id}",
+                    "seat_id": f"seat_{player_id}",
+                    "viewer_id": f"viewer_{player_id}",
+                },
+            )
+
+            fanout.append(
+                _DebugEventStub(
+                    {
+                        "event_type": "turn_end_snapshot",
+                        "snapshot": {
+                            "players": [
+                                {"player_id": 1, "cash": 100},
+                                {"player_id": 2, "cash": 90},
+                            ],
+                            "board": {
+                                "marker_owner_player_id": 2,
+                                "tiles": [
+                                    {
+                                        "tile_index": 0,
+                                        "owner_player_id": 1,
+                                        "pawn_player_ids": [1, 2],
+                                    }
+                                ],
+                            },
+                            "active_by_card": {"1": "Architect"},
+                        },
+                    }
+                )
+            )
+
+            snapshot = stream.published_payloads[0]["snapshot"]
+            self.assertEqual(snapshot["players"][0]["player_id"], 1)
+            self.assertEqual(snapshot["players"][0]["public_player_id"], "player_1")
+            self.assertEqual(snapshot["players"][0]["seat_id"], "seat_1")
+            self.assertEqual(snapshot["players"][0]["viewer_id"], "viewer_1")
+            self.assertNotIn("legacy_player_id", snapshot["players"][0])
+
+            board = snapshot["board"]
+            self.assertEqual(board["marker_owner_player_id"], 2)
+            self.assertEqual(board["marker_owner_public_player_id"], "player_2")
+            self.assertEqual(board["marker_owner_seat_id"], "seat_2")
+            self.assertEqual(board["marker_owner_viewer_id"], "viewer_2")
+
+            tile = board["tiles"][0]
+            self.assertEqual(tile["owner_player_id"], 1)
+            self.assertEqual(tile["owner_public_player_id"], "player_1")
+            self.assertEqual(tile["owner_seat_id"], "seat_1")
+            self.assertEqual(tile["owner_viewer_id"], "viewer_1")
+            self.assertEqual(tile["pawn_player_ids"], [1, 2])
+            self.assertEqual(tile["pawn_public_player_ids"], ["player_1", "player_2"])
+            self.assertEqual(tile["pawn_seat_ids"], ["seat_1", "seat_2"])
+            self.assertEqual(tile["pawn_viewer_ids"], ["viewer_1", "viewer_2"])
+            self.assertEqual(snapshot["active_by_card"], {"1": "Architect"})
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_fanout_event_stream_drops_publish_timeout_without_blocking_runtime(self) -> None:
         class StreamStub:
             async def latest_seq(self, session_id: str) -> int:
