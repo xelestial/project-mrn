@@ -19,8 +19,8 @@ in the active plans, status index, tests, or canonical contract documents.
   boundary, resolves it to the legacy prompt key internally, and preserves the
   submitted public id in the decision payload.
 - Module decision commands now carry explicit `prompt_instance_id`, and runtime
-  resume matching and prompt sequence seeding prefer that explicit field before
-  falling back to legacy request-id parsing.
+  resume matching and prompt sequence seeding now use that explicit field
+  without parsing legacy request-id suffixes for prompt instance recovery.
 - Active batch prompt enrichment now prefers explicit `batch_id` plus submitted
   player identity before using the legacy `batch:*:pN` shape as fallback.
 - WebSocket human decision ACKs now include the accepted decision

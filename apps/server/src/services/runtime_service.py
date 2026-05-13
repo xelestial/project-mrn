@@ -4447,18 +4447,7 @@ class _ServerDecisionPolicyBridge:
         explicit = int(getattr(resume, "prompt_instance_id", 0) or 0)
         if explicit > 0:
             return explicit
-        request_type = str(resume.request_type or "").strip()
-        request_id = str(resume.request_id or "").strip()
-        if not request_type or not request_id:
-            return 0
-        marker = f":{request_type}:"
-        if marker not in request_id:
-            return 0
-        raw_instance_id = request_id.rsplit(marker, 1)[-1]
-        try:
-            return max(0, int(raw_instance_id))
-        except ValueError:
-            return 0
+        return 0
 
     def __getattr__(self, name: str):
         target = self._router.attribute_target(name)

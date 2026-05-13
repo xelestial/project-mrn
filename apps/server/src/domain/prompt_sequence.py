@@ -1,21 +1,6 @@
 from __future__ import annotations
 
 
-def _request_prompt_instance_id(request_id: str, request_type: str) -> int:
-    request_id = str(request_id or "").strip()
-    request_type = str(request_type or "").strip()
-    if not request_type or not request_id:
-        return 0
-    marker = f":{request_type}:"
-    if marker not in request_id:
-        return 0
-    raw_instance_id = request_id.rsplit(marker, 1)[-1]
-    try:
-        return max(0, int(raw_instance_id))
-    except (TypeError, ValueError):
-        return 0
-
-
 def _positive_int(value: object) -> int:
     try:
         parsed = int(value)
@@ -30,10 +15,7 @@ def _resume_prompt_instance_id(resume: object | None) -> int:
     explicit = _positive_int(getattr(resume, "prompt_instance_id", 0))
     if explicit > 0:
         return explicit
-    return _request_prompt_instance_id(
-        str(getattr(resume, "request_id", "") or ""),
-        str(getattr(resume, "request_type", "") or ""),
-    )
+    return 0
 
 
 def _prior_same_module_resume_prompt_seed(checkpoint: dict | None, resume: object | None) -> int | None:
@@ -63,10 +45,7 @@ def _prior_same_module_resume_prompt_seed(checkpoint: dict | None, resume: objec
         resume_value = str(getattr(resume, resume_field, "") or "").strip()
         if checkpoint_value and resume_value and checkpoint_value != resume_value:
             return None
-    request_type = previous_request_type or str(getattr(resume, "request_type", "") or "").strip()
     previous_instance_id = _positive_int(checkpoint.get("decision_resume_prompt_instance_id"))
-    if previous_instance_id <= 0:
-        previous_instance_id = _request_prompt_instance_id(previous_request_id, request_type)
     current_instance_id = _resume_prompt_instance_id(resume)
     if previous_instance_id <= 0 or current_instance_id <= previous_instance_id:
         return None

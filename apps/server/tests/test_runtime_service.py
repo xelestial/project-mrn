@@ -6480,6 +6480,7 @@ class RuntimeServiceTests(unittest.TestCase):
             "decision_resume_request_type": "trick_tile_target",
             "decision_resume_player_id": 1,
             "decision_resume_choice_id": "6",
+            "decision_resume_prompt_instance_id": 58,
             "decision_resume_frame_id": "seq:action:1:p0:89",
             "decision_resume_module_id": "mod:seq:action:1:p0:89:fortuneresolve",
             "decision_resume_module_type": "FortuneResolveModule",
@@ -6497,6 +6498,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     "choice_id": "8",
                     "choice_payload": {"tile_index": 8},
                     "resume_token": "resume_current",
+                    "prompt_instance_id": 60,
                     "frame_id": "seq:action:1:p0:89",
                     "module_id": "mod:seq:action:1:p0:89:fortuneresolve",
                     "module_type": "FortuneResolveModule",
@@ -6993,6 +6995,24 @@ class RuntimeServiceTests(unittest.TestCase):
         from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
 
         self.assertEqual(_ServerDecisionPolicyBridge._prompt_instance_id_from_resume(resume), 60)
+
+    def test_prompt_instance_from_resume_does_not_parse_legacy_request_id(self) -> None:
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        resume = RuntimeDecisionResume(
+            request_id="sess_1:r3:t9:p1:trick_tile_target:60",
+            player_id=1,
+            request_type="trick_tile_target",
+            choice_id="8",
+            choice_payload={},
+            resume_token="resume_current",
+            frame_id="seq:action:1:p0:89",
+            module_id="mod:seq:action:1:p0:89:fortuneresolve",
+            module_type="FortuneResolveModule",
+            module_cursor="await_action_prompt",
+        )
+
+        self.assertEqual(_ServerDecisionPolicyBridge._prompt_instance_id_from_resume(resume), 0)
 
     def test_continuation_debug_fields_include_explicit_decision_resume_prompt_instance_id(self) -> None:
         from apps.server.src.services.runtime_service import _runtime_continuation_debug_fields
