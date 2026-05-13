@@ -652,7 +652,7 @@ Store latest-N summaries plus stream pointers. Full source streams and viewer ou
 - [ ] Migrate prompt request IDs and prompt instance IDs to globally opaque IDs. Current Phase 0 intentionally keeps legacy semantic prompt request IDs and numeric `prompt_instance_id`; this remains a later boundary because batch continuation and resume parsing still read semantics from those fields.
 - [x] Add `round_index`, `turn_index`, and `turn_label` to `view_commit`.
 - [x] Add Redis event ID maps and prompt lifecycle records that expose recent request IDs for inspection.
-- [ ] Add a dedicated Redis request ID map only if the lifecycle records are insufficient for the next migration phase.
+- [x] Do not add a dedicated Redis request ID map in this phase. Lifecycle records and inspector debug output now expose enough recent request ID state for diagnosis without adding another Redis index.
 - [x] Add one-hour debug retention settings and debug snapshot writing.
 - [x] Verify with `apps/server/tests/test_session_service.py`.
 - [x] Verify with `apps/server/tests/test_redis_realtime_services.py`.
