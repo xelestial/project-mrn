@@ -73,8 +73,9 @@ Read and maintain these:
   lives in `CommandExecutionGate`; command-boundary deferred commit finalization
   lives in `CommandBoundaryFinalizer`; command-boundary final commit now rechecks
   runtime lease ownership before authoritative Redis/view/prompt side effects;
-  `RuntimeService.process_command_once()` remains the transitional lease/commit
-  adapter.
+  `SessionLoop` now owns command lifecycle control flow through
+  `SessionCommandExecutor`; `RuntimeService.process_command_once()` remains only
+  as a compatibility wrapper over that executor.
 
 ## Closed Enough
 

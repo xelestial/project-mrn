@@ -418,7 +418,7 @@ commit signal
 검증:
 
 - [x] 같은 session에 대해 두 loop가 동시에 commit하지 않는다.
-- [ ] lease lost 상태에서는 commit하지 않는다.
+- [x] lease lost 상태에서는 commit하지 않는다.
 - [ ] process restart 후 pending accepted command가 사라지지 않는다.
 
 2026-05-12 구현 상태:
@@ -427,7 +427,7 @@ commit signal
 - 완료: `apps/server/src/services/session_loop_manager.py`를 추가했다. manager는 session id별로 하나의 drain task만 예약하고, 같은 session에 대한 중복 wakeup은 dedupe한다.
 - 완료: `CommandRouter`가 `SessionLoopManager`를 받을 수 있게 바꿨고, 실제 server state에서는 router와 `CommandStreamWakeupWorker` 모두 manager로 위임한다.
 - 완료: manager 위임 후에도 기존 router의 `running_elsewhere` 재시도 의미가 사라지지 않도록 `deferred` drain 결과를 제한 시간 안에서 재시도한다.
-- 완료: loop는 새 lease/commit 로직을 직접 복제하지 않는다. 현재는 `RuntimeService.process_command_once()`를 runtime boundary adapter로 호출한다. 이 함수가 이미 Redis lease 획득, command `processing`, engine transition, state/view/prompt commit, command terminal state 및 consumer offset 저장을 담당한다.
+- 완료: loop는 `SessionCommandExecutor`를 통해 command lifecycle control flow를 직접 조립한다. runtime boundary는 Redis lease, command `processing` mark, engine boundary 실행, runtime status/result 적용 같은 저수준 동작을 제공하고, `RuntimeService.process_command_once()`는 같은 executor를 호출하는 호환 wrapper로만 남았다.
 - 완료: `consumer_name="runtime_wakeup"`을 유지했다. 새 consumer를 만들면 기존 worker offset과 갈라져 같은 command를 두 실행 경로가 다시 보게 되므로, 전환 중에는 같은 offset을 공유하는 것이 맞다.
 - 완료: restart/poll recovery는 기존 `CommandStreamWakeupWorker`가 pending command를 발견한 뒤 manager를 깨우는 형태로 수렴시켰다.
 - 완료: `CommandStreamWakeupWorker`가 runtime 처리를 비활성화한 경우에는 pending command를 소비한 것처럼 `runtime_wakeup` offset을 전진시키지 않는다. 비활성 worker가 offset만 저장하면 나중에 manager가 같은 accepted command를 보지 못하므로 command loss가 된다.
@@ -435,7 +435,7 @@ commit signal
 - 검증: 5개 서버와 1개 Redis 조건에서 `tmp/rl/full-stack-protocol/server-rebuild-5server-1redis-yieldfix-20260512` protocol gate가 통과했다.
 - 병목 증거: 1개 서버에 20개 게임을 동시에 붙인 조건은 `tmp/rl/full-stack-protocol/server-rebuild-1server-20game-yieldfix-20260512`에서 backend timing gate로 실패했다. 실패 원인은 Redis commit이나 ACK 누락이 아니라 `InitialRewardModule` engine transition wall time이다. 해당 run의 `runtime_transition_phase_timing` 125건 중 3건이 5000ms를 넘었고, 모두 `InitialRewardModule`이었다. 최대값은 `total_ms=6386`, `engine_transition_ms=6238`, `redis_commit_ms=53`, `view_commit_build_ms=11`이다.
 - 판단: 이 결과는 command loss 결함은 수정됐지만 단일 Python server process에 20개 live session transition을 몰아넣으면 engine 실행 wall time이 gate 기준을 넘는다는 capacity/bottleneck 증거다. 5서버/1Redis는 통과하고 1서버/20게임만 실패했으므로 현 단계의 병목은 Redis 분리보다 서버 실행자 수와 engine transition scheduling에 더 가깝다.
-- 남은 작업: `RuntimeService.process_command_once()` 안의 lease/commit 구현을 최종적으로 `SessionLoop` 내부 책임으로 이동해야 한다. 지금은 single-writer 외형을 세운 transitional skeleton이다. 또한 remote owner/pubsub wake signal과 process restart smoke 검증은 아직 남아 있다.
+- 남은 작업: state/prompt/view/command atomic commit adapter는 아직 `_CommandBoundaryGameStateStore`와 `RuntimeService._run_engine_command_boundary_loop_sync()`에 남아 있다. 또한 remote owner/pubsub wake signal과 process restart smoke 검증은 아직 남아 있다.
 
 ### Phase 4 - decision route에서 view_commit 의존 제거
 
@@ -600,7 +600,7 @@ commit signal
 
 작업:
 
-- [ ] `RuntimeService`에서 session loop로 이동한 책임을 제거한다.
+- [x] `RuntimeService`에서 session loop로 이동한 책임을 제거한다.
 - [x] command recovery/read query를 `RuntimeService` route facade에서 분리한다.
 - [x] command processing guard/stale terminal 판단을 `RuntimeService` 내부 구현에서 분리한다.
 - [x] local active command/session task gate를 `RuntimeService` 내부 state에서 분리한다.
@@ -624,9 +624,12 @@ commit signal
 - 완료: `CommandExecutionGate`를 추가해 in-process active command session lock과 active runtime task guard를 `RuntimeService` 필드 구현에서 분리했다. `RuntimeService`에는 호환 wrapper만 남아 runtime status와 command execution entrypoint가 같은 gate를 바라본다.
 - 완료: `CommandBoundaryFinalizer`를 추가해 command-boundary deferred commit 최종화(`deferred_commit` copy, authoritative Redis commit, latest `view_commit` emit, waiting prompt materialization, timing log)를 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. `_CommandBoundaryGameStateStore`는 아직 남아 있지만, 최종 commit side effect 묶음의 소유자는 별도 service로 이동했다.
 - 완료: `CommandBoundaryFinalizer`가 authoritative commit 직전에 `commit_guard`를 호출하게 했다. command-boundary loop가 runtime lease를 잃은 상태이면 Redis authoritative state/view/prompt side effect를 실행하지 않고 `runtime_lease_lost_before_commit` stale result를 반환한다.
+- 완료: `SessionCommandExecutor`를 추가해 command lifecycle control flow를 `SessionLoop` 쪽으로 이동했다. `SessionLoop`는 이제 runtime task guard, local command gate, runtime lease acquire/release, command `processing` mark, engine boundary 실행, runtime status result 적용, conflict/failure 처리를 순서대로 조립한다.
+- 완료: `RuntimeService.process_command_once()`는 `SessionCommandExecutor(runtime_boundary=self)`를 호출하는 compatibility wrapper로 축소했다. 프로덕션 `SessionLoop` 경로는 `process_command_once()` adapter가 없어도 runtime boundary lifecycle 메서드만으로 명령을 처리한다.
+- 완료: `RuntimeService`는 아직 engine transition, runtime state persistence, commit conflict recovery 같은 저수준 동작을 제공하지만, accepted command execution lifecycle의 owner는 `SessionLoop`/`SessionCommandExecutor`다.
 - 보류: `_CommandBoundaryGameStateStore`는 현재 `RuntimeService._run_engine_command_boundary_loop_sync()`의 command-boundary deferred commit adapter다. SessionLoop가 atomic state/prompt/view/command commit을 직접 소유하기 전에는 제거하면 같은 명령 안의 중간 transition commit 방지가 깨진다.
 - 보류: `_runtime_prompt_sequence_seed`는 prompt boundary ownership이 `RuntimeService` 밖으로 나가기 전까지 checkpoint/resume prompt instance id를 맞추는 복구 시드다. Phase 8에서 stable id 충돌은 줄였지만 process-local prompt instance source 제거는 아직 끝나지 않았다.
-- 남음: `SessionLoop`는 아직 `RuntimeService.process_command_once()`를 runtime boundary adapter로 호출한다. 즉 외부 wakeup owner, route recovery query owner, command precondition/stale terminal owner, local execution gate는 정리됐지만 runtime lease, runtime status persistence, state/prompt/view/command atomic commit의 실소유권은 아직 `RuntimeService` 내부에 남아 있다.
+- 남음: state/prompt/view/command atomic commit 내부 구현은 아직 `RuntimeService._run_engine_command_boundary_loop_sync()`와 `_CommandBoundaryGameStateStore`에 걸쳐 있다. 다음 제거 단계는 commit adapter를 SessionLoop boundary 밖으로 노출할 저수준 interface를 먼저 정의해야 한다.
 
 수정 후보:
 
@@ -641,7 +644,7 @@ commit signal
 
 검증:
 
-- [ ] `RuntimeService`가 engine 실행과 command accept를 동시에 소유하지 않는다.
+- [x] `RuntimeService`가 engine 실행과 command accept를 동시에 소유하지 않는다.
 - [x] route-level recovery query가 `RuntimeService` command inbox helper를 직접 호출하지 않는다.
 - [x] command precondition/stale terminal 판단이 `RuntimeService` 구현 본문이 아니라 별도 service에서 실행된다.
 - [x] active command session lock과 active runtime task guard가 별도 execution gate에서 실행된다.

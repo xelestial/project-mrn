@@ -31,6 +31,42 @@ class SessionLoopTests(unittest.TestCase):
         self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 31, None)])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
 
+    def test_session_loop_owns_command_lifecycle_without_runtime_process_adapter(self) -> None:
+        command_store, sessions, session = _build_session(seed=37)
+        runtime = _RuntimeLifecycleBoundaryStub(command_store=command_store)
+        loop = SessionLoop(command_store=command_store, session_service=sessions, runtime_service=runtime)
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {"request_id": "req_loop_lifecycle", "choice_id": "roll"},
+            request_id="req_loop_lifecycle",
+        )
+
+        result = asyncio.run(loop.run_until_idle(session_id=session.session_id, trigger="test", max_commands=2))
+
+        self.assertEqual(result["status"], "idle")
+        self.assertEqual(result["processed_count"], 1)
+        self.assertEqual(
+            runtime.calls,
+            [
+                "runtime_guard:before_begin",
+                "begin_processing",
+                "runtime_guard:after_begin",
+                "command_guard:before_lease",
+                "acquire_lease",
+                "start_renewer",
+                "command_guard:after_lease",
+                "mark_processing_started",
+                "run_command_boundary",
+                "record_timing",
+                "apply_result",
+                "stop_renewer",
+                "release_lease",
+                "end_processing",
+            ],
+        )
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
+
     def test_session_loop_observes_resolved_commands_before_decision_commands(self) -> None:
         command_store, sessions, session = _build_session(seed=32)
         runtime = _RuntimeBoundaryStub(command_store=command_store)
@@ -237,6 +273,122 @@ class _RuntimeBoundaryStub:
         if self._advance_offset and str(result.get("status") or "") != "running_elsewhere":
             self._command_store.save_consumer_offset(consumer_name, session_id, command_seq)
         return {**result, "processed_command_seq": command_seq}
+
+
+class _RuntimeLifecycleBoundaryStub:
+    def __init__(self, *, command_store: RedisCommandStore) -> None:
+        self._command_store = command_store
+        self.calls: list[str] = []
+
+    def runtime_task_processing_guard(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        stage: str,
+    ) -> dict | None:
+        self.calls.append(f"runtime_guard:{stage}")
+        return None
+
+    def begin_command_processing(self, session_id: str) -> bool:
+        self.calls.append("begin_processing")
+        return True
+
+    def command_processing_guard(
+        self,
+        *,
+        session_id: str,
+        consumer_name: str,
+        command_seq: int,
+        stage: str,
+    ) -> dict | None:
+        self.calls.append(f"command_guard:{stage}")
+        return None
+
+    def acquire_runtime_lease(self, session_id: str) -> bool:
+        self.calls.append("acquire_lease")
+        return True
+
+    def runtime_lease_owner(self, session_id: str) -> str | None:
+        return None
+
+    def start_runtime_lease_renewer(
+        self,
+        *,
+        session_id: str,
+        reason: str,
+        command_seq: int | None = None,
+        consumer_name: str | None = None,
+    ) -> object:
+        self.calls.append("start_renewer")
+        return object()
+
+    def stop_runtime_lease_renewer(self, handle: object) -> None:
+        self.calls.append("stop_renewer")
+
+    def release_runtime_lease(self, session_id: str) -> bool:
+        self.calls.append("release_lease")
+        return True
+
+    def end_command_processing(self, session_id: str) -> None:
+        self.calls.append("end_processing")
+
+    def mark_command_processing_started(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+    ) -> None:
+        self.calls.append("mark_processing_started")
+
+    async def run_command_boundary(
+        self,
+        *,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+        consumer_name: str,
+        command_seq: int,
+    ) -> dict:
+        self.calls.append("run_command_boundary")
+        self._command_store.save_consumer_offset(consumer_name, session_id, command_seq)
+        return {"status": "committed", "processed_command_seq": command_seq}
+
+    def record_command_process_timing(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        result: dict,
+        process_started: float,
+        pre_executor_ms: int,
+        executor_wall_ms: int,
+    ) -> None:
+        self.calls.append("record_timing")
+
+    async def apply_command_process_result(
+        self,
+        *,
+        session_id: str,
+        result: dict,
+    ) -> None:
+        self.calls.append("apply_result")
+
+    async def handle_command_commit_conflict(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        exc: Exception,
+    ) -> dict:
+        raise exc
+
+    def handle_command_failure(self, *, session_id: str, exc: Exception) -> None:
+        raise exc
 
 
 if __name__ == "__main__":

@@ -1,5 +1,24 @@
 # Implementation Journal
 
+## 2026-05-13 Server Runtime Rebuild Phase 9 SessionLoop Command Lifecycle Ownership
+
+- Added `SessionCommandExecutor` beside `SessionLoop` as the command lifecycle owner.
+- `SessionLoop` now uses lifecycle methods on the runtime boundary for runtime task guard, command begin/end, command precondition guard, runtime lease acquire/release, command `processing` mark, engine boundary execution, result status application, commit-conflict recovery, and failure marking.
+- `RuntimeService.process_command_once()` is now a compatibility wrapper over `SessionCommandExecutor(runtime_boundary=self)` instead of the owner of that control flow.
+- Added a SessionLoop test using a runtime boundary stub with no `process_command_once()` method. That proves the production loop can process a command through the lifecycle boundary instead of the legacy adapter.
+- Kept `RuntimeService` as the low-level runtime boundary for engine execution, runtime status persistence, and commit conflict/failure handling. `_CommandBoundaryGameStateStore` and `_runtime_prompt_sequence_seed` are still intentionally present; removing them requires a separate atomic commit/prompt boundary extraction.
+
+## Verification
+
+- `./.venv/bin/python -m pytest apps/server/tests/test_session_loop.py::SessionLoopTests::test_session_loop_owns_command_lifecycle_without_runtime_process_adapter -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_session_loop.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k "process_command_once or command_processing_already_active or view_commit_seq_conflict" -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -k "process_command_once or runtime_lease" -q`
+- `python3 -m compileall apps/server/src/services/session_loop.py apps/server/src/services/runtime_service.py`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests -q`
+
+Result: focused lifecycle, session loop, runtime compatibility, Redis runtime lease tests passed; full server tests passed with `683 passed, 46 subtests passed`.
+
 ## 2026-05-13 Server Runtime Rebuild Phase 9 Command Boundary Finalizer
 
 - Added `CommandBoundaryFinalizer` as the command-boundary finalization owner.

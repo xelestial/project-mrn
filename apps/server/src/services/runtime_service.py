@@ -1167,228 +1167,277 @@ class RuntimeService:
         seed: int = 42,
         policy_mode: str | None = None,
     ) -> dict:
-        process_started = time.perf_counter()
-        command_seq = int(command_seq)
-        task_guard = self._runtime_task_processing_guard(
+        from apps.server.src.services.session_loop import SessionCommandExecutor
+
+        return await SessionCommandExecutor(runtime_boundary=self).process_command_once(
+            session_id=session_id,
+            command_seq=command_seq,
+            consumer_name=consumer_name,
+            seed=seed,
+            policy_mode=policy_mode,
+        )
+
+    def runtime_task_processing_guard(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        stage: str,
+    ) -> dict | None:
+        return self._runtime_task_processing_guard(
             session_id=session_id,
             consumer_name=consumer_name,
             command_seq=command_seq,
-            stage="before_begin",
+            stage=stage,
         )
-        if task_guard is not None:
-            return task_guard
-        if not self._begin_command_processing(session_id):
-            return {
-                "status": "running_elsewhere",
-                "reason": "command_processing_already_active",
-                "processed_command_seq": command_seq,
-                "processed_command_consumer": consumer_name,
-            }
-        task_guard = self._runtime_task_processing_guard(
+
+    def begin_command_processing(self, session_id: str) -> bool:
+        return self._begin_command_processing(session_id)
+
+    def end_command_processing(self, session_id: str) -> None:
+        self._end_command_processing(session_id)
+
+    def command_processing_guard(
+        self,
+        *,
+        session_id: str,
+        consumer_name: str,
+        command_seq: int,
+        stage: str,
+    ) -> dict | None:
+        return self._command_processing_guard(
             session_id=session_id,
             consumer_name=consumer_name,
             command_seq=command_seq,
-            stage="after_begin",
+            stage=stage,
         )
-        if task_guard is not None:
-            self._end_command_processing(session_id)
-            return task_guard
-        pre_guard = self._command_processing_guard(
-            session_id=session_id,
-            consumer_name=consumer_name,
-            command_seq=command_seq,
-            stage="before_lease",
-        )
-        if pre_guard is not None:
-            self._end_command_processing(session_id)
-            return pre_guard
-        if not self._acquire_runtime_lease(session_id):
-            self._end_command_processing(session_id)
-            return {
-                "status": "running_elsewhere",
-                "lease_owner": self._runtime_state_store.lease_owner(session_id) if self._runtime_state_store is not None else None,
-            }
-        lease_renewer = self._start_runtime_lease_renewer(
+
+    def acquire_runtime_lease(self, session_id: str) -> bool:
+        return self._acquire_runtime_lease(session_id)
+
+    def runtime_lease_owner(self, session_id: str) -> str | None:
+        return self._runtime_state_store.lease_owner(session_id) if self._runtime_state_store is not None else None
+
+    def release_runtime_lease(self, session_id: str) -> bool:
+        return self._release_runtime_lease(session_id)
+
+    def start_runtime_lease_renewer(
+        self,
+        *,
+        session_id: str,
+        reason: str,
+        command_seq: int | None = None,
+        consumer_name: str | None = None,
+    ) -> object | None:
+        return self._start_runtime_lease_renewer(
             session_id,
-            reason="process_command_once",
+            reason=reason,
             command_seq=command_seq,
             consumer_name=consumer_name,
         )
-        try:
-            post_guard = self._command_processing_guard(
-                session_id=session_id,
-                consumer_name=consumer_name,
-                command_seq=command_seq,
-                stage="after_lease",
-            )
-            if post_guard is not None:
-                return post_guard
-            now_ms = self._now_ms()
-            self._mark_command_state(
-                session_id,
-                command_seq,
-                "processing",
-                reason="runtime_lease_acquired",
-                server_time_ms=now_ms,
-                consumer_name=consumer_name,
-                worker_id=self._worker_id,
-            )
-            self._last_activity_ms[session_id] = now_ms
-            self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
-            self._persist_runtime_state(session_id)
-            loop = asyncio.get_running_loop()
-            pre_executor_ms = _duration_ms(process_started)
-            executor_started = time.perf_counter()
-            result = await self._run_in_runtime_executor(
-                self._run_engine_transition_loop_sync,
-                loop,
-                session_id,
-                seed,
-                policy_mode,
-                first_command_consumer_name=consumer_name,
-                first_command_seq=command_seq,
-            )
-            executor_wall_ms = _duration_ms(executor_started)
-            status = str(result.get("status", ""))
-            total_ms = _duration_ms(process_started)
-            engine_loop_total_ms = result.get("engine_loop_total_ms")
-            executor_overhead_ms = None
-            if isinstance(engine_loop_total_ms, int):
-                executor_overhead_ms = max(0, executor_wall_ms - engine_loop_total_ms)
-            log_event(
-                "runtime_command_process_timing",
-                session_id=session_id,
-                command_seq=command_seq,
-                consumer_name=consumer_name,
-                result_status=status,
-                reason=result.get("reason"),
-                transitions=result.get("transitions"),
-                module_transition_count=result.get("module_transition_count"),
-                redis_commit_count=result.get("redis_commit_count"),
-                view_commit_count=result.get("view_commit_count"),
-                internal_redis_commit_attempt_count=result.get("internal_redis_commit_attempt_count"),
-                internal_view_commit_attempt_count=result.get("internal_view_commit_attempt_count"),
-                internal_state_stage_count=result.get("internal_state_stage_count"),
-                terminal_status=result.get("terminal_status") or status,
-                terminal_boundary_reason=result.get("terminal_boundary_reason") or result.get("reason"),
-                duplicate_request_count=result.get("duplicate_request_count", 0),
-                deduped_request_id=result.get("deduped_request_id"),
-                busy_rejection_count=result.get("busy_rejection_count", 0),
-                idempotency_hit=bool(result.get("idempotency_hit", False)),
-                command_boundary_finalization_ms=result.get("command_boundary_finalization_ms"),
-                deferred_commit_copy_ms=result.get("deferred_commit_copy_ms"),
-                authoritative_commit_ms=result.get("authoritative_commit_ms"),
-                view_commit_emit_ms=result.get("view_commit_emit_ms"),
-                prompt_materialize_ms=result.get("prompt_materialize_ms"),
-                pre_executor_ms=pre_executor_ms,
-                executor_wall_ms=executor_wall_ms,
-                engine_loop_total_ms=engine_loop_total_ms,
-                engine_prepare_ms=result.get("engine_prepare_ms"),
-                engine_transition_loop_ms=result.get("engine_transition_loop_ms"),
-                executor_overhead_ms=executor_overhead_ms,
-                total_ms=total_ms,
-            )
-            if status == "waiting_input":
-                self._status[session_id] = {"status": "waiting_input", "watchdog_state": "waiting_input", "last_transition": result}
-            elif status == "completed":
-                self._session_service.finish_session(session_id)
-                await self._notify_session_completed(session_id)
-                self._status[session_id] = {"status": "completed"}
-            elif status == "stale":
-                persisted_status = self._load_runtime_state(session_id)
-                if isinstance(persisted_status, dict) and persisted_status:
-                    status_payload = dict(persisted_status)
-                    status_payload["last_transition"] = result
-                    self._status[session_id] = status_payload
-                else:
-                    self._status[session_id] = {"status": "idle", "last_transition": result}
-            elif status == "rejected":
-                persisted_status = self._load_runtime_state(session_id)
-                status_payload = dict(persisted_status) if isinstance(persisted_status, dict) else {}
-                status_payload.update(result)
-                status_payload["status"] = "rejected"
-                status_payload["watchdog_state"] = "rejected"
+
+    def stop_runtime_lease_renewer(self, handle: object | None) -> None:
+        self._stop_runtime_lease_renewer(handle)
+
+    def mark_command_processing_started(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+    ) -> None:
+        now_ms = self._now_ms()
+        self._mark_command_state(
+            session_id,
+            command_seq,
+            "processing",
+            reason="runtime_lease_acquired",
+            server_time_ms=now_ms,
+            consumer_name=consumer_name,
+            worker_id=self._worker_id,
+        )
+        self._last_activity_ms[session_id] = now_ms
+        self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
+        self._persist_runtime_state(session_id)
+
+    async def run_command_boundary(
+        self,
+        *,
+        session_id: str,
+        seed: int,
+        policy_mode: str | None,
+        consumer_name: str,
+        command_seq: int,
+    ) -> dict:
+        loop = asyncio.get_running_loop()
+        return await self._run_in_runtime_executor(
+            self._run_engine_transition_loop_sync,
+            loop,
+            session_id,
+            seed,
+            policy_mode,
+            first_command_consumer_name=consumer_name,
+            first_command_seq=command_seq,
+        )
+
+    def record_command_process_timing(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        result: dict,
+        process_started: float,
+        pre_executor_ms: int,
+        executor_wall_ms: int,
+    ) -> None:
+        status = str(result.get("status", ""))
+        total_ms = _duration_ms(process_started)
+        engine_loop_total_ms = result.get("engine_loop_total_ms")
+        executor_overhead_ms = None
+        if isinstance(engine_loop_total_ms, int):
+            executor_overhead_ms = max(0, executor_wall_ms - engine_loop_total_ms)
+        log_event(
+            "runtime_command_process_timing",
+            session_id=session_id,
+            command_seq=command_seq,
+            consumer_name=consumer_name,
+            result_status=status,
+            reason=result.get("reason"),
+            transitions=result.get("transitions"),
+            module_transition_count=result.get("module_transition_count"),
+            redis_commit_count=result.get("redis_commit_count"),
+            view_commit_count=result.get("view_commit_count"),
+            internal_redis_commit_attempt_count=result.get("internal_redis_commit_attempt_count"),
+            internal_view_commit_attempt_count=result.get("internal_view_commit_attempt_count"),
+            internal_state_stage_count=result.get("internal_state_stage_count"),
+            terminal_status=result.get("terminal_status") or status,
+            terminal_boundary_reason=result.get("terminal_boundary_reason") or result.get("reason"),
+            duplicate_request_count=result.get("duplicate_request_count", 0),
+            deduped_request_id=result.get("deduped_request_id"),
+            busy_rejection_count=result.get("busy_rejection_count", 0),
+            idempotency_hit=bool(result.get("idempotency_hit", False)),
+            command_boundary_finalization_ms=result.get("command_boundary_finalization_ms"),
+            deferred_commit_copy_ms=result.get("deferred_commit_copy_ms"),
+            authoritative_commit_ms=result.get("authoritative_commit_ms"),
+            view_commit_emit_ms=result.get("view_commit_emit_ms"),
+            prompt_materialize_ms=result.get("prompt_materialize_ms"),
+            pre_executor_ms=pre_executor_ms,
+            executor_wall_ms=executor_wall_ms,
+            engine_loop_total_ms=engine_loop_total_ms,
+            engine_prepare_ms=result.get("engine_prepare_ms"),
+            engine_transition_loop_ms=result.get("engine_transition_loop_ms"),
+            executor_overhead_ms=executor_overhead_ms,
+            total_ms=total_ms,
+        )
+
+    async def apply_command_process_result(self, *, session_id: str, result: dict) -> None:
+        status = str(result.get("status", ""))
+        if status == "waiting_input":
+            self._status[session_id] = {"status": "waiting_input", "watchdog_state": "waiting_input", "last_transition": result}
+        elif status == "completed":
+            self._session_service.finish_session(session_id)
+            await self._notify_session_completed(session_id)
+            self._status[session_id] = {"status": "completed"}
+        elif status == "stale":
+            persisted_status = self._load_runtime_state(session_id)
+            if isinstance(persisted_status, dict) and persisted_status:
+                status_payload = dict(persisted_status)
+                status_payload["last_transition"] = result
                 self._status[session_id] = status_payload
             else:
                 self._status[session_id] = {"status": "idle", "last_transition": result}
-            self._touch_activity(session_id)
-            self._persist_runtime_state(session_id)
-            return result
-        except ViewCommitSequenceConflict as exc:
-            diagnostics = _runtime_failure_diagnostics(
-                session_id,
-                exc,
-                status=self._status.get(session_id),
-            )
+        elif status == "rejected":
             persisted_status = self._load_runtime_state(session_id)
-            persisted_status_value = str(persisted_status.get("status") or "")
-            recovery = self.recovery_checkpoint(session_id)
-            if persisted_status_value in {"waiting_input", "completed"}:
-                status_payload = dict(persisted_status)
-                status_payload["last_transition"] = {
-                    "status": "commit_conflict",
-                    "reason": "view_commit_seq_conflict",
-                    "processed_command_seq": command_seq,
-                    "processed_command_consumer": consumer_name,
-                }
-                self._status[session_id] = status_payload
-                self._persist_runtime_state(session_id)
-            else:
-                status_payload = {
-                    "status": "recovery_required",
-                    "watchdog_state": "recovery_required",
-                    "reason": "view_commit_seq_conflict_recovered",
-                    "exception_type": diagnostics["exception_type"],
-                    "exception_repr": diagnostics["exception_repr"],
-                    "last_transition": {
-                        "status": "commit_conflict",
-                        "reason": "view_commit_seq_conflict",
-                        "processed_command_seq": command_seq,
-                        "processed_command_consumer": consumer_name,
-                    },
-                }
-                if self.recovery_state_has_waiting_input({"recovery_checkpoint": recovery}):
-                    self._mark_checkpoint_waiting_input(
-                        session_id,
-                        base=status_payload,
-                        reason="view_commit_seq_conflict_recovered",
-                    )
-                else:
-                    self._status[session_id] = status_payload
-                    self._persist_runtime_state(session_id)
-            self._touch_activity(session_id)
-            log_event(
-                "runtime_transition_commit_conflict",
-                **diagnostics,
-                command_seq=command_seq,
-                consumer_name=consumer_name,
-            )
-            return {
+            status_payload = dict(persisted_status) if isinstance(persisted_status, dict) else {}
+            status_payload.update(result)
+            status_payload["status"] = "rejected"
+            status_payload["watchdog_state"] = "rejected"
+            self._status[session_id] = status_payload
+        else:
+            self._status[session_id] = {"status": "idle", "last_transition": result}
+        self._touch_activity(session_id)
+        self._persist_runtime_state(session_id)
+
+    async def handle_command_commit_conflict(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        exc: ViewCommitSequenceConflict,
+    ) -> dict:
+        diagnostics = _runtime_failure_diagnostics(
+            session_id,
+            exc,
+            status=self._status.get(session_id),
+        )
+        persisted_status = self._load_runtime_state(session_id)
+        persisted_status_value = str(persisted_status.get("status") or "")
+        recovery = self.recovery_checkpoint(session_id)
+        if persisted_status_value in {"waiting_input", "completed"}:
+            status_payload = dict(persisted_status)
+            status_payload["last_transition"] = {
                 "status": "commit_conflict",
                 "reason": "view_commit_seq_conflict",
                 "processed_command_seq": command_seq,
                 "processed_command_consumer": consumer_name,
             }
-        except Exception as exc:
-            diagnostics = _runtime_failure_diagnostics(
-                session_id,
-                exc,
-                status=self._status.get(session_id),
-            )
-            self._status[session_id] = {
-                "status": "failed",
-                "error": diagnostics["error"],
+            self._status[session_id] = status_payload
+            self._persist_runtime_state(session_id)
+        else:
+            status_payload = {
+                "status": "recovery_required",
+                "watchdog_state": "recovery_required",
+                "reason": "view_commit_seq_conflict_recovered",
                 "exception_type": diagnostics["exception_type"],
                 "exception_repr": diagnostics["exception_repr"],
+                "last_transition": {
+                    "status": "commit_conflict",
+                    "reason": "view_commit_seq_conflict",
+                    "processed_command_seq": command_seq,
+                    "processed_command_consumer": consumer_name,
+                },
             }
-            self._touch_activity(session_id)
-            self._persist_runtime_state(session_id)
-            log_event("runtime_failed", **diagnostics)
-            raise
-        finally:
-            self._stop_runtime_lease_renewer(lease_renewer)
-            self._release_runtime_lease(session_id)
-            self._end_command_processing(session_id)
+            if self.recovery_state_has_waiting_input({"recovery_checkpoint": recovery}):
+                self._mark_checkpoint_waiting_input(
+                    session_id,
+                    base=status_payload,
+                    reason="view_commit_seq_conflict_recovered",
+                )
+            else:
+                self._status[session_id] = status_payload
+                self._persist_runtime_state(session_id)
+        self._touch_activity(session_id)
+        log_event(
+            "runtime_transition_commit_conflict",
+            **diagnostics,
+            command_seq=command_seq,
+            consumer_name=consumer_name,
+        )
+        return {
+            "status": "commit_conflict",
+            "reason": "view_commit_seq_conflict",
+            "processed_command_seq": command_seq,
+            "processed_command_consumer": consumer_name,
+        }
+
+    def handle_command_failure(self, *, session_id: str, exc: Exception) -> None:
+        diagnostics = _runtime_failure_diagnostics(
+            session_id,
+            exc,
+            status=self._status.get(session_id),
+        )
+        self._status[session_id] = {
+            "status": "failed",
+            "error": diagnostics["error"],
+            "exception_type": diagnostics["exception_type"],
+            "exception_repr": diagnostics["exception_repr"],
+        }
+        self._touch_activity(session_id)
+        self._persist_runtime_state(session_id)
+        log_event("runtime_failed", **diagnostics)
 
     async def _run_engine_async(
         self,

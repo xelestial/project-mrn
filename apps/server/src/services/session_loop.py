@@ -1,9 +1,169 @@
 from __future__ import annotations
 
+import inspect
 import time
 from typing import Any
 
 from apps.server.src.infra.structured_log import log_event
+from apps.server.src.services.realtime_persistence import ViewCommitSequenceConflict
+
+
+def _duration_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
+
+
+async def _maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+class SessionCommandExecutor:
+    """Own the command-processing lifecycle for one command boundary."""
+
+    _REQUIRED_RUNTIME_METHODS = (
+        "runtime_task_processing_guard",
+        "begin_command_processing",
+        "command_processing_guard",
+        "acquire_runtime_lease",
+        "runtime_lease_owner",
+        "start_runtime_lease_renewer",
+        "stop_runtime_lease_renewer",
+        "release_runtime_lease",
+        "end_command_processing",
+        "mark_command_processing_started",
+        "run_command_boundary",
+        "record_command_process_timing",
+        "apply_command_process_result",
+        "handle_command_commit_conflict",
+        "handle_command_failure",
+    )
+
+    def __init__(self, *, runtime_boundary: Any) -> None:
+        self._runtime_boundary = runtime_boundary
+
+    @classmethod
+    def supports(cls, runtime_boundary: Any) -> bool:
+        return all(callable(getattr(runtime_boundary, method_name, None)) for method_name in cls._REQUIRED_RUNTIME_METHODS)
+
+    async def process_command_once(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        seed: int = 42,
+        policy_mode: str | None = None,
+    ) -> dict[str, Any]:
+        boundary = self._runtime_boundary
+        process_started = time.perf_counter()
+        command_seq = int(command_seq)
+        lease_renewer: Any = None
+        lease_acquired = False
+
+        task_guard = boundary.runtime_task_processing_guard(
+            session_id=session_id,
+            consumer_name=consumer_name,
+            command_seq=command_seq,
+            stage="before_begin",
+        )
+        if task_guard is not None:
+            return task_guard
+
+        if not boundary.begin_command_processing(session_id):
+            return {
+                "status": "running_elsewhere",
+                "reason": "command_processing_already_active",
+                "processed_command_seq": command_seq,
+                "processed_command_consumer": consumer_name,
+            }
+
+        try:
+            task_guard = boundary.runtime_task_processing_guard(
+                session_id=session_id,
+                consumer_name=consumer_name,
+                command_seq=command_seq,
+                stage="after_begin",
+            )
+            if task_guard is not None:
+                return task_guard
+
+            pre_guard = boundary.command_processing_guard(
+                session_id=session_id,
+                consumer_name=consumer_name,
+                command_seq=command_seq,
+                stage="before_lease",
+            )
+            if pre_guard is not None:
+                return pre_guard
+
+            if not boundary.acquire_runtime_lease(session_id):
+                return {
+                    "status": "running_elsewhere",
+                    "lease_owner": boundary.runtime_lease_owner(session_id),
+                }
+            lease_acquired = True
+
+            lease_renewer = boundary.start_runtime_lease_renewer(
+                session_id=session_id,
+                reason="session_command_executor",
+                command_seq=command_seq,
+                consumer_name=consumer_name,
+            )
+
+            post_guard = boundary.command_processing_guard(
+                session_id=session_id,
+                consumer_name=consumer_name,
+                command_seq=command_seq,
+                stage="after_lease",
+            )
+            if post_guard is not None:
+                return post_guard
+
+            boundary.mark_command_processing_started(
+                session_id=session_id,
+                command_seq=command_seq,
+                consumer_name=consumer_name,
+            )
+            pre_executor_ms = _duration_ms(process_started)
+            executor_started = time.perf_counter()
+            result = await boundary.run_command_boundary(
+                session_id=session_id,
+                seed=seed,
+                policy_mode=policy_mode,
+                consumer_name=consumer_name,
+                command_seq=command_seq,
+            )
+            executor_wall_ms = _duration_ms(executor_started)
+            boundary.record_command_process_timing(
+                session_id=session_id,
+                command_seq=command_seq,
+                consumer_name=consumer_name,
+                result=result,
+                process_started=process_started,
+                pre_executor_ms=pre_executor_ms,
+                executor_wall_ms=executor_wall_ms,
+            )
+            await _maybe_await(boundary.apply_command_process_result(session_id=session_id, result=result))
+            return result
+        except ViewCommitSequenceConflict as exc:
+            return await _maybe_await(
+                boundary.handle_command_commit_conflict(
+                    session_id=session_id,
+                    command_seq=command_seq,
+                    consumer_name=consumer_name,
+                    exc=exc,
+                )
+            )
+        except Exception as exc:
+            await _maybe_await(boundary.handle_command_failure(session_id=session_id, exc=exc))
+            raise
+        finally:
+            if lease_renewer is not None:
+                boundary.stop_runtime_lease_renewer(lease_renewer)
+            if lease_acquired:
+                boundary.release_runtime_lease(session_id)
+            boundary.end_command_processing(session_id)
 
 
 class SessionLoop:
@@ -21,6 +181,7 @@ class SessionLoop:
         self._command_store = command_store
         self._session_service = session_service
         self._runtime_service = runtime_service
+        self._command_executor = SessionCommandExecutor(runtime_boundary=runtime_service)
         self._consumer_name = str(consumer_name or "runtime_wakeup")
         self._command_scan_limit = max(1, int(command_scan_limit))
 
@@ -143,7 +304,10 @@ class SessionLoop:
     async def _process_command(self, *, session_id: str, command_seq: int) -> dict[str, Any]:
         session = self._session_service.get_session(session_id)
         runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
-        return await self._runtime_service.process_command_once(
+        process_command = self._command_executor.process_command_once
+        if not SessionCommandExecutor.supports(self._runtime_service):
+            process_command = self._runtime_service.process_command_once
+        return await process_command(
             session_id=session_id,
             command_seq=int(command_seq),
             consumer_name=self._consumer_name,
