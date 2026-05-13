@@ -981,6 +981,7 @@ class StreamApiTests(unittest.TestCase):
         acks = [m for m in messages if m.get("type") == "decision_ack" and m.get("payload", {}).get("request_id") == "r_wakeup_1"]
         self.assertGreaterEqual(len(acks), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
+        self.assertEqual(acks[-1].get("payload", {}).get("command_seq"), 42)
         self.assertEqual(
             wake_calls,
             [

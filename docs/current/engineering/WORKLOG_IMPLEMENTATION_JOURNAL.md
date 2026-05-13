@@ -23,6 +23,10 @@ in the active plans, status index, tests, or canonical contract documents.
   falling back to legacy request-id parsing.
 - Active batch prompt enrichment now prefers explicit `batch_id` plus submitted
   player identity before using the legacy `batch:*:pN` shape as fallback.
+- WebSocket human decision ACKs now include the accepted decision
+  `command_seq`, matching the REST/external-AI decision callback boundary and
+  letting clients correlate an accepted prompt decision with the queued runtime
+  command.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Compatibility storage and replay still keep
   the legacy request id key until the canonical opaque prompt-key migration is
@@ -32,6 +36,8 @@ Verification:
 
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py apps/server/tests/test_redis_realtime_services.py -q -k "runtime_prompt_sequence_seed or prompt_sequence"`
 - `./.venv/bin/python tools/plan_policy_gate.py`
 - `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`

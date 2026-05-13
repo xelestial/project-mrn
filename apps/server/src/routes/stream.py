@@ -851,6 +851,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         player_id=int(message.get("player_id", 0)),
                         reason=decision_state.get("reason"),
                         provider="human",
+                        command_seq=decision_state.get("command_seq"),
                         identity_fields=_decision_protocol_identity_fields(
                             session_service,
                             session_id,
