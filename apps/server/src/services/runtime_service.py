@@ -24,6 +24,7 @@ from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.domain.protocol_identity import display_identity_fields
 from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
+from apps.server.src.domain.prompt_sequence import runtime_prompt_sequence_seed
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.domain.visibility import ViewerContext
@@ -44,8 +45,7 @@ from apps.server.src.services.decision_gateway import (
     build_routed_decision_call,
 )
 from apps.server.src.services.command_execution_gate import CommandExecutionGate
-from apps.server.src.services.command_boundary_finalizer import CommandBoundaryFinalizer
-from apps.server.src.services.command_boundary_store import CommandBoundaryGameStateStore
+from apps.server.src.services.command_boundary_runner import CommandBoundaryRunner
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.command_processing_guard import CommandProcessingGuardService
 from apps.server.src.services.command_recovery import CommandRecoveryService
@@ -143,90 +143,6 @@ def _derive_internal_player_id_from_batch_request_id(request_id: str) -> int | N
     if not player_suffix.isdigit():
         return None
     return int(player_suffix)
-
-
-def _request_prompt_instance_id(request_id: str, request_type: str) -> int:
-    request_type = str(request_type or "").strip()
-    request_id = str(request_id or "").strip()
-    if not request_type or not request_id:
-        return 0
-    marker = f":{request_type}:"
-    if marker not in request_id:
-        return 0
-    raw_instance_id = request_id.rsplit(marker, 1)[-1]
-    try:
-        return max(0, int(raw_instance_id))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _prior_same_module_resume_prompt_seed(checkpoint: dict | None, resume: RuntimeDecisionResume | None) -> int | None:
-    if not isinstance(checkpoint, dict) or resume is None:
-        return None
-    previous_request_id = str(checkpoint.get("decision_resume_request_id") or "").strip()
-    if not previous_request_id or previous_request_id == str(resume.request_id or "").strip():
-        return None
-    previous_request_type = str(checkpoint.get("decision_resume_request_type") or "").strip()
-    if previous_request_type and previous_request_type != str(resume.request_type or "").strip():
-        return None
-    previous_player_id = checkpoint.get("decision_resume_player_id")
-    if previous_player_id not in (None, ""):
-        try:
-            if int(previous_player_id) != int(resume.player_id):
-                return None
-        except (TypeError, ValueError):
-            return None
-    identity_fields = (
-        ("decision_resume_frame_id", "frame_id"),
-        ("decision_resume_module_id", "module_id"),
-        ("decision_resume_module_type", "module_type"),
-        ("decision_resume_module_cursor", "module_cursor"),
-    )
-    for checkpoint_field, resume_field in identity_fields:
-        checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
-        resume_value = str(getattr(resume, resume_field, "") or "").strip()
-        if checkpoint_value and resume_value and checkpoint_value != resume_value:
-            return None
-    request_type = previous_request_type or str(resume.request_type or "").strip()
-    previous_instance_id = _request_prompt_instance_id(previous_request_id, request_type)
-    current_instance_id = _request_prompt_instance_id(str(resume.request_id or ""), str(resume.request_type or ""))
-    if previous_instance_id <= 0 or current_instance_id <= previous_instance_id:
-        return None
-    return max(0, previous_instance_id - 1)
-
-
-def _runtime_prompt_sequence_seed(
-    state: object,
-    checkpoint: dict | None,
-    decision_resume: RuntimeDecisionResume | None,
-) -> int:
-    prompt_sequence = int(getattr(state, "prompt_sequence", 0) or 0)
-    pending_prompt_instance_id = int(getattr(state, "pending_prompt_instance_id", 0) or 0)
-    pending_prompt_request_id = str(getattr(state, "pending_prompt_request_id", "") or "").strip()
-    resume_request_id = str(getattr(decision_resume, "request_id", "") or "").strip() if decision_resume is not None else ""
-    resume_prompt_instance_id = (
-        _request_prompt_instance_id(resume_request_id, str(decision_resume.request_type or ""))
-        if decision_resume is not None
-        else 0
-    )
-    pending_prompt_matches_resume = (
-        decision_resume is not None
-        and pending_prompt_request_id
-        and pending_prompt_request_id == resume_request_id
-        and pending_prompt_instance_id == resume_prompt_instance_id
-    )
-    prior_prompt_seed = _prior_same_module_resume_prompt_seed(checkpoint, decision_resume)
-    if pending_prompt_instance_id > 0 and (
-        decision_resume is None
-        or pending_prompt_matches_resume
-    ):
-        if pending_prompt_matches_resume and prior_prompt_seed is not None and resume_prompt_instance_id > prior_prompt_seed + 2:
-            return prior_prompt_seed
-        return max(0, pending_prompt_instance_id - 1)
-
-    if prior_prompt_seed is not None:
-        return prior_prompt_seed
-    return prompt_sequence
 
 
 def _normalize_decision_choice_payload(value: object) -> dict:
@@ -1588,95 +1504,23 @@ class RuntimeService:
         first_command_consumer_name: str | None,
         first_command_seq: int,
     ) -> dict:
-        loop_started = time.perf_counter()
-        if self._game_state_store is None:
-            raise RuntimeError("command_boundary_requires_game_state_store")
-        original_store = self._game_state_store
-        boundary_store = CommandBoundaryGameStateStore(
-            original_store,
-            session_id=session_id,
-            base_commit_seq=self._latest_view_commit_seq(session_id),
-        )
-        transitions = 0
-        last_step: dict = {"status": "unavailable", "reason": "not_started"}
-        module_trace: list[dict] = []
-        checkpoint_command_consumer_name = first_command_consumer_name
-        checkpoint_command_seq = int(first_command_seq)
-        prepare_started = time.perf_counter()
-        transition_context = self._prepare_runtime_transition_context_sync(
+        return CommandBoundaryRunner(
+            game_state_store=self._game_state_store,
+            latest_view_commit_seq=self._latest_view_commit_seq,
+            prepare_transition_context=self._prepare_runtime_transition_context_sync,
+            run_transition_once=self._run_engine_transition_once_sync,
+            emit_latest_view_commit=self._emit_latest_view_commit_sync,
+            materialize_prompt_boundaries=self._materialize_prompt_boundaries_from_checkpoint_sync,
+            commit_guard=self._command_boundary_commit_guard,
+        ).run(
             loop,
             session_id,
             seed,
             policy_mode,
-            publish_external_side_effects=False,
-            game_state_store_override=boundary_store,
+            max_transitions=max_transitions,
+            first_command_consumer_name=first_command_consumer_name,
+            first_command_seq=first_command_seq,
         )
-        engine_prepare_ms = _duration_ms(prepare_started)
-        transition_loop_started = time.perf_counter()
-        while max_transitions is None or transitions < max(1, int(max_transitions)):
-            command_consumer_name = first_command_consumer_name if transitions == 0 else None
-            command_seq = int(first_command_seq) if transitions == 0 else None
-            last_step = self._run_engine_transition_once_sync(
-                loop,
-                session_id,
-                seed,
-                policy_mode,
-                False,
-                command_consumer_name,
-                command_seq,
-                checkpoint_command_consumer_name=checkpoint_command_consumer_name,
-                checkpoint_command_seq=checkpoint_command_seq,
-                publish_external_side_effects=False,
-                transition_context=transition_context,
-                game_state_store_override=boundary_store,
-            )
-            transitions += 1
-            module_trace.append(self._command_module_trace_entry(transitions, last_step))
-            if _is_command_boundary_terminal_status(last_step.get("status")):
-                break
-        engine_transition_loop_ms = _duration_ms(transition_loop_started)
-
-        terminal_status = str(last_step.get("status", ""))
-        terminal_reason = str(last_step.get("reason") or terminal_status or "unknown")
-        finalization = CommandBoundaryFinalizer(
-            authoritative_store=original_store,
-            emit_latest_view_commit=self._emit_latest_view_commit_sync,
-            materialize_prompt_boundaries=self._materialize_prompt_boundaries_from_checkpoint_sync,
-            commit_guard=self._command_boundary_commit_guard,
-        ).finalize(
-            loop=loop,
-            session_id=session_id,
-            boundary_store=boundary_store,
-            processed_command_seq=checkpoint_command_seq,
-            terminal_status=terminal_status,
-            terminal_boundary_reason=terminal_reason,
-        )
-        result_step = dict(last_step)
-        if finalization.blocked_reason is not None:
-            result_step.update(
-                {
-                    "status": "stale",
-                    "reason": finalization.blocked_reason,
-                    **(finalization.blocked_fields or {}),
-                }
-            )
-        return {
-            **result_step,
-            "transitions": transitions,
-            "module_transition_count": transitions,
-            "redis_commit_count": finalization.redis_commit_count,
-            "view_commit_count": finalization.view_commit_count,
-            "internal_redis_commit_attempt_count": boundary_store.redis_commit_count,
-            "internal_view_commit_attempt_count": boundary_store.view_commit_count,
-            "internal_state_stage_count": boundary_store.internal_state_stage_count,
-            "terminal_status": terminal_status,
-            "terminal_boundary_reason": terminal_reason,
-            "module_trace": module_trace,
-            "engine_loop_total_ms": _duration_ms(loop_started),
-            "engine_prepare_ms": engine_prepare_ms,
-            "engine_transition_loop_ms": engine_transition_loop_ms,
-            **finalization.result_fields(),
-        }
 
     def _command_boundary_commit_guard(self, session_id: str) -> dict[str, Any] | None:
         lease_owner_before_write = self._runtime_lease_owner(session_id)
@@ -2350,7 +2194,7 @@ class RuntimeService:
             decision_resume = self._decision_resume_from_command(session_id, command_seq)
             if callable(getattr(policy, "set_prompt_sequence", None)):
                 policy.set_prompt_sequence(
-                    _runtime_prompt_sequence_seed(state, runtime_recovery_checkpoint, decision_resume)
+                    runtime_prompt_sequence_seed(state, runtime_recovery_checkpoint, decision_resume)
                 )
             if decision_resume is not None:
                 try:

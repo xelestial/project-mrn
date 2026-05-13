@@ -435,7 +435,7 @@ commit signal
 - 검증: 5개 서버와 1개 Redis 조건에서 `tmp/rl/full-stack-protocol/server-rebuild-5server-1redis-yieldfix-20260512` protocol gate가 통과했다.
 - 병목 증거: 1개 서버에 20개 게임을 동시에 붙인 조건은 `tmp/rl/full-stack-protocol/server-rebuild-1server-20game-yieldfix-20260512`에서 backend timing gate로 실패했다. 실패 원인은 Redis commit이나 ACK 누락이 아니라 `InitialRewardModule` engine transition wall time이다. 해당 run의 `runtime_transition_phase_timing` 125건 중 3건이 5000ms를 넘었고, 모두 `InitialRewardModule`이었다. 최대값은 `total_ms=6386`, `engine_transition_ms=6238`, `redis_commit_ms=53`, `view_commit_build_ms=11`이다.
 - 판단: 이 결과는 command loss 결함은 수정됐지만 단일 Python server process에 20개 live session transition을 몰아넣으면 engine 실행 wall time이 gate 기준을 넘는다는 capacity/bottleneck 증거다. 5서버/1Redis는 통과하고 1서버/20게임만 실패했으므로 현 단계의 병목은 Redis 분리보다 서버 실행자 수와 engine transition scheduling에 더 가깝다.
-- 남은 작업: state/prompt/view/command atomic commit adapter는 `CommandBoundaryGameStateStore`, `CommandBoundaryFinalizer`, `RuntimeService._run_engine_command_boundary_loop_sync()`에 걸쳐 있다. 또한 remote owner/pubsub wake signal과 process restart smoke 검증은 아직 남아 있다.
+- 남은 작업: remote owner/pubsub wake signal과 process restart smoke 검증은 아직 남아 있다.
 
 ### Phase 4 - decision route에서 view_commit 의존 제거
 
@@ -592,7 +592,7 @@ commit signal
 - 완료: `_LocalHumanDecisionClient._attach_active_module_continuation()`은 module prompt의 `frame_id`, `module_id`, `module_cursor`, `runtime_module`을 request id 생성 전에 envelope에 넣는다.
 - 완료: boundary id는 `frame_id`, `module_id`, `module_cursor`, optional `batch_id`, `player_id`, `request_type`, `prompt_instance_id`를 포함한다. 따라서 같은 round/turn/player/request_type이라도 module boundary가 다르면 충돌하지 않는다.
 - 완료: boundary 없는 prompt는 기존 `session:rX:tY:pZ:type:N` 형식을 유지한다. 이것이 old id shape adapter다.
-- 의도적 미완료: process-local prompt sequence 제거는 아직 하지 않았다. 현재 `prompt_instance_id`는 여전히 runtime recovery seed와 `_prompt_seq`에 연결되어 있고, 이를 제거하려면 session loop가 prompt boundary 생성을 완전히 소유해야 한다.
+- 부분 완료: runtime recovery prompt sequence seed 계산은 `apps/server/src/domain/prompt_sequence.py`로 이동했다. 다만 process-local `_prompt_seq` source 자체는 아직 제거하지 않았다. 이를 제거하려면 session loop 또는 prompt boundary service가 prompt boundary 생성을 완전히 소유해야 한다.
 
 ### Phase 9 - RuntimeService 축소와 legacy worker 제거
 
@@ -605,8 +605,8 @@ commit signal
 - [x] command processing guard/stale terminal 판단을 `RuntimeService` 내부 구현에서 분리한다.
 - [x] local active command/session task gate를 `RuntimeService` 내부 state에서 분리한다.
 - [x] `_CommandBoundaryGameStateStore` private RuntimeService class 제거
-- [ ] `CommandBoundaryGameStateStore` adapter를 포함한 atomic state/prompt/view/command boundary 완전 분리
-- [ ] `_runtime_prompt_sequence_seed` 계열 제거
+- [x] `CommandBoundaryGameStateStore` adapter를 포함한 atomic state/prompt/view/command boundary 완전 분리
+- [x] `_runtime_prompt_sequence_seed` 계열 제거
 - [x] `CommandStreamWakeupWorker`를 단순 recovery watcher로 축소한다.
 - [x] `state.py` 전역 조립을 새 service boundary 기준으로 정리한다.
 - [x] 테스트 전용 runtime branch를 production code에서 제거한다.
@@ -625,13 +625,14 @@ commit signal
 - 완료: `CommandExecutionGate`를 추가해 in-process active command session lock과 active runtime task guard를 `RuntimeService` 필드 구현에서 분리했다. `RuntimeService`에는 호환 wrapper만 남아 runtime status와 command execution entrypoint가 같은 gate를 바라본다.
 - 완료: `CommandBoundaryFinalizer`를 추가해 command-boundary deferred commit 최종화(`deferred_commit` copy, authoritative Redis commit, latest `view_commit` emit, waiting prompt materialization, timing log)를 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. 최종 commit side effect 묶음의 소유자는 별도 service로 이동했다.
 - 완료: `CommandBoundaryFinalizer`가 authoritative commit 직전에 `commit_guard`를 호출하게 했다. command-boundary loop가 runtime lease를 잃은 상태이면 Redis authoritative state/view/prompt side effect를 실행하지 않고 `runtime_lease_lost_before_commit` stale result를 반환한다.
+- 완료: `CommandBoundaryRunner`를 추가해 command-boundary per-call store 생성, transition 반복, terminal 판단, finalizer 호출, module trace/timing result 조립을 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. `RuntimeService`는 engine transition과 persistence callables를 주입하는 boundary adapter로 남는다.
 - 완료: `SessionCommandExecutor`를 추가해 command lifecycle control flow를 `SessionLoop` 쪽으로 이동했다. `SessionLoop`는 이제 runtime task guard, local command gate, runtime lease acquire/release, command `processing` mark, engine boundary 실행, runtime status result 적용, conflict/failure 처리를 순서대로 조립한다.
 - 완료: `RuntimeService.process_command_once()`는 `SessionCommandExecutor(runtime_boundary=self)`를 호출하는 compatibility wrapper로 축소했다. 프로덕션 `SessionLoop` 경로는 `process_command_once()` adapter가 없어도 runtime boundary lifecycle 메서드만으로 명령을 처리한다.
 - 완료: `RuntimeService`는 아직 engine transition, runtime state persistence, commit conflict recovery 같은 저수준 동작을 제공하지만, accepted command execution lifecycle의 owner는 `SessionLoop`/`SessionCommandExecutor`다.
 - 완료: `CommandBoundaryGameStateStore`를 `apps/server/src/services/command_boundary_store.py`로 분리하고 `RuntimeService` 안의 `_CommandBoundaryGameStateStore` private class 정의를 제거했다. 이제 staging/deferred commit adapter는 독립 테스트를 가진 명시적 service boundary다.
 - 보류: `CommandBoundaryGameStateStore` adapter 자체는 아직 필요하다. SessionLoop가 atomic state/prompt/view/command commit을 직접 소유하기 전에는 제거하면 같은 명령 안의 중간 transition commit 방지가 깨진다.
-- 보류: `_runtime_prompt_sequence_seed`는 prompt boundary ownership이 `RuntimeService` 밖으로 나가기 전까지 checkpoint/resume prompt instance id를 맞추는 복구 시드다. Phase 8에서 stable id 충돌은 줄였지만 process-local prompt instance source 제거는 아직 끝나지 않았다.
-- 남음: state/prompt/view/command atomic commit 내부 구현은 아직 `RuntimeService._run_engine_command_boundary_loop_sync()`, `CommandBoundaryGameStateStore`, `CommandBoundaryFinalizer`에 걸쳐 있다. 다음 제거 단계는 command-boundary execution result와 atomic final commit interface를 `SessionLoop`가 호출할 수 있는 저수준 boundary로 정의하는 것이다.
+- 완료: `_runtime_prompt_sequence_seed` 구현은 `runtime_service.py`에서 제거하고 `apps/server/src/domain/prompt_sequence.py`의 `runtime_prompt_sequence_seed()`로 이동했다. 이 규칙은 checkpoint/resume prompt instance id를 맞추는 순수 domain 계산으로 분류한다.
+- 보류: `RuntimeService.process_command_once()` wrapper는 아직 제거하지 않는다. `SessionLoop` production path는 wrapper 없이 `SessionCommandExecutor`와 lifecycle boundary 메서드로 동작하지만, 기존 runtime service 테스트와 일부 route/stream 테스트가 wrapper를 진단용 호환 entrypoint로 직접 사용한다. 제거는 별도 compatibility cleanup으로 분리한다.
 
 수정 후보:
 
@@ -652,6 +653,7 @@ commit signal
 - [x] command precondition/stale terminal 판단이 `RuntimeService` 구현 본문이 아니라 별도 service에서 실행된다.
 - [x] active command session lock과 active runtime task guard가 별도 execution gate에서 실행된다.
 - [x] command-boundary deferred commit finalization이 `RuntimeService` 본문이 아니라 별도 service에서 실행된다.
+- [x] command-boundary transition loop와 finalization orchestration이 `RuntimeService` 본문이 아니라 `CommandBoundaryRunner`에서 실행된다.
 - [x] command-boundary final authoritative commit 직전에 runtime lease owner를 재검증하고, lease를 잃은 실행자는 Redis commit/view emit/prompt materialization을 하지 않는다.
 - [x] command wakeup worker가 consumed command를 무한 재스캔하지 않는다.
 - [x] 테스트 전용 env branch 없이 live/headless 설정이 동일한 resolver 경로를 탄다.

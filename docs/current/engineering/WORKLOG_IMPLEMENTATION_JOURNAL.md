@@ -77,16 +77,25 @@ boundary adapter. The current split is:
 - `CommandBoundaryGameStateStore` owns command-boundary staging/deferred commit
   behavior and prevents internal module transitions from committing
   authoritatively mid-command.
+- `CommandBoundaryRunner` owns command-boundary per-call store creation,
+  transition repetition, terminal detection, finalizer call, module trace, and
+  timing result assembly. `RuntimeService` only injects engine/persistence
+  callables for that boundary.
+- `runtime_prompt_sequence_seed()` lives in
+  `apps/server/src/domain/prompt_sequence.py`, not `runtime_service.py`.
 - Final command-boundary commit rechecks runtime lease ownership before
   authoritative Redis/view/prompt side effects.
 - `RuntimeService.process_command_once()` remains as a compatibility wrapper
-  over the `SessionCommandExecutor` path.
+  over the `SessionCommandExecutor` path. It remains because existing
+  runtime/route/stream tests still use it as a diagnostic compatibility
+  entrypoint; the production `SessionLoop` path does not require it.
 
 Important remaining responsibility:
 
-- Move the whole state/prompt/view/command atomic boundary out of
-  `RuntimeService._run_engine_command_boundary_loop_sync()`.
-- Resolve prompt sequence ownership currently tied to runtime recovery seeding.
+- Remove process-local prompt sequence ownership entirely by moving prompt
+  boundary creation out of the runtime policy/engine adapter path.
+- Remove the `RuntimeService.process_command_once()` compatibility wrapper
+  after direct test and diagnostic callers are migrated.
 - Keep Redis authoritative and `view_commit` as read model; do not reintroduce
   route-level runtime execution or heartbeat-driven repair.
 

@@ -7,6 +7,7 @@ import unittest.mock
 from types import SimpleNamespace
 
 from apps.server.src.domain.command_state import CommandState, TERMINAL_COMMAND_STATES
+from apps.server.src.domain.prompt_sequence import runtime_prompt_sequence_seed
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.projector import project_replay_view_state
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
@@ -20,7 +21,7 @@ from apps.server.src.services.realtime_persistence import (
     RedisStreamStore,
     ViewCommitSequenceConflict,
 )
-from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService, _runtime_prompt_sequence_seed
+from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService
 from apps.server.src.services.session_loop import SessionLoop
 from apps.server.src.services.session_loop_manager import SessionLoopManager
 from apps.server.src.services.session_service import SessionService
@@ -64,7 +65,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             module_cursor="await_trick_prompt",
         )
 
-        self.assertEqual(_runtime_prompt_sequence_seed(state, checkpoint, resume), 18)
+        self.assertEqual(runtime_prompt_sequence_seed(state, checkpoint, resume), 18)
 
     def test_stream_service_uses_redis_backend_for_replay_and_drop_counts(self) -> None:
         game_state = RedisGameStateStore(self.connection)
