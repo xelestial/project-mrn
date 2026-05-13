@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 
 def new_protocol_id(prefix: str) -> str:
@@ -30,6 +30,28 @@ def new_event_id() -> str:
 
 def new_request_uuid() -> str:
     return new_protocol_id("req")
+
+
+def public_prompt_request_id(request_id: Any) -> str:
+    return _stable_protocol_id("req", f"prompt-request:{str(request_id or '').strip()}")
+
+
+def public_prompt_instance_id(request_id: Any, prompt_instance_id: Any) -> str:
+    return _stable_protocol_id(
+        "pin",
+        f"prompt-instance:{str(request_id or '').strip()}:{str(prompt_instance_id or '').strip()}",
+    )
+
+
+def prompt_protocol_identity_fields(*, request_id: Any, prompt_instance_id: Any) -> dict[str, str]:
+    legacy_request_id = str(request_id or "").strip()
+    if not legacy_request_id:
+        return {}
+    return {
+        "legacy_request_id": legacy_request_id,
+        "public_request_id": public_prompt_request_id(legacy_request_id),
+        "public_prompt_instance_id": public_prompt_instance_id(legacy_request_id, prompt_instance_id),
+    }
 
 
 def int_or_default(value: Any, default: int = 0) -> int:
@@ -132,3 +154,13 @@ def _prompt_boundary_value(envelope: dict[str, Any], key: str) -> str:
 
 def _prompt_id_token(value: Any) -> str:
     return quote(str(value), safe="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+
+
+def _stable_protocol_id(prefix: str, source: str) -> str:
+    normalized = str(prefix or "").strip().lower().rstrip("_")
+    if not normalized:
+        raise ValueError("missing_protocol_id_prefix")
+    stable_source = str(source or "").strip()
+    if not stable_source:
+        raise ValueError("missing_protocol_id_source")
+    return f"{normalized}_{uuid5(NAMESPACE_URL, stable_source)}"

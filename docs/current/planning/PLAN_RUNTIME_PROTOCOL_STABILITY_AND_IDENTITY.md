@@ -87,7 +87,7 @@ Current Phase 0 evidence, 2026-05-13:
 
 | Contract | Current evidence |
 | --- | --- |
-| Protocol ID helpers | `apps/server/src/domain/protocol_ids.py` defines `new_public_player_id`, `new_seat_id`, `new_viewer_id`, `new_event_id`, `new_request_uuid`, `player_label`, and `turn_label`. |
+| Protocol ID helpers | `apps/server/src/domain/protocol_ids.py` defines `new_public_player_id`, `new_seat_id`, `new_viewer_id`, `new_event_id`, `new_request_uuid`, `public_prompt_request_id`, `public_prompt_instance_id`, `prompt_protocol_identity_fields`, `player_label`, and `turn_label`. |
 | Additive session identity | `apps/server/tests/test_session_service.py` covers join payloads, public session payloads, auth context, and store-backed reload preserving `public_player_id`, `seat_id`, and `viewer_id`. `test_new_protocol_identity_fields_never_serialize_numeric_player_ids` locks the rule that newly added public identity fields remain string IDs and do not collapse back to numeric `player_id` values. |
 | Legacy numeric compatibility | `player_id`, `seat`, `seat_index`, `turn_order_index`, and `legacy_player_id` remain in the join/auth/viewer payloads while public UUID-like IDs are additive. |
 | `view_commit` round/turn metadata | `apps/server/src/services/runtime_service.py` builds authoritative commits with `round_index`, `turn_index`, and `turn_label` at both payload and `runtime` levels; frontend contract fields are in `apps/web/src/core/contracts/stream.ts`. |
@@ -97,8 +97,8 @@ Current Phase 0 evidence, 2026-05-13:
 
 Residual Phase 0 boundaries:
 
-- `stable_prompt_request_id()` intentionally keeps legacy semantic request IDs unless module-boundary identity is available. `new_request_uuid()` exists for the next migration step, but prompt request IDs are not globally opaque UUIDs yet.
-- `prompt_instance_id` remains numeric by design in Phase 0.
+- `stable_prompt_request_id()` intentionally keeps legacy semantic request IDs as the canonical storage/resume key until module-boundary resume parsing is removed. Prompt payloads, lifecycle records, decisions, and `decision_requested` events now expose additive opaque companions: `legacy_request_id`, `public_request_id`, and `public_prompt_instance_id`.
+- `prompt_instance_id` remains numeric as the compatibility lifecycle key. `public_prompt_instance_id` is the opaque protocol companion.
 - Viewer outbox migration remains out of scope for Phase 0.
 
 Out of scope for Phase 0:
@@ -106,7 +106,7 @@ Out of scope for Phase 0:
 - viewer outbox migration
 - replacing numeric prompt validation
 - replacing numeric engine actor/target IDs
-- changing `prompt_instance_id` from numeric to UUID
+- removing numeric `prompt_instance_id` before the opaque companion is the canonical storage/resume key
 - changing frontend rendering behavior
 
 Phase 0 success means the new fields are available everywhere needed for debugging and future migrations, while existing live games still use the current numeric decision path.
@@ -192,8 +192,11 @@ Keep numeric sequences for ordering and add UUID-like IDs for objects.
 - `stream_seq`: numeric viewer stream order.
 - `commit_seq`: numeric authoritative commit order.
 - `event_id`: UUID-like event identity.
-- `request_id`: UUID-like prompt/request identity.
-- `prompt_instance_id`: UUID-like lifecycle identity.
+- `request_id`: canonical legacy prompt/resume key during migration.
+- `legacy_request_id`: explicit copy of the legacy prompt/resume key for diagnostics and clients that need to distinguish it from opaque protocol identity.
+- `public_request_id`: UUID-like prompt/request protocol identity.
+- `prompt_instance_id`: canonical numeric lifecycle key during migration.
+- `public_prompt_instance_id`: UUID-like lifecycle protocol identity.
 
 Redis should store ID maps so opaque IDs can be resolved during debugging:
 
@@ -354,7 +357,10 @@ States:
 Stored fields:
 
 - `request_id`
+- `legacy_request_id`
+- `public_request_id`
 - `prompt_instance_id`
+- `public_prompt_instance_id`
 - `resume_token`
 - `view_commit_seq_required`
 - `view_commit_seq_seen`
@@ -381,8 +387,11 @@ Implementation paths:
 
 ```json
 {
-  "request_id": "req_ef011e6a-8dd8-4324-80aa-d64c471716c1",
-  "prompt_instance_id": "pin_86c058fb-9cd5-4f1a-b278-3877621570e4",
+  "request_id": "batch:simul:resupply:1:4:mod:resupply:1:p0",
+  "legacy_request_id": "batch:simul:resupply:1:4:mod:resupply:1:p0",
+  "public_request_id": "req_ef011e6a-8dd8-4324-80aa-d64c471716c1",
+  "prompt_instance_id": 31,
+  "public_prompt_instance_id": "pin_86c058fb-9cd5-4f1a-b278-3877621570e4",
   "state": "delivered",
   "target": {
     "player_id": "ply_6847b3ef-095d-4d5a-a17d-7e68a048e46b",
@@ -657,7 +666,8 @@ Store latest-N summaries plus stream pointers. Full source streams and viewer ou
 
 - [x] Add `protocol_identity.py` and `protocol_ids.py`.
 - [x] Add public UUID player IDs, seat IDs, viewer IDs, event IDs, and request ID helpers without removing legacy aliases.
-- [ ] Migrate prompt request IDs and prompt instance IDs to globally opaque IDs. Current Phase 0 intentionally keeps legacy semantic prompt request IDs and numeric `prompt_instance_id`; this remains a later boundary because batch continuation and resume parsing still read semantics from those fields.
+- [x] Add opaque prompt request and prompt instance companion fields without removing legacy aliases. Current prompt payloads, lifecycle records, decisions, and `decision_requested` events include `legacy_request_id`, `public_request_id`, and `public_prompt_instance_id`.
+- [ ] Replace canonical prompt storage/resume keys with opaque IDs. Current Phase 0 intentionally keeps legacy semantic prompt request IDs and numeric `prompt_instance_id` as compatibility keys because batch continuation and resume parsing still read semantics from those fields.
 - [x] Add `round_index`, `turn_index`, and `turn_label` to `view_commit`.
 - [x] Add Redis event ID maps and prompt lifecycle records that expose recent request IDs for inspection.
 - [x] Do not add a dedicated Redis request ID map in this phase. Lifecycle records and inspector debug output now expose enough recent request ID state for diagnosis without adding another Redis index.
@@ -814,7 +824,7 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
 
 ## Acceptance Criteria
 
-- [ ] Migrate protocol `player_id` payload fields from numeric legacy aliases to string IDs. Current completed state adds string public player, seat, viewer, event, and request identifiers while intentionally keeping numeric `player_id` aliases for compatibility. `SessionService.resolve_protocol_player_id()` now provides the first server-side migration adapter by resolving public string identity fields back to the internal numeric seat id at one boundary. `SessionService.protocol_identity_fields()` now centralizes additive public identity enrichment for downstream payloads. The WebSocket decision route and the external-AI HTTP decision callback accept those string identity fields and normalize them before calling `PromptService`; prompt boundary payloads, `decision_requested` events, and `decision_ack` payloads now carry the public identity fields alongside numeric compatibility aliases. Runtime fanout events with direct `player_id` now include the same public identity fields, fanout events with `acting_player_id` now include actor-prefixed public identity fields, top-level `*_player_id` related-player fields now include prefixed public identity fields, and top-level `*_player_ids` lists plus `winner_ids` now include public identity companion lists. Fanout `snapshot.players`, `snapshot.board.marker_owner_player_id`, `snapshot.board.tiles[].owner_player_id`, and `snapshot.board.tiles[].pawn_player_ids` now also get public identity companions while retaining numeric display aliases. Prompt batch continuation maps, resume-token maps, and other routing-keyed per-player maps still need a separate boundary migration before numeric aliases can be removed.
+- [ ] Migrate protocol `player_id` payload fields from numeric legacy aliases to string IDs. Current completed state adds string public player, seat, viewer, event, and request identifiers while intentionally keeping numeric `player_id` aliases for compatibility. `SessionService.resolve_protocol_player_id()` now provides the first server-side migration adapter by resolving public string identity fields back to the internal numeric seat id at one boundary. `SessionService.protocol_identity_fields()` now centralizes additive public identity enrichment for downstream payloads. The WebSocket decision route and the external-AI HTTP decision callback accept those string identity fields and normalize them before calling `PromptService`; prompt boundary payloads, `decision_requested` events, and `decision_ack` payloads now carry the public identity fields alongside numeric compatibility aliases. Runtime fanout events with direct `player_id` now include the same public identity fields, fanout events with `acting_player_id` now include actor-prefixed public identity fields, top-level `*_player_id` related-player fields now include prefixed public identity fields, and top-level `*_player_ids` lists plus `winner_ids` now include public identity companion lists. Fanout `snapshot.players`, `snapshot.board.marker_owner_player_id`, `snapshot.board.tiles[].owner_player_id`, and `snapshot.board.tiles[].pawn_player_ids` now also get public identity companions while retaining numeric display aliases. Prompt batch continuation maps and resume-token maps now include public-player, seat, and viewer companion fields while retaining numeric routing maps as compatibility aliases. Remaining work is to make those opaque companion maps canonical after resume parsing no longer depends on numeric keys.
 - [x] UI labels still show `P1` to `P4` through `seat_index` and `player_label`.
 - [x] `source_event_seq`, `stream_seq`, and `commit_seq` are numeric and monotonic.
 - [x] Every prompt has `request_id`, `prompt_instance_id`, `resume_token`, target identity, lifecycle state, and required commit sequence.
@@ -849,6 +859,14 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_runtime_service.py::test_runtime_prompt_boundary_can_publish_after_view_commit_guardrail`
   verifies that runtime prompt boundary payloads and their paired `decision_requested` events include the
   same public identity fields while keeping numeric compatibility aliases.
+- `apps/server/tests/test_protocol_ids.py::test_prompt_protocol_identity_fields_are_stable_opaque_companions`
+  verifies that prompt legacy request IDs now get stable opaque request and prompt-instance companions.
+- `apps/server/tests/test_prompt_service.py::test_create_prompt_adds_opaque_identity_companions_to_lifecycle`
+  verifies that prompt creation and lifecycle payloads expose `legacy_request_id`, `public_request_id`, and
+  `public_prompt_instance_id` without replacing the canonical storage key.
+- `apps/server/tests/test_runtime_service.py::test_runtime_prompt_boundary_enriches_active_simultaneous_batch_contract`
+  and `test_runtime_prompt_boundary_enriches_checkpoint_payload_batch_contract` verify that prompt batch
+  continuation maps include public-player, seat, and viewer companion fields next to numeric compatibility maps.
 - `apps/server/tests/test_runtime_service.py::test_fanout_event_payload_adds_public_identity_for_direct_player`
   verifies that runtime fanout events with direct `player_id` include public identity fields while preserving
   the numeric compatibility alias.

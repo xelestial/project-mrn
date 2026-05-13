@@ -176,6 +176,18 @@ class RuntimeServiceTests(unittest.TestCase):
             prompt_service=self.prompt_service,
         )
 
+    def _create_started_two_player_session(self):
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "human"},
+            ],
+            config={"seed": 42},
+        )
+        self.session_service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        self.session_service.join_session(session.session_id, 2, session.join_tokens[2], "P2")
+        return self.session_service.start_session(session.session_id, session.host_token)
+
     def test_builds_recoverable_batch_prompt_view_state_from_checkpoint(self) -> None:
         checkpoint_payload = {
             "players": [{"player_id": 1}, {"player_id": 2}],
@@ -1626,6 +1638,8 @@ class RuntimeServiceTests(unittest.TestCase):
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
         loop_thread.start()
         try:
+            session = self._create_started_two_player_session()
+            seat_1, seat_2 = session.seats[0], session.seats[1]
             frame = build_resupply_frame(
                 1,
                 4,
@@ -1671,24 +1685,51 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
                 loop,
-                "sess_batch_boundary_prompt",
+                session.session_id,
                 prompt_payload,
                 state=state,
             )
 
             pending = self.prompt_service.get_pending_prompt(
                 continuation.request_id,
-                session_id="sess_batch_boundary_prompt",
+                session_id=session.session_id,
             )
             self.assertIsNotNone(pending)
             assert pending is not None
             self.assertEqual(pending.payload["batch_id"], batch.batch_id)
             self.assertEqual(pending.payload["missing_player_ids"], [1, 2])
             self.assertEqual(
+                pending.payload["missing_public_player_ids"],
+                [seat_1.public_player_id, seat_2.public_player_id],
+            )
+            self.assertEqual(pending.payload["missing_seat_ids"], [seat_1.seat_id, seat_2.seat_id])
+            self.assertEqual(pending.payload["missing_viewer_ids"], [seat_1.viewer_id, seat_2.viewer_id])
+            self.assertEqual(
                 pending.payload["resume_tokens_by_player_id"],
                 {
                     "1": batch.prompts_by_player_id[0].resume_token,
                     "2": batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(
+                pending.payload["resume_tokens_by_public_player_id"],
+                {
+                    seat_1.public_player_id: batch.prompts_by_player_id[0].resume_token,
+                    seat_2.public_player_id: batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(
+                pending.payload["resume_tokens_by_seat_id"],
+                {
+                    seat_1.seat_id: batch.prompts_by_player_id[0].resume_token,
+                    seat_2.seat_id: batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(
+                pending.payload["resume_tokens_by_viewer_id"],
+                {
+                    seat_1.viewer_id: batch.prompts_by_player_id[0].resume_token,
+                    seat_2.viewer_id: batch.prompts_by_player_id[1].resume_token,
                 },
             )
             self.assertEqual(pending.payload["runtime_module"]["frame_type"], "simultaneous")
@@ -1702,6 +1743,8 @@ class RuntimeServiceTests(unittest.TestCase):
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
         loop_thread.start()
         try:
+            session = self._create_started_two_player_session()
+            seat_1, seat_2 = session.seats[0], session.seats[1]
             frame = build_resupply_frame(
                 1,
                 4,
@@ -1748,24 +1791,51 @@ class RuntimeServiceTests(unittest.TestCase):
 
             self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
                 loop,
-                "sess_batch_boundary_checkpoint_prompt",
+                session.session_id,
                 prompt_payload,
                 state=state,
             )
 
             pending = self.prompt_service.get_pending_prompt(
                 continuation.request_id,
-                session_id="sess_batch_boundary_checkpoint_prompt",
+                session_id=session.session_id,
             )
             self.assertIsNotNone(pending)
             assert pending is not None
             self.assertEqual(pending.payload["batch_id"], batch.batch_id)
             self.assertEqual(pending.payload["missing_player_ids"], [1, 2])
             self.assertEqual(
+                pending.payload["missing_public_player_ids"],
+                [seat_1.public_player_id, seat_2.public_player_id],
+            )
+            self.assertEqual(pending.payload["missing_seat_ids"], [seat_1.seat_id, seat_2.seat_id])
+            self.assertEqual(pending.payload["missing_viewer_ids"], [seat_1.viewer_id, seat_2.viewer_id])
+            self.assertEqual(
                 pending.payload["resume_tokens_by_player_id"],
                 {
                     "1": batch.prompts_by_player_id[0].resume_token,
                     "2": batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(
+                pending.payload["resume_tokens_by_public_player_id"],
+                {
+                    seat_1.public_player_id: batch.prompts_by_player_id[0].resume_token,
+                    seat_2.public_player_id: batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(
+                pending.payload["resume_tokens_by_seat_id"],
+                {
+                    seat_1.seat_id: batch.prompts_by_player_id[0].resume_token,
+                    seat_2.seat_id: batch.prompts_by_player_id[1].resume_token,
+                },
+            )
+            self.assertEqual(
+                pending.payload["resume_tokens_by_viewer_id"],
+                {
+                    seat_1.viewer_id: batch.prompts_by_player_id[0].resume_token,
+                    seat_2.viewer_id: batch.prompts_by_player_id[1].resume_token,
                 },
             )
             self.assertEqual(pending.payload["runtime_module"]["frame_type"], "simultaneous")

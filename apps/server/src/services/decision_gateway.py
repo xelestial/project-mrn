@@ -1839,6 +1839,14 @@ def build_decision_requested_payload(
     return payload
 
 
+def _prompt_protocol_identity_payload(prompt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: prompt[key]
+        for key in ("legacy_request_id", "public_request_id", "public_prompt_instance_id")
+        if str(prompt.get(key) or "").strip()
+    }
+
+
 def build_decision_resolved_payload(
     *,
     request_id: str,
@@ -1929,6 +1937,7 @@ class DecisionGateway:
         fallback_policy: str,
         provider: DecisionProvider,
         public_context: dict[str, Any],
+        identity_fields: dict[str, Any] | None = None,
     ) -> None:
         self.publish(
             "event",
@@ -1941,6 +1950,7 @@ class DecisionGateway:
                 round_index=public_context.get("round_index"),
                 turn_index=public_context.get("turn_index"),
                 public_context=public_context,
+                identity_fields=identity_fields,
             ),
         )
 
@@ -2051,7 +2061,8 @@ class DecisionGateway:
                 )
 
             try:
-                self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+                pending_prompt = self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
+                envelope = ensure_prompt_fingerprint(dict(pending_prompt.payload))
                 _mark_phase("create_prompt")
             except ValueError as exc:
                 _mark_phase("create_prompt_error")
@@ -2106,6 +2117,7 @@ class DecisionGateway:
                     fallback_policy=fallback_policy,
                     provider="human",
                     public_context=public_context,
+                    identity_fields=_prompt_protocol_identity_payload(envelope),
                 )
                 _mark_phase("publish_prompt")
             self._touch_activity(self._session_id)
@@ -2364,12 +2376,14 @@ class DecisionGateway:
                 choice_id=str(replayed_response.get("choice_id", "")),
                 provider="ai",
                 public_context=public_context,
+                identity_fields=_prompt_protocol_identity_payload(prompt_payload),
             )
             return parsed
 
         should_publish_requested = True
         try:
-            self._prompt_service.create_prompt(session_id=self._session_id, prompt=prompt_payload)
+            pending_prompt = self._prompt_service.create_prompt(session_id=self._session_id, prompt=prompt_payload)
+            prompt_payload = dict(pending_prompt.payload)
         except ValueError as exc:
             prompt_error = str(exc)
             if prompt_error == "prompt_fingerprint_mismatch":

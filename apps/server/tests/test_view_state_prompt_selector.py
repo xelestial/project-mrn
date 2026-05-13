@@ -146,11 +146,17 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                     "server_time_ms": 1,
                     "payload": {
                         "request_id": "req_move_1",
+                        "legacy_request_id": "legacy_move_1",
+                        "public_request_id": "req_public_move_1",
                         "request_type": "movement",
                         "player_id": 1,
+                        "public_player_id": "ply_1",
+                        "seat_id": "seat_1",
+                        "viewer_id": "view_1",
                         "timeout_ms": 30000,
                         "runner_kind": "module",
                         "prompt_instance_id": 42,
+                        "public_prompt_instance_id": "pin_move_42",
                         "resume_token": "tok_move_1",
                         "frame_id": "turn:1:p1",
                         "module_id": "mod:move",
@@ -158,7 +164,13 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                         "module_cursor": "movement:await_choice",
                         "batch_id": "batch_move_1",
                         "missing_player_ids": [1, 3],
+                        "missing_public_player_ids": ["ply_1", "ply_3"],
+                        "missing_seat_ids": ["seat_1", "seat_3"],
+                        "missing_viewer_ids": ["view_1", "view_3"],
                         "resume_tokens_by_player_id": {"1": "tok_p1", "3": "tok_p3"},
+                        "resume_tokens_by_public_player_id": {"ply_1": "tok_p1", "ply_3": "tok_p3"},
+                        "resume_tokens_by_seat_id": {"seat_1": "tok_p1", "seat_3": "tok_p3"},
+                        "resume_tokens_by_viewer_id": {"view_1": "tok_p1", "view_3": "tok_p3"},
                         "legal_choices": [{"choice_id": "roll", "title": "Roll"}],
                         "public_context": {"round_index": 1},
                     },
@@ -167,8 +179,14 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         )
 
         active = view_state["active"]
+        self.assertEqual(active["legacy_request_id"], "legacy_move_1")
+        self.assertEqual(active["public_request_id"], "req_public_move_1")
+        self.assertEqual(active["public_player_id"], "ply_1")
+        self.assertEqual(active["seat_id"], "seat_1")
+        self.assertEqual(active["viewer_id"], "view_1")
         self.assertEqual(active["runner_kind"], "module")
         self.assertEqual(active["prompt_instance_id"], 42)
+        self.assertEqual(active["public_prompt_instance_id"], "pin_move_42")
         self.assertEqual(active["resume_token"], "tok_move_1")
         self.assertEqual(active["frame_id"], "turn:1:p1")
         self.assertEqual(active["module_id"], "mod:move")
@@ -176,7 +194,13 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         self.assertEqual(active["module_cursor"], "movement:await_choice")
         self.assertEqual(active["batch_id"], "batch_move_1")
         self.assertEqual(active["missing_player_ids"], [1, 3])
+        self.assertEqual(active["missing_public_player_ids"], ["ply_1", "ply_3"])
+        self.assertEqual(active["missing_seat_ids"], ["seat_1", "seat_3"])
+        self.assertEqual(active["missing_viewer_ids"], ["view_1", "view_3"])
         self.assertEqual(active["resume_tokens_by_player_id"], {"1": "tok_p1", "3": "tok_p3"})
+        self.assertEqual(active["resume_tokens_by_public_player_id"], {"ply_1": "tok_p1", "ply_3": "tok_p3"})
+        self.assertEqual(active["resume_tokens_by_seat_id"], {"seat_1": "tok_p1", "seat_3": "tok_p3"})
+        self.assertEqual(active["resume_tokens_by_viewer_id"], {"view_1": "tok_p1", "view_3": "tok_p3"})
 
     def test_build_prompt_view_state_projects_effect_context(self) -> None:
         view_state = build_prompt_view_state(

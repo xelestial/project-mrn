@@ -115,6 +115,46 @@ class PromptServiceTests(unittest.TestCase):
         result = self.service.submit_decision({"request_id": "r1", "player_id": 1, "choice_id": "roll"})
         self.assertEqual(result["status"], "accepted")
 
+    def test_create_prompt_adds_opaque_identity_companions_to_lifecycle(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:5",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 5,
+                "timeout_ms": 30000,
+            },
+        )
+
+        self.assertEqual(pending.request_id, "s1:r2:t3:p1:movement:5")
+        self.assertEqual(pending.payload["legacy_request_id"], pending.request_id)
+        self.assertTrue(str(pending.payload["public_request_id"]).startswith("req_"))
+        self.assertTrue(str(pending.payload["public_prompt_instance_id"]).startswith("pin_"))
+        self.assertNotEqual(pending.payload["public_request_id"], pending.request_id)
+
+        result = self.service.submit_decision(
+            {
+                "request_id": pending.request_id,
+                "player_id": 1,
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        lifecycle = self.service.get_prompt_lifecycle(pending.request_id, session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["prompt"]["legacy_request_id"], pending.request_id)
+        self.assertEqual(lifecycle["prompt"]["public_request_id"], pending.payload["public_request_id"])
+        self.assertEqual(lifecycle["prompt"]["public_prompt_instance_id"], pending.payload["public_prompt_instance_id"])
+        self.assertEqual(lifecycle["decision"]["legacy_request_id"], pending.request_id)
+        self.assertEqual(lifecycle["decision"]["public_request_id"], pending.payload["public_request_id"])
+        self.assertEqual(
+            lifecycle["decision"]["public_prompt_instance_id"],
+            pending.payload["public_prompt_instance_id"],
+        )
+
     def test_simultaneous_batch_decisions_wait_for_collector_completion(self) -> None:
         collector = BatchCollectorStub(
             [

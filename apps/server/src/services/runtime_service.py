@@ -3021,6 +3021,61 @@ class RuntimeService:
             return fallback
         return {**fallback, **fields}
 
+    def _prompt_batch_identity_companion_fields(
+        self,
+        *,
+        session_id: str,
+        missing_player_ids: object,
+        resume_tokens_by_player_id: object,
+    ) -> dict[str, Any]:
+        external_player_ids = [
+            int(raw)
+            for raw in missing_player_ids or []
+            if self._int_or_none(raw) is not None
+        ] if isinstance(missing_player_ids, list) else []
+        if not external_player_ids:
+            return {}
+
+        identity_by_player_id = {
+            player_id: self._view_commit_viewer_identity_fields(session_id, player_id)
+            for player_id in external_player_ids
+        }
+        result: dict[str, Any] = {
+            "missing_public_player_ids": [
+                str(identity_by_player_id[player_id]["public_player_id"])
+                for player_id in external_player_ids
+                if str(identity_by_player_id[player_id].get("public_player_id") or "").strip()
+            ],
+            "missing_seat_ids": [
+                str(identity_by_player_id[player_id]["seat_id"])
+                for player_id in external_player_ids
+                if str(identity_by_player_id[player_id].get("seat_id") or "").strip()
+            ],
+            "missing_viewer_ids": [
+                str(identity_by_player_id[player_id]["viewer_id"])
+                for player_id in external_player_ids
+                if str(identity_by_player_id[player_id].get("viewer_id") or "").strip()
+            ],
+        }
+        if isinstance(resume_tokens_by_player_id, dict):
+            for output_key, identity_key in (
+                ("resume_tokens_by_public_player_id", "public_player_id"),
+                ("resume_tokens_by_seat_id", "seat_id"),
+                ("resume_tokens_by_viewer_id", "viewer_id"),
+            ):
+                mapped: dict[str, str] = {}
+                for raw_player_id, token in resume_tokens_by_player_id.items():
+                    player_id = self._int_or_none(raw_player_id)
+                    if player_id is None or player_id not in identity_by_player_id:
+                        continue
+                    identity_value = str(identity_by_player_id[player_id].get(identity_key) or "").strip()
+                    token_value = str(token or "").strip()
+                    if identity_value and token_value:
+                        mapped[identity_value] = token_value
+                if mapped:
+                    result[output_key] = mapped
+        return {key: value for key, value in result.items() if value not in ([], {})}
+
     def _build_authoritative_view_state(
         self,
         *,
@@ -3682,11 +3737,23 @@ class RuntimeService:
         player_id = self._int_or_none(payload.get("player_id"))
         if player_id is not None:
             payload.update(self._view_commit_viewer_identity_fields(session_id, player_id))
+        payload.update(
+            self._prompt_batch_identity_companion_fields(
+                session_id=session_id,
+                missing_player_ids=payload.get("missing_player_ids"),
+                resume_tokens_by_player_id=payload.get("resume_tokens_by_player_id"),
+            )
+        )
         try:
-            self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
+            pending_prompt = self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
+            payload = dict(pending_prompt.payload)
         except ValueError as exc:
             if str(exc) not in {"duplicate_pending_request_id", "duplicate_recent_request_id"}:
                 raise
+            if str(exc) == "duplicate_pending_request_id":
+                pending_prompt = self._prompt_service.get_pending_prompt(request_id, session_id=session_id)
+                if pending_prompt is not None:
+                    payload = dict(pending_prompt.payload)
             if str(exc) == "duplicate_recent_request_id":
                 return None
 
@@ -3740,6 +3807,13 @@ class RuntimeService:
 
         public_context = dict(payload.get("public_context") or {})
         identity_fields = {key: payload[key] for key in _PROTOCOL_IDENTITY_FIELD_NAMES if key in payload}
+        identity_fields.update(
+            {
+                key: payload[key]
+                for key in ("legacy_request_id", "public_request_id", "public_prompt_instance_id")
+                if str(payload.get(key) or "").strip()
+            }
+        )
         requested = build_decision_requested_payload(
             request_id=request_id,
             player_id=player_id,

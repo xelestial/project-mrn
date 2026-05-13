@@ -359,8 +359,13 @@ class PromptEffectContextViewState(TypedDict):
 
 class ActivePromptViewState(TypedDict):
     request_id: str
+    legacy_request_id: NotRequired[str]
+    public_request_id: NotRequired[str]
     request_type: str
     player_id: int
+    public_player_id: NotRequired[str]
+    seat_id: NotRequired[str]
+    viewer_id: NotRequired[str]
     timeout_ms: int
     choices: list[PromptChoiceItemViewState]
     public_context: dict[str, object]
@@ -374,9 +379,16 @@ class ActivePromptViewState(TypedDict):
     module_cursor: NotRequired[str]
     batch_id: NotRequired[str]
     prompt_instance_id: NotRequired[int]
+    public_prompt_instance_id: NotRequired[str]
     runner_kind: NotRequired[str]
     missing_player_ids: NotRequired[list[int]]
+    missing_public_player_ids: NotRequired[list[str]]
+    missing_seat_ids: NotRequired[list[str]]
+    missing_viewer_ids: NotRequired[list[str]]
     resume_tokens_by_player_id: NotRequired[dict[str, str]]
+    resume_tokens_by_public_player_id: NotRequired[dict[str, str]]
+    resume_tokens_by_seat_id: NotRequired[dict[str, str]]
+    resume_tokens_by_viewer_id: NotRequired[dict[str, str]]
 
 
 class PromptFeedbackViewState(TypedDict):

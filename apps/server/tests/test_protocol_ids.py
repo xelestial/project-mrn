@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from apps.server.src.domain.protocol_ids import legacy_prompt_request_id, stable_prompt_request_id
+from apps.server.src.domain.protocol_ids import (
+    legacy_prompt_request_id,
+    prompt_protocol_identity_fields,
+    stable_prompt_request_id,
+)
 
 
 def test_stable_prompt_request_id_uses_legacy_shape_without_boundary_identity() -> None:
@@ -110,3 +114,25 @@ def test_stable_prompt_request_id_reads_nested_runtime_module_identity() -> None
         "module:mod%3Asimul%3A1%3Aresupply:cursor:await_resupply_batch%3A1:"
         "p2:burden_exchange:9"
     )
+
+
+def test_prompt_protocol_identity_fields_are_stable_opaque_companions() -> None:
+    identity = prompt_protocol_identity_fields(
+        request_id="s1:r2:t3:p1:movement:5",
+        prompt_instance_id=5,
+    )
+    repeat = prompt_protocol_identity_fields(
+        request_id="s1:r2:t3:p1:movement:5",
+        prompt_instance_id=5,
+    )
+    other = prompt_protocol_identity_fields(
+        request_id="s1:r2:t3:p1:movement:6",
+        prompt_instance_id=6,
+    )
+
+    assert identity == repeat
+    assert identity["legacy_request_id"] == "s1:r2:t3:p1:movement:5"
+    assert identity["public_request_id"].startswith("req_")
+    assert identity["public_prompt_instance_id"].startswith("pin_")
+    assert identity["public_request_id"] != identity["legacy_request_id"]
+    assert identity["public_request_id"] != other["public_request_id"]

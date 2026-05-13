@@ -790,6 +790,17 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
             "behavior": _prompt_behavior(active_prompt, public_context),
             "surface": _prompt_surface(active_prompt, public_context),
         }
+        for field in (
+            "legacy_request_id",
+            "public_request_id",
+            "public_prompt_instance_id",
+            "public_player_id",
+            "seat_id",
+            "viewer_id",
+        ):
+            value = _string(active_prompt.get(field))
+            if value:
+                active[field] = value
         effect_context = _prompt_effect_context(public_context)
         if effect_context:
             active["effect_context"] = effect_context
@@ -807,6 +818,14 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
         ]
         if missing_player_ids:
             active["missing_player_ids"] = missing_player_ids
+        for field in ("missing_public_player_ids", "missing_seat_ids", "missing_viewer_ids"):
+            values = [
+                str(raw).strip()
+                for raw in active_prompt.get(field) or []
+                if str(raw or "").strip()
+            ]
+            if values:
+                active[field] = values
         raw_resume_tokens = _record(active_prompt.get("resume_tokens_by_player_id")) or {}
         resume_tokens_by_player_id = {
             str(raw_player_id): str(token)
@@ -815,6 +834,18 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
         }
         if resume_tokens_by_player_id:
             active["resume_tokens_by_player_id"] = resume_tokens_by_player_id
+        for field in (
+            "resume_tokens_by_public_player_id",
+            "resume_tokens_by_seat_id",
+            "resume_tokens_by_viewer_id",
+        ):
+            token_map = {
+                str(identity_id).strip(): str(token).strip()
+                for identity_id, token in (_record(active_prompt.get(field)) or {}).items()
+                if str(identity_id).strip() and str(token).strip()
+            }
+            if token_map:
+                active[field] = token_map
         payload["active"] = active
     if last_feedback:
         payload["last_feedback"] = last_feedback

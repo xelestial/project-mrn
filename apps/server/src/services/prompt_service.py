@@ -5,6 +5,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from apps.server.src.domain.protocol_ids import prompt_protocol_identity_fields
 from apps.server.src.services.command_inbox import CommandInbox
 from apps.server.src.services.prompt_fingerprint import (
     PROMPT_FINGERPRINT_VERSION,
@@ -65,10 +66,12 @@ class PromptService:
         superseded_waiters: list[threading.Event] = []
         with self._lock:
             self._prune_resolved()
-            prompt = ensure_prompt_fingerprint(dict(prompt))
+            prompt = dict(prompt)
             request_id = str(prompt.get("request_id", "")).strip()
             if not request_id:
                 raise ValueError("missing_request_id")
+            _ensure_prompt_protocol_identity(prompt, request_id=request_id)
+            prompt = ensure_prompt_fingerprint(prompt)
             storage_key = _scoped_request_key(session_id, request_id)
             existing = self._get_pending(request_id, session_id=session_id)
             if existing is not None:
@@ -267,6 +270,7 @@ class PromptService:
                     provider = "human"
                 decision_payload = dict(payload)
                 decision_payload["provider"] = provider
+                _copy_prompt_protocol_identity(pending.payload, decision_payload)
                 if expected_fingerprint:
                     decision_payload["prompt_fingerprint"] = expected_fingerprint
                     decision_payload["prompt_fingerprint_version"] = PROMPT_FINGERPRINT_VERSION
@@ -507,6 +511,7 @@ class PromptService:
             "choice_payload": {},
             "provider": "timeout_fallback",
         }
+        _copy_prompt_protocol_identity(pending.payload, decision_payload)
         decision_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         expected_fingerprint = str(pending.payload.get("prompt_fingerprint") or "").strip()
         if expected_fingerprint:
@@ -1214,7 +1219,16 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
             value = _derive_batch_id_from_request_id(str(decision.get("request_id") or prompt.get("request_id") or ""))
         if value:
             fields[field] = value
-    for field in ("missing_player_ids", "resume_tokens_by_player_id"):
+    for field in (
+        "missing_player_ids",
+        "missing_public_player_ids",
+        "missing_seat_ids",
+        "missing_viewer_ids",
+        "resume_tokens_by_player_id",
+        "resume_tokens_by_public_player_id",
+        "resume_tokens_by_seat_id",
+        "resume_tokens_by_viewer_id",
+    ):
         value = decision.get(field)
         if value is None:
             value = prompt.get(field)
@@ -1231,6 +1245,21 @@ def _derive_batch_id_from_request_id(request_id: str) -> str:
     if not player_suffix.isdigit():
         return ""
     return batch_id
+
+
+def _ensure_prompt_protocol_identity(prompt: dict, *, request_id: str) -> None:
+    for key, value in prompt_protocol_identity_fields(
+        request_id=request_id,
+        prompt_instance_id=prompt.get("prompt_instance_id"),
+    ).items():
+        prompt.setdefault(key, value)
+
+
+def _copy_prompt_protocol_identity(source: dict, target: dict) -> None:
+    for field in ("legacy_request_id", "public_request_id", "public_prompt_instance_id"):
+        value = source.get(field)
+        if str(value or "").strip():
+            target.setdefault(field, value)
 
 
 def _int_or_none(value: object) -> int | None:
@@ -1250,8 +1279,11 @@ def _compact_prompt_lifecycle_payload(prompt: dict) -> dict[str, Any]:
     ]
     result: dict[str, Any] = {
         "request_id": str(prompt.get("request_id") or ""),
+        "legacy_request_id": str(prompt.get("legacy_request_id") or ""),
+        "public_request_id": str(prompt.get("public_request_id") or ""),
         "request_type": str(prompt.get("request_type") or ""),
         "prompt_instance_id": str(prompt.get("prompt_instance_id") or ""),
+        "public_prompt_instance_id": str(prompt.get("public_prompt_instance_id") or ""),
         "resume_token": str(prompt.get("resume_token") or ""),
         "frame_id": str(prompt.get("frame_id") or ""),
         "module_id": str(prompt.get("module_id") or ""),
@@ -1269,12 +1301,15 @@ def _compact_prompt_lifecycle_payload(prompt: dict) -> dict[str, Any]:
 def _compact_decision_lifecycle_payload(decision: dict) -> dict[str, Any]:
     result: dict[str, Any] = {
         "request_id": str(decision.get("request_id") or ""),
+        "legacy_request_id": str(decision.get("legacy_request_id") or ""),
+        "public_request_id": str(decision.get("public_request_id") or ""),
         "player_id": decision.get("player_id"),
         "choice_id": str(decision.get("choice_id") or ""),
         "view_commit_seq_seen": decision.get("view_commit_seq_seen"),
         "client_seq": decision.get("client_seq"),
         "provider": str(decision.get("provider") or ""),
         "prompt_instance_id": str(decision.get("prompt_instance_id") or ""),
+        "public_prompt_instance_id": str(decision.get("public_prompt_instance_id") or ""),
         "resume_token": str(decision.get("resume_token") or ""),
         "prompt_fingerprint": str(decision.get("prompt_fingerprint") or ""),
     }
