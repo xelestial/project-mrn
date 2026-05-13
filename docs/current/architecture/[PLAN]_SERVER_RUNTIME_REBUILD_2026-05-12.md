@@ -435,7 +435,7 @@ commit signal
 - 검증: 5개 서버와 1개 Redis 조건에서 `tmp/rl/full-stack-protocol/server-rebuild-5server-1redis-yieldfix-20260512` protocol gate가 통과했다.
 - 병목 증거: 1개 서버에 20개 게임을 동시에 붙인 조건은 `tmp/rl/full-stack-protocol/server-rebuild-1server-20game-yieldfix-20260512`에서 backend timing gate로 실패했다. 실패 원인은 Redis commit이나 ACK 누락이 아니라 `InitialRewardModule` engine transition wall time이다. 해당 run의 `runtime_transition_phase_timing` 125건 중 3건이 5000ms를 넘었고, 모두 `InitialRewardModule`이었다. 최대값은 `total_ms=6386`, `engine_transition_ms=6238`, `redis_commit_ms=53`, `view_commit_build_ms=11`이다.
 - 판단: 이 결과는 command loss 결함은 수정됐지만 단일 Python server process에 20개 live session transition을 몰아넣으면 engine 실행 wall time이 gate 기준을 넘는다는 capacity/bottleneck 증거다. 5서버/1Redis는 통과하고 1서버/20게임만 실패했으므로 현 단계의 병목은 Redis 분리보다 서버 실행자 수와 engine transition scheduling에 더 가깝다.
-- 남은 작업: state/prompt/view/command atomic commit adapter는 아직 `_CommandBoundaryGameStateStore`와 `RuntimeService._run_engine_command_boundary_loop_sync()`에 남아 있다. 또한 remote owner/pubsub wake signal과 process restart smoke 검증은 아직 남아 있다.
+- 남은 작업: state/prompt/view/command atomic commit adapter는 `CommandBoundaryGameStateStore`, `CommandBoundaryFinalizer`, `RuntimeService._run_engine_command_boundary_loop_sync()`에 걸쳐 있다. 또한 remote owner/pubsub wake signal과 process restart smoke 검증은 아직 남아 있다.
 
 ### Phase 4 - decision route에서 view_commit 의존 제거
 
@@ -604,7 +604,8 @@ commit signal
 - [x] command recovery/read query를 `RuntimeService` route facade에서 분리한다.
 - [x] command processing guard/stale terminal 판단을 `RuntimeService` 내부 구현에서 분리한다.
 - [x] local active command/session task gate를 `RuntimeService` 내부 state에서 분리한다.
-- [ ] `_CommandBoundaryGameStateStore` 제거
+- [x] `_CommandBoundaryGameStateStore` private RuntimeService class 제거
+- [ ] `CommandBoundaryGameStateStore` adapter를 포함한 atomic state/prompt/view/command boundary 완전 분리
 - [ ] `_runtime_prompt_sequence_seed` 계열 제거
 - [x] `CommandStreamWakeupWorker`를 단순 recovery watcher로 축소한다.
 - [x] `state.py` 전역 조립을 새 service boundary 기준으로 정리한다.
@@ -622,18 +623,20 @@ commit signal
 - 완료: `RuntimeService`의 기존 command recovery 메서드는 내부 command guard 호환을 위한 위임 wrapper로 축소했다. 따라서 route/recovery read path의 소유권은 분리됐지만, `process_command_once()` 내부 guard는 아직 같은 service를 통해 동작한다.
 - 완료: `CommandProcessingGuardService`를 추가해 consumer offset guard, stale command terminal 판단, rejected/superseded/expired command state mark를 `RuntimeService` 밖으로 분리했다. `RuntimeService.process_command_once()`는 여전히 lease를 잡고 engine loop를 호출하지만, command precondition/stale terminal 규칙은 새 service에 위임한다.
 - 완료: `CommandExecutionGate`를 추가해 in-process active command session lock과 active runtime task guard를 `RuntimeService` 필드 구현에서 분리했다. `RuntimeService`에는 호환 wrapper만 남아 runtime status와 command execution entrypoint가 같은 gate를 바라본다.
-- 완료: `CommandBoundaryFinalizer`를 추가해 command-boundary deferred commit 최종화(`deferred_commit` copy, authoritative Redis commit, latest `view_commit` emit, waiting prompt materialization, timing log)를 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. `_CommandBoundaryGameStateStore`는 아직 남아 있지만, 최종 commit side effect 묶음의 소유자는 별도 service로 이동했다.
+- 완료: `CommandBoundaryFinalizer`를 추가해 command-boundary deferred commit 최종화(`deferred_commit` copy, authoritative Redis commit, latest `view_commit` emit, waiting prompt materialization, timing log)를 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. 최종 commit side effect 묶음의 소유자는 별도 service로 이동했다.
 - 완료: `CommandBoundaryFinalizer`가 authoritative commit 직전에 `commit_guard`를 호출하게 했다. command-boundary loop가 runtime lease를 잃은 상태이면 Redis authoritative state/view/prompt side effect를 실행하지 않고 `runtime_lease_lost_before_commit` stale result를 반환한다.
 - 완료: `SessionCommandExecutor`를 추가해 command lifecycle control flow를 `SessionLoop` 쪽으로 이동했다. `SessionLoop`는 이제 runtime task guard, local command gate, runtime lease acquire/release, command `processing` mark, engine boundary 실행, runtime status result 적용, conflict/failure 처리를 순서대로 조립한다.
 - 완료: `RuntimeService.process_command_once()`는 `SessionCommandExecutor(runtime_boundary=self)`를 호출하는 compatibility wrapper로 축소했다. 프로덕션 `SessionLoop` 경로는 `process_command_once()` adapter가 없어도 runtime boundary lifecycle 메서드만으로 명령을 처리한다.
 - 완료: `RuntimeService`는 아직 engine transition, runtime state persistence, commit conflict recovery 같은 저수준 동작을 제공하지만, accepted command execution lifecycle의 owner는 `SessionLoop`/`SessionCommandExecutor`다.
-- 보류: `_CommandBoundaryGameStateStore`는 현재 `RuntimeService._run_engine_command_boundary_loop_sync()`의 command-boundary deferred commit adapter다. SessionLoop가 atomic state/prompt/view/command commit을 직접 소유하기 전에는 제거하면 같은 명령 안의 중간 transition commit 방지가 깨진다.
+- 완료: `CommandBoundaryGameStateStore`를 `apps/server/src/services/command_boundary_store.py`로 분리하고 `RuntimeService` 안의 `_CommandBoundaryGameStateStore` private class 정의를 제거했다. 이제 staging/deferred commit adapter는 독립 테스트를 가진 명시적 service boundary다.
+- 보류: `CommandBoundaryGameStateStore` adapter 자체는 아직 필요하다. SessionLoop가 atomic state/prompt/view/command commit을 직접 소유하기 전에는 제거하면 같은 명령 안의 중간 transition commit 방지가 깨진다.
 - 보류: `_runtime_prompt_sequence_seed`는 prompt boundary ownership이 `RuntimeService` 밖으로 나가기 전까지 checkpoint/resume prompt instance id를 맞추는 복구 시드다. Phase 8에서 stable id 충돌은 줄였지만 process-local prompt instance source 제거는 아직 끝나지 않았다.
-- 남음: state/prompt/view/command atomic commit 내부 구현은 아직 `RuntimeService._run_engine_command_boundary_loop_sync()`와 `_CommandBoundaryGameStateStore`에 걸쳐 있다. 다음 제거 단계는 commit adapter를 SessionLoop boundary 밖으로 노출할 저수준 interface를 먼저 정의해야 한다.
+- 남음: state/prompt/view/command atomic commit 내부 구현은 아직 `RuntimeService._run_engine_command_boundary_loop_sync()`, `CommandBoundaryGameStateStore`, `CommandBoundaryFinalizer`에 걸쳐 있다. 다음 제거 단계는 command-boundary execution result와 atomic final commit interface를 `SessionLoop`가 호출할 수 있는 저수준 boundary로 정의하는 것이다.
 
 수정 후보:
 
 - `apps/server/src/services/runtime_service.py`
+- `apps/server/src/services/command_boundary_store.py`
 - `apps/server/src/services/command_execution_gate.py`
 - `apps/server/src/services/command_recovery.py`
 - `apps/server/src/services/command_processing_guard.py`

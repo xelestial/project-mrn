@@ -71,11 +71,13 @@ Read and maintain these:
   `CommandRecoveryService`; command precondition and stale terminal handling now
   live in `CommandProcessingGuardService`; in-process active command/task gating
   lives in `CommandExecutionGate`; command-boundary deferred commit finalization
-  lives in `CommandBoundaryFinalizer`; command-boundary final commit now rechecks
-  runtime lease ownership before authoritative Redis/view/prompt side effects;
-  `SessionLoop` now owns command lifecycle control flow through
-  `SessionCommandExecutor`; `RuntimeService.process_command_once()` remains only
-  as a compatibility wrapper over that executor.
+  lives in `CommandBoundaryFinalizer`; command-boundary staging/deferred commit
+  now lives in `CommandBoundaryGameStateStore` instead of a `RuntimeService`
+  private class; command-boundary final commit now rechecks runtime lease
+  ownership before authoritative Redis/view/prompt side effects; `SessionLoop`
+  now owns command lifecycle control flow through `SessionCommandExecutor`;
+  `RuntimeService.process_command_once()` remains only as a compatibility
+  wrapper over that executor.
 
 ## Closed Enough
 

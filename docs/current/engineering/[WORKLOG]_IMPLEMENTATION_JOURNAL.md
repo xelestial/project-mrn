@@ -1,12 +1,32 @@
 # Implementation Journal
 
+## 2026-05-13 Server Runtime Rebuild Phase 9 Command Boundary Store Extraction
+
+- Added `CommandBoundaryGameStateStore` in `apps/server/src/services/command_boundary_store.py` as the command-boundary staging/deferred-commit adapter.
+- Removed the `_CommandBoundaryGameStateStore` private class from `RuntimeService`; the command-boundary loop now imports the adapter instead of defining it inline.
+- Added focused tests for the adapter contract: internal transitions stage state without authoritative commit, terminal commits are deferred, and staged checkpoint sequence remains hidden behind the base commit sequence during a command boundary.
+- Updated runtime tests to depend on the explicit store module instead of importing a private `RuntimeService` class.
+- This is not the final atomic commit owner move. The adapter still exists because it prevents mid-command internal transition commits; the remaining work is to move the whole state/prompt/view/command atomic boundary out of `RuntimeService._run_engine_command_boundary_loop_sync()`.
+
+## Verification
+
+- `./.venv/bin/python -m pytest apps/server/tests/test_command_boundary_store.py -q`
+- `python3 -m compileall apps/server/src/services/command_boundary_store.py apps/server/src/services/runtime_service.py`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_command_boundary_store.py apps/server/tests/test_command_boundary_finalizer.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_command_boundary_internal_transition_stages_state_without_view_commit_build apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_command_boundary_loop_uses_per_call_store_without_swapping_shared_store apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_command_boundary_loop_blocks_final_commit_when_runtime_lease_is_lost -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests -q`
+- `python3 tools/plan_policy_gate.py`
+- `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`
+- `git diff --check`
+
+Result: focused command-boundary store tests passed with `2 passed`, direct command-boundary tests passed with `8 passed`, full server tests passed with `685 passed, 46 subtests passed`, and document/diff gates passed.
+
 ## 2026-05-13 Server Runtime Rebuild Phase 9 SessionLoop Command Lifecycle Ownership
 
 - Added `SessionCommandExecutor` beside `SessionLoop` as the command lifecycle owner.
 - `SessionLoop` now uses lifecycle methods on the runtime boundary for runtime task guard, command begin/end, command precondition guard, runtime lease acquire/release, command `processing` mark, engine boundary execution, result status application, commit-conflict recovery, and failure marking.
 - `RuntimeService.process_command_once()` is now a compatibility wrapper over `SessionCommandExecutor(runtime_boundary=self)` instead of the owner of that control flow.
 - Added a SessionLoop test using a runtime boundary stub with no `process_command_once()` method. That proves the production loop can process a command through the lifecycle boundary instead of the legacy adapter.
-- Kept `RuntimeService` as the low-level runtime boundary for engine execution, runtime status persistence, and commit conflict/failure handling. `_CommandBoundaryGameStateStore` and `_runtime_prompt_sequence_seed` are still intentionally present; removing them requires a separate atomic commit/prompt boundary extraction.
+- Kept `RuntimeService` as the low-level runtime boundary for engine execution, runtime status persistence, and commit conflict/failure handling. At that checkpoint `_CommandBoundaryGameStateStore` and `_runtime_prompt_sequence_seed` were still intentionally present; the store was later extracted to `CommandBoundaryGameStateStore`, while prompt sequence ownership remains unresolved.
 
 ## Verification
 
@@ -23,7 +43,7 @@ Result: focused lifecycle, session loop, runtime compatibility, Redis runtime le
 
 - Added `CommandBoundaryFinalizer` as the command-boundary finalization owner.
 - Moved deferred commit copy, authoritative Redis commit, latest `view_commit` emission, waiting prompt materialization, and finalization timing log out of `RuntimeService._run_engine_command_boundary_loop_sync()`.
-- Kept `_CommandBoundaryGameStateStore` intentionally. It is still the transitional adapter that prevents internal module transitions from committing mid-command; deleting it before SessionLoop owns atomic commit would reintroduce the write-boundary defect.
+- Kept `_CommandBoundaryGameStateStore` intentionally at that checkpoint. It was the transitional adapter that prevented internal module transitions from committing mid-command; this adapter now lives as `CommandBoundaryGameStateStore`.
 - Added focused tests for deferred commit finalization and no-op finalization when no deferred commit exists.
 
 ## Verification

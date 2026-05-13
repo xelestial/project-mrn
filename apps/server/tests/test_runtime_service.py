@@ -28,8 +28,8 @@ from apps.server.src.services.decision_gateway import (
 )
 from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
+from apps.server.src.services.command_boundary_store import CommandBoundaryGameStateStore
 from apps.server.src.services.runtime_service import (
-    _CommandBoundaryGameStateStore,
     _FanoutVisEventStream,
     _runtime_frame_type_from_frame_id,
     _run_runtime_stream_task_sync,
@@ -6587,7 +6587,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 },
             }
         )
-        boundary_store = _CommandBoundaryGameStateStore(store, session_id=session.session_id, base_commit_seq=4)
+        boundary_store = CommandBoundaryGameStateStore(store, session_id=session.session_id, base_commit_seq=4)
         runtime._game_state_store = boundary_store
 
         def _fake_run_next_transition(self, state, decision_resume=None):  # noqa: ANN001
