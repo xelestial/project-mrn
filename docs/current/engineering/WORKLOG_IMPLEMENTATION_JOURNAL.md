@@ -56,9 +56,10 @@ in the active plans, status index, tests, or canonical contract documents.
   `responses_by_public_player_id` as an additive companion derived from
   collected response payloads. Numeric `responses_by_player_id` remains the
   canonical resume map for compatibility.
-- `RuntimeDecisionResume` now preserves `responses_by_public_player_id` from
-  `batch_complete` payloads, but `_apply_collected_batch_responses_to_state()`
-  still applies collected responses through the numeric engine bridge.
+- `RuntimeDecisionResume` now accepts public-only `batch_complete`
+  `responses_by_public_player_id` payloads by resolving public player IDs
+  through `SessionService` and materializing the numeric engine bridge map.
+  Legacy numeric `responses_by_player_id` payloads are still accepted.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Compatibility storage and replay still keep
   the legacy request id key until the canonical opaque prompt-key migration is
@@ -67,6 +68,7 @@ in the active plans, status index, tests, or canonical contract documents.
 Verification:
 
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_mark_prompt_delivered_resolves_public_request_id_alias apps/server/tests/test_prompt_service.py::PromptServiceTests::test_external_decision_result_resolves_public_request_id_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`

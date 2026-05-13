@@ -7129,6 +7129,81 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(sorted(resume.batch_responses_by_public_player_id), ["ply_1", "ply_2"])
         self.assertEqual(resume.batch_responses_by_public_player_id["ply_2"]["choice_id"], "no")
 
+    def test_decision_resume_from_batch_complete_command_accepts_public_response_map(self) -> None:
+        session = self._create_started_two_player_session()
+        seat_1 = session.seats[0]
+        seat_2 = session.seats[1]
+
+        class _CommandStoreStub:
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [
+                    {
+                        "seq": 7,
+                        "type": "batch_complete",
+                        "session_id": session_id,
+                        "payload": {
+                            "request_id": "batch_complete:batch:simul:resupply:public",
+                            "batch_id": "batch:simul:resupply:public",
+                            "expected_public_player_ids": [
+                                seat_1.public_player_id,
+                                seat_2.public_player_id,
+                            ],
+                            "responses_by_public_player_id": {
+                                seat_1.public_player_id: {
+                                    "public_player_id": seat_1.public_player_id,
+                                    "request_id": "req_public_batch_p1",
+                                    "request_type": "burden_exchange",
+                                    "choice_id": "yes",
+                                    "choice_payload": {"accepted": True},
+                                    "resume_token": "resume_p1",
+                                    "frame_id": "frame:resupply",
+                                    "module_id": "module:resupply",
+                                    "module_type": "ResupplyModule",
+                                    "module_cursor": "await_resupply_batch:1",
+                                },
+                                seat_2.public_player_id: {
+                                    "public_player_id": seat_2.public_player_id,
+                                    "request_id": "req_public_batch_p2",
+                                    "request_type": "burden_exchange",
+                                    "choice_id": "no",
+                                    "provider": "ai",
+                                    "choice_payload": {"accepted": False},
+                                    "resume_token": "resume_p2",
+                                    "frame_id": "frame:resupply",
+                                    "module_id": "module:resupply",
+                                    "module_type": "ResupplyModule",
+                                    "module_cursor": "await_resupply_batch:1",
+                                },
+                            },
+                        },
+                    }
+                ]
+
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=_CommandStoreStub(),
+        )
+
+        resume = runtime._decision_resume_from_command(session.session_id, 7)
+
+        self.assertIsNotNone(resume)
+        assert resume is not None
+        self.assertEqual(resume.request_id, "req_public_batch_p2")
+        self.assertEqual(resume.player_id, 2)
+        self.assertEqual(resume.choice_id, "no")
+        self.assertEqual(resume.choice_payload, {"accepted": False})
+        self.assertEqual(resume.batch_id, "batch:simul:resupply:public")
+        self.assertEqual(resume.provider, "ai")
+        self.assertEqual(sorted(resume.batch_responses_by_player_id), [1, 2])
+        self.assertEqual(resume.batch_responses_by_player_id[1]["public_player_id"], seat_1.public_player_id)
+        self.assertEqual(resume.batch_responses_by_player_id[2]["public_player_id"], seat_2.public_player_id)
+        self.assertEqual(
+            sorted(resume.batch_responses_by_public_player_id),
+            sorted([seat_1.public_player_id, seat_2.public_player_id]),
+        )
+
     def test_collected_batch_responses_are_applied_before_primary_resume(self) -> None:
         frame = FrameState(
             frame_id="frame:resupply",

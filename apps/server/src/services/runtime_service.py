@@ -44,6 +44,7 @@ from apps.server.src.services.decision_gateway import (
     build_decision_invocation_from_request,
     build_routed_decision_call,
 )
+from apps.server.src.services.session_service import SessionNotFoundError
 from apps.server.src.services.command_execution_gate import CommandExecutionGate
 from apps.server.src.services.command_boundary_runner import CommandBoundaryRunner
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
@@ -1928,7 +1929,7 @@ class RuntimeService:
             if not isinstance(payload, dict):
                 return None
             if command_type == "batch_complete":
-                return self._decision_resume_from_batch_complete_payload(payload)
+                return self._decision_resume_from_batch_complete_payload(session_id, payload)
             if command_type != "decision_submitted":
                 return None
             decision = payload.get("decision")
@@ -1969,22 +1970,48 @@ class RuntimeService:
             )
         return None
 
-    def _decision_resume_from_batch_complete_payload(self, payload: dict[str, Any]) -> RuntimeDecisionResume | None:
+    def _decision_resume_from_batch_complete_payload(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+    ) -> RuntimeDecisionResume | None:
         responses = payload.get("responses_by_player_id")
-        if not isinstance(responses, dict):
-            return None
         normalized: dict[int, dict[str, Any]] = {}
-        for raw_player_id, raw_response in responses.items():
-            try:
-                player_id = int(raw_player_id)
-            except (TypeError, ValueError):
-                continue
-            if not isinstance(raw_response, dict):
-                continue
-            response = dict(raw_response)
-            response.setdefault("player_id", player_id)
-            response.setdefault("batch_id", str(payload.get("batch_id") or ""))
-            normalized[player_id] = response
+        if isinstance(responses, dict):
+            for raw_player_id, raw_response in responses.items():
+                try:
+                    player_id = int(raw_player_id)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(raw_response, dict):
+                    continue
+                response = dict(raw_response)
+                response.setdefault("player_id", player_id)
+                response.setdefault("batch_id", str(payload.get("batch_id") or ""))
+                normalized[player_id] = response
+        public_response_map = payload.get("responses_by_public_player_id")
+        if not normalized and isinstance(public_response_map, dict):
+            for raw_public_player_id, raw_response in public_response_map.items():
+                if not isinstance(raw_response, dict):
+                    continue
+                public_player_id = str(raw_response.get("public_player_id") or raw_public_player_id or "").strip()
+                if not public_player_id:
+                    continue
+                try:
+                    resolved_player_id = self._session_service.resolve_protocol_player_id(
+                        session_id,
+                        public_player_id=public_player_id,
+                    )
+                except SessionNotFoundError:
+                    resolved_player_id = None
+                if resolved_player_id is None:
+                    continue
+                player_id = int(resolved_player_id)
+                response = dict(raw_response)
+                response.setdefault("public_player_id", public_player_id)
+                response.setdefault("player_id", player_id)
+                response.setdefault("batch_id", str(payload.get("batch_id") or ""))
+                normalized.setdefault(player_id, response)
         if not normalized:
             return None
         public_responses = _batch_responses_by_public_player_id(
@@ -1996,6 +2023,17 @@ class RuntimeService:
             for raw in payload.get("expected_player_ids", [])
             if self._int_or_none(raw) is not None and int(raw) in normalized
         ]
+        if not expected:
+            for raw_public_player_id in payload.get("expected_public_player_ids", []):
+                try:
+                    resolved_player_id = self._session_service.resolve_protocol_player_id(
+                        session_id,
+                        public_player_id=str(raw_public_player_id or "").strip(),
+                    )
+                except SessionNotFoundError:
+                    resolved_player_id = None
+                if resolved_player_id is not None and int(resolved_player_id) in normalized:
+                    expected.append(int(resolved_player_id))
         primary_player_id = expected[-1] if expected else sorted(normalized)[-1]
         primary = normalized[primary_player_id]
         choice_payload = _batch_response_choice_payload(primary)
