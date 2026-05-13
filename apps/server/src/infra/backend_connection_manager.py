@@ -46,6 +46,13 @@ FRONTEND_BACKEND_ROUTE_CATALOG: tuple[BackendFrontendRoute, ...] = (
         expected="Returns the archived JSON object or a typed admin error.",
     ),
     BackendFrontendRoute(
+        key="admin.external_ai_pending_prompts",
+        method="GET",
+        path="/api/v1/admin/sessions/{session_id}/external-ai/pending-prompts",
+        role="Expose protected external AI pending prompts for worker-bridge smoke evidence.",
+        expected="Returns admin-only provider=ai pending prompts needed to call a worker and callback a decision.",
+    ),
+    BackendFrontendRoute(
         key="debug.frontend_log",
         method="POST",
         path="/api/v1/debug/frontend-log",

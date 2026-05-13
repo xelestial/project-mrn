@@ -197,6 +197,74 @@ class AdminApiTests(unittest.TestCase):
             self.assertEqual(unknown_session.status_code, 404)
             self.assertEqual(unknown_session.json()["error"]["code"], "SESSION_NOT_FOUND")
 
+    def test_admin_external_ai_pending_prompts_requires_admin_and_filters_ai_provider(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(
+            seats=[
+                {
+                    "seat": 1,
+                    "seat_type": "ai",
+                    "ai_profile": "balanced",
+                    "participant_client": "external_ai",
+                    "participant_config": {"endpoint": "http://worker.local"},
+                },
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42},
+        )
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "ai_req_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "provider": "ai",
+                "timeout_ms": 30000,
+                "legal_choices": [
+                    {"choice_id": "roll", "label": "Roll"},
+                    {"choice_id": "skip", "label": "Skip"},
+                ],
+                "public_context": {"turn_index": 0},
+            },
+        )
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "human_req_1",
+                "request_type": "movement",
+                "player_id": 2,
+                "provider": "human",
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        rejected = self.client.get(f"/api/v1/admin/sessions/{session.session_id}/external-ai/pending-prompts")
+        self.assertEqual(rejected.status_code, 401)
+        self.assertEqual(rejected.json()["error"]["code"], "ADMIN_UNAUTHORIZED")
+
+        accepted = self.client.get(
+            f"/api/v1/admin/sessions/{session.session_id}/external-ai/pending-prompts",
+            headers={"X-Admin-Token": "admin-secret"},
+        )
+
+        self.assertEqual(accepted.status_code, 200)
+        data = accepted.json()["data"]
+        self.assertEqual(data["schema_name"], "mrn.admin_external_ai_pending_prompts")
+        self.assertEqual(data["visibility"], "admin")
+        self.assertFalse(data["browser_safe"])
+        self.assertEqual(data["session_id"], session.session_id)
+        prompts = data["pending_prompts"]
+        self.assertEqual([prompt["request_id"] for prompt in prompts], ["ai_req_1"])
+        prompt = prompts[0]
+        self.assertEqual(prompt["provider"], "ai")
+        self.assertEqual(prompt["player_id"], 1)
+        self.assertEqual(prompt["request_type"], "movement")
+        self.assertEqual([choice["choice_id"] for choice in prompt["legal_choices"]], ["roll", "skip"])
+        self.assertTrue(prompt["prompt_fingerprint"])
+        self.assertEqual(prompt["public_context"], {"turn_index": 0})
+
 
 class _GameStateStoreStub:
     def load_checkpoint(self, session_id: str) -> dict:

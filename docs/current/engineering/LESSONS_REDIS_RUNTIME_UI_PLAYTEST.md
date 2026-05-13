@@ -69,6 +69,8 @@ A session-loop wakeup dedupe is safe only if the active drain owns the backlog u
 
 Do not mistake single-server saturation for Redis contention. In the 2026-05-12 20-game single-server stress run, the failed backend timing gate was caused by `InitialRewardModule` engine transition wall time above 5000ms. Redis commit and view projection stayed small on the same events. That points to server process execution capacity and transition scheduling, not Redis isolation, as the next bottleneck surface.
 
+Keep correctness gates separate from capacity characterization. On 2026-05-13, one server plus one Redis passed five and eight concurrent live games within the backend timing gate, but ten concurrent games first breached the 5s command SLO and twenty concurrent games remained an overload signal after prompt replay wait was removed. That is enough to choose horizontal server-instance scaling as the near-term response. Do not patch prompt lifecycle, `view_commit`, or Redis topology to mask one-process scheduler contention unless a new executor-capacity plan explicitly owns queueing, fairness, and per-instance SLOs.
+
 ## 4. Frontend And Headless Protocol
 
 The headless RL adapter is a protocol tester, not an engine shortcut. It must follow the same REST session creation, WebSocket join/resume, prompt ledger, decision submission, decision ACK, command processing, and `view_commit` path that browser play uses.

@@ -117,10 +117,10 @@ boundary adapter. The current split is:
   `apps/server/src/domain/prompt_sequence.py`, not `runtime_service.py`.
 - Final command-boundary commit rechecks runtime lease ownership before
   authoritative Redis/view/prompt side effects.
-- `RuntimeService.process_command_once()` remains as a compatibility wrapper
-  over the `SessionCommandExecutor` path. It remains because existing
-  runtime/route/stream tests still use it as a diagnostic compatibility
-  entrypoint; the production `SessionLoop` path does not require it.
+- `RuntimeService.process_command_once()` has been removed. Production
+  `SessionLoop` paths and diagnostic tests now use `SessionCommandExecutor`
+  directly, while `RuntimeService` exposes only runtime-boundary lifecycle
+  methods for command execution.
 - `SessionLoop` no longer has a fallback to
   `RuntimeService.process_command_once()` when a runtime boundary lacks the
   lifecycle interface. Loop tests now exercise the lifecycle boundary path.
@@ -129,9 +129,9 @@ Important remaining responsibility:
 
 - Remove process-local prompt sequence ownership entirely by moving prompt
   boundary creation out of the runtime policy/engine adapter path.
-- Remove the `RuntimeService.process_command_once()` compatibility wrapper
-  after direct test and diagnostic callers are migrated. The production
-  `SessionLoop` fallback has already been removed.
+- Keep `CommandBoundaryGameStateStore` as the explicit command atomicity staging
+  boundary until a future UnitOfWork-style owner exists in `SessionLoop` or
+  `SessionCommandExecutor`.
 - Keep Redis authoritative and `view_commit` as read model; do not reintroduce
   route-level runtime execution or heartbeat-driven repair.
 
@@ -191,18 +191,18 @@ ACK delivery, or command inbox dedupe.
 
 ## 2026-05-13 Protocol Gate Output Hygiene
 
-- The repeated-game protocol gate runner now suppresses compact progress output
-  by default for multi-game runs. Single-game runs keep visible progress unless
-  `--quiet-progress` is passed.
+- The direct full-stack protocol gate and repeated-game protocol gate runner now
+  suppress compact progress output by default. Pass `--verbose-progress` only
+  when live progress lines are useful enough to spend terminal/chat context.
 - `--verbose-progress` is the explicit opt-in for investigation runs where
   progress lines are worth the terminal/chat context cost.
-- Raw child stdout/stderr and progress remain persisted under each
-  `game-N/raw/` directory, and failure diagnosis still starts from
+- In repeated runs, raw child stdout/stderr and progress remain persisted under
+  each `game-N/raw/` directory, and failure diagnosis still starts from
   `PROTOCOL_GATE_FAILURE_POINTER` plus `summary/failure_reason.json`.
 
 Responsibility result: long-run evidence ownership stays with file artifacts and
 failure pointers. Chat/terminal output is no longer responsible for carrying
-successful multi-game progress details.
+successful progress details.
 
 ## 2026-05-13 Session Loop Recovery Status Closure
 

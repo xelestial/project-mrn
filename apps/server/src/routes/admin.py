@@ -5,6 +5,7 @@ import json
 from fastapi import APIRouter, Depends, status
 
 from apps.server.src.core.admin_auth import admin_error, require_admin
+from apps.server.src.services.prompt_service import PendingPrompt, PromptService
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService
 
@@ -23,6 +24,12 @@ def _runtime() -> RuntimeService:
     return runtime_service
 
 
+def _prompts() -> PromptService:
+    from apps.server.src.state import prompt_service
+
+    return prompt_service
+
+
 def _archive_service():
     from apps.server.src.state import archive_service
 
@@ -31,6 +38,33 @@ def _archive_service():
 
 def _ok(data: dict) -> dict:
     return {"ok": True, "data": data, "error": None}
+
+
+def _external_ai_pending_prompt_payload(pending: PendingPrompt) -> dict:
+    payload = dict(pending.payload)
+    public_context = payload.get("public_context")
+    legal_choices = payload.get("legal_choices")
+    return {
+        "request_id": pending.request_id,
+        "session_id": pending.session_id,
+        "player_id": pending.player_id,
+        "seat": payload.get("seat"),
+        "provider": "ai",
+        "request_type": str(payload.get("request_type") or ""),
+        "decision_name": str(payload.get("decision_name") or payload.get("request_type") or ""),
+        "fallback_policy": str(payload.get("fallback_policy") or "ai"),
+        "timeout_ms": pending.timeout_ms,
+        "created_at_ms": pending.created_at_ms,
+        "prompt_fingerprint": str(payload.get("prompt_fingerprint") or ""),
+        "prompt_fingerprint_version": payload.get("prompt_fingerprint_version"),
+        "public_context": dict(public_context) if isinstance(public_context, dict) else {},
+        "legal_choices": list(legal_choices) if isinstance(legal_choices, list) else [],
+        "transport": str(payload.get("transport") or "http"),
+        "worker_contract_version": str(payload.get("worker_contract_version") or "v1"),
+        "required_capabilities": list(payload.get("required_capabilities") or [])
+        if isinstance(payload.get("required_capabilities"), list)
+        else [],
+    }
 
 
 @router.get("/sessions/{session_id}/recovery", dependencies=[Depends(require_admin)])
@@ -78,3 +112,30 @@ def admin_archive(
     if not isinstance(payload, dict):
         admin_error("ARCHIVE_INVALID", "Archive file is not a JSON object.", status.HTTP_500_INTERNAL_SERVER_ERROR)
     return _ok(payload)
+
+
+@router.get("/sessions/{session_id}/external-ai/pending-prompts", dependencies=[Depends(require_admin)])
+def admin_external_ai_pending_prompts(
+    session_id: str,
+    sessions: SessionService = Depends(_sessions),
+    prompts: PromptService = Depends(_prompts),
+) -> dict:
+    try:
+        sessions.get_session(session_id)
+    except SessionNotFoundError:
+        admin_error("SESSION_NOT_FOUND", "Session not found.", status.HTTP_404_NOT_FOUND)
+    pending = [
+        _external_ai_pending_prompt_payload(item)
+        for item in prompts.list_pending_prompts(session_id=session_id)
+        if str(item.payload.get("provider") or "").strip().lower() == "ai"
+    ]
+    return _ok(
+        {
+            "schema_version": 1,
+            "schema_name": "mrn.admin_external_ai_pending_prompts",
+            "visibility": "admin",
+            "browser_safe": False,
+            "session_id": session_id,
+            "pending_prompts": pending,
+        }
+    )

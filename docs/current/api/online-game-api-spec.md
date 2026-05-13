@@ -4,7 +4,7 @@ Canonical document path for the current runtime API contract.
 
 Status: `ACTIVE`  
 Owner: `Shared`  
-Updated: `2026-04-14`  
+Updated: `2026-05-13`
 Parents:
 - `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 - `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
@@ -45,6 +45,56 @@ Error envelope:
   }
 }
 ```
+
+## Admin API
+
+Admin endpoints require `X-Admin-Token` matching `MRN_ADMIN_TOKEN`. They are for
+operators, recovery tooling, and smoke evidence, not browser-safe gameplay UI.
+
+### External AI Pending Prompts
+
+`GET /api/v1/admin/sessions/{session_id}/external-ai/pending-prompts`
+
+Response `data`:
+
+```json
+{
+  "schema_version": 1,
+  "schema_name": "mrn.admin_external_ai_pending_prompts",
+  "visibility": "admin",
+  "browser_safe": false,
+  "session_id": "sess_abc123",
+  "pending_prompts": [
+    {
+      "request_id": "sess_abc123:prompt:...",
+      "session_id": "sess_abc123",
+      "player_id": 1,
+      "seat": 1,
+      "provider": "ai",
+      "request_type": "start_reward",
+      "decision_name": "choose_start_reward",
+      "fallback_policy": "required",
+      "timeout_ms": 15000,
+      "created_at_ms": 1778676402379,
+      "prompt_fingerprint": "sha256:...",
+      "prompt_fingerprint_version": 1,
+      "public_context": {},
+      "legal_choices": [],
+      "transport": "http",
+      "worker_contract_version": "v1",
+      "required_capabilities": ["choice_id_response", "healthcheck"]
+    }
+  ]
+}
+```
+
+Contract:
+
+- returns only pending prompts with `provider="ai"`
+- returns `401 ADMIN_UNAUTHORIZED` without a valid admin token
+- is not browser-safe and must not be used as a human seat prompt endpoint
+- exists so worker-bridge smoke tooling can call a worker and then submit
+  `POST /api/v1/sessions/{session_id}/external-ai/decisions`
 
 ## 1) Create Session
 

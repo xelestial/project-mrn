@@ -19,6 +19,11 @@ Operational scripts for local runs, export, and migration helpers.
   and final smoke JSON as a rollout artifact. Use
   `--require-external-topology` for real staging/production evidence; it rejects
   local smoke profiles and requires a filled external platform manifest.
+- `external_ai_full_stack_smoke.py`: creates a Redis-backed live session with an
+  `external_ai` seat, polls the admin-only pending prompt bridge, calls the
+  external worker `/decide` endpoint, submits the decision callback, and writes a
+  compact JSON summary. This proves the server callback path; the ordinary
+  human WebSocket gate is not external-AI evidence.
 - `game_debug_log_audit.py`: audits one debug-log run directory, or the latest
   run under `.log`, across `frontend.jsonl`, `backend.jsonl`, and
   `engine.jsonl`. It flags duplicate frontend decision sends, duplicate backend

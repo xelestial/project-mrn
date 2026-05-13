@@ -397,8 +397,6 @@ class SessionsApiTests(unittest.TestCase):
 
         original_start = state.runtime_service.start_runtime
         original_pending = state.command_recovery_service.pending_resume_command
-        original_process = state.runtime_service.process_command_once
-
         async def _noop_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
             del session_id, seed, policy_mode
 
@@ -414,25 +412,12 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(state.runtime_service.runtime_status(session_id).get("status"), "recovery_required")
 
         start_calls: list[tuple[str, int, str | None]] = []
-        process_calls: list[tuple[str, int, str, int, str | None]] = []
 
         async def _fake_start_runtime(session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
             start_calls.append((session_id, seed, policy_mode))
 
-        async def _fake_process_command_once(
-            *,
-            session_id: str,
-            command_seq: int,
-            consumer_name: str,
-            seed: int,
-            policy_mode: str | None = None,
-        ) -> dict:
-            process_calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
-            return {"status": "committed"}
-
         state.runtime_service.start_runtime = _fake_start_runtime  # type: ignore[assignment]
         state.command_recovery_service.pending_resume_command = lambda _session_id: {"seq": 7, "type": "decision_submitted"}  # type: ignore[method-assign]
-        state.runtime_service.process_command_once = _fake_process_command_once  # type: ignore[method-assign]
         try:
             response = self.client.get(
                 f"/api/v1/sessions/{session_id}/runtime-status",
@@ -441,11 +426,9 @@ class SessionsApiTests(unittest.TestCase):
         finally:
             state.runtime_service.start_runtime = original_start  # type: ignore[assignment]
             state.command_recovery_service.pending_resume_command = original_pending  # type: ignore[method-assign]
-            state.runtime_service.process_command_once = original_process  # type: ignore[method-assign]
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(start_calls, [])
-        self.assertEqual(process_calls, [])
 
     def test_authenticated_runtime_status_does_not_start_recovery_for_waiting_checkpoint(self) -> None:
         from apps.server.src import state
@@ -521,26 +504,12 @@ class SessionsApiTests(unittest.TestCase):
 
         original_status = state.runtime_service.runtime_status
         original_pending = state.command_recovery_service.pending_resume_command
-        original_process = state.runtime_service.process_command_once
-        process_calls: list[tuple[str, int, str, int, str | None]] = []
 
         def _fake_runtime_status(_session_id: str) -> dict:
             return {"status": "waiting_input", "reason": "pending_human_decision"}
 
-        async def _fake_process_command_once(
-            *,
-            session_id: str,
-            command_seq: int,
-            consumer_name: str,
-            seed: int,
-            policy_mode: str | None = None,
-        ) -> dict:
-            process_calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
-            return {"status": "committed"}
-
         state.runtime_service.runtime_status = _fake_runtime_status  # type: ignore[method-assign]
         state.command_recovery_service.pending_resume_command = lambda _session_id: {"seq": 9, "type": "decision_submitted"}  # type: ignore[method-assign]
-        state.runtime_service.process_command_once = _fake_process_command_once  # type: ignore[method-assign]
         try:
             response = self.client.get(
                 f"/api/v1/sessions/{session_id}/runtime-status",
@@ -549,10 +518,8 @@ class SessionsApiTests(unittest.TestCase):
         finally:
             state.runtime_service.runtime_status = original_status  # type: ignore[method-assign]
             state.command_recovery_service.pending_resume_command = original_pending  # type: ignore[method-assign]
-            state.runtime_service.process_command_once = original_process  # type: ignore[method-assign]
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(process_calls, [])
 
     def test_public_session_allows_spectator_replay_and_runtime_status(self) -> None:
         payload = _all_ai_payload()

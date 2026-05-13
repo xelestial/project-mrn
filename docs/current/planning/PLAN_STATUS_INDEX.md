@@ -87,10 +87,23 @@ Read and maintain these:
   simultaneous batch prompt submit and timeout fallback now enter
   `BatchCollector` instead of appending per-player decision commands, and
   completed batches re-enter `SessionLoop` as one `batch_complete` command;
-  `RuntimeService.process_command_once()` remains only as a compatibility
-  wrapper over that executor. Remaining high-risk work is out-of-process
-  external AI full-stack evidence and any future local/loopback AI policy
-  convergence, not router/session-loop ownership.
+  `RuntimeService.process_command_once()` compatibility wrapper has been
+  removed; tests and production paths use `SessionCommandExecutor` directly.
+  `CommandBoundaryGameStateStore` removal was reviewed and rejected for the
+  current phase because it is the active staging boundary that prevents
+  non-terminal transitions inside one accepted command from becoming multiple
+  authoritative Redis/view/command commits. Removal requires a future
+  UnitOfWork-style owner in `SessionLoop` or `SessionCommandExecutor`, not an
+  in-place deletion.
+  Out-of-process HTTP external AI full-stack
+  evidence now uses the admin/worker bridge; local AI and loopback external AI
+  remain local/test-profile paths, not operating external-worker evidence.
+  Future loopback removal or HTTP convergence requires a separate migration
+  instead of a forced in-place patch. One-server capacity is now classified:
+  five and eight concurrent games passed, ten concurrent games first breached
+  the 5s backend command SLO, and twenty concurrent games remains overload
+  evidence. The current direction is measured horizontal server-instance scaling,
+  not Redis fan-out or prompt/view-commit patching.
 
 ## Closed Enough
 

@@ -22,7 +22,7 @@ from apps.server.src.services.realtime_persistence import (
     ViewCommitSequenceConflict,
 )
 from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService
-from apps.server.src.services.session_loop import SessionLoop
+from apps.server.src.services.session_loop import SessionCommandExecutor, SessionLoop
 from apps.server.src.services.session_loop_manager import SessionLoopManager
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
@@ -2897,7 +2897,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         )
 
         result = asyncio.run(
-            runtime.process_command_once(
+            SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                 session_id=session.session_id,
                 command_seq=4,
                 consumer_name="runtime_wakeup",
@@ -2999,7 +2999,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         command = command_store.list_commands(session.session_id)[0]
 
         second = asyncio.run(
-            runtime.process_command_once(
+            SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                 session_id=session.session_id,
                 command_seq=int(command["seq"]),
                 consumer_name="runtime_wakeup",

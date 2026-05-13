@@ -33,6 +33,12 @@ EXPECTED_FRONTEND_BACKEND_ROUTES = {
         "Expose a protected archived session payload for backend operators.",
         "Returns the archived JSON object or a typed admin error.",
     ),
+    "admin.external_ai_pending_prompts": (
+        "GET",
+        "/api/v1/admin/sessions/{session_id}/external-ai/pending-prompts",
+        "Expose protected external AI pending prompts for worker-bridge smoke evidence.",
+        "Returns admin-only provider=ai pending prompts needed to call a worker and callback a decision.",
+    ),
     "debug.frontend_log": (
         "POST",
         "/api/v1/debug/frontend-log",

@@ -977,25 +977,6 @@ class RuntimeService:
             return explicit
         return legal_choice_ids[0]
 
-    async def process_command_once(
-        self,
-        *,
-        session_id: str,
-        command_seq: int,
-        consumer_name: str,
-        seed: int = 42,
-        policy_mode: str | None = None,
-    ) -> dict:
-        from apps.server.src.services.session_loop import SessionCommandExecutor
-
-        return await SessionCommandExecutor(runtime_boundary=self).process_command_once(
-            session_id=session_id,
-            command_seq=command_seq,
-            consumer_name=consumer_name,
-            seed=seed,
-            policy_mode=policy_mode,
-        )
-
     def runtime_task_processing_guard(
         self,
         *,

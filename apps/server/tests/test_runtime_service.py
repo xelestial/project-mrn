@@ -47,6 +47,7 @@ from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.realtime_persistence import ViewCommitSequenceConflict
+from apps.server.src.services.session_loop import SessionCommandExecutor
 from runtime_modules.contracts import FrameState, ModuleRef
 from runtime_modules.prompts import PromptApi
 from runtime_modules.simultaneous import build_resupply_frame
@@ -1989,7 +1990,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(self.runtime_service, "_run_engine_transition_once_sync", side_effect=_transition_once):
             result = asyncio.run(
-                self.runtime_service.process_command_once(
+                SessionCommandExecutor(runtime_boundary=self.runtime_service).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2110,7 +2111,7 @@ class RuntimeServiceTests(unittest.TestCase):
             patch("apps.server.src.services.runtime_service.log_event", side_effect=_capture_event),
         ):
             result = asyncio.run(
-                self.runtime_service.process_command_once(
+                SessionCommandExecutor(runtime_boundary=self.runtime_service).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2161,7 +2162,7 @@ class RuntimeServiceTests(unittest.TestCase):
             patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=_transition_loop),
         ):
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2185,7 +2186,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(self.runtime_service, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
             result = asyncio.run(
-                self.runtime_service.process_command_once(
+                SessionCommandExecutor(runtime_boundary=self.runtime_service).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2215,7 +2216,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2271,7 +2272,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(runtime, "_run_engine_transition_loop_sync", return_value={"status": "waiting_input"}) as run_loop:
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2340,7 +2341,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(runtime, "_run_engine_transition_loop_sync", return_value={"status": "waiting_input"}) as run_loop:
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2400,7 +2401,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(runtime, "_run_engine_transition_loop_sync", return_value={"status": "waiting_input"}) as run_loop:
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=62,
                     consumer_name="runtime_wakeup",
@@ -2507,7 +2508,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2557,7 +2558,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",
@@ -2607,7 +2608,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
         with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=8,
                     consumer_name="runtime_wakeup",
@@ -2654,7 +2655,7 @@ class RuntimeServiceTests(unittest.TestCase):
         try:
             with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
                 result = asyncio.run(
-                    runtime.process_command_once(
+                    SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                         session_id=session.session_id,
                         command_seq=7,
                         consumer_name="runtime_wakeup",
@@ -2703,7 +2704,7 @@ class RuntimeServiceTests(unittest.TestCase):
             side_effect=ViewCommitSequenceConflict("view_commit_seq_conflict"),
         ):
             result = asyncio.run(
-                runtime.process_command_once(
+                SessionCommandExecutor(runtime_boundary=runtime).process_command_once(
                     session_id=session.session_id,
                     command_seq=7,
                     consumer_name="runtime_wakeup",

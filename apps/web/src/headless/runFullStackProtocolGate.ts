@@ -70,6 +70,7 @@ type CliOptions = {
   backendDockerComposeProject?: string;
   backendDockerComposeFile?: string;
   backendDockerComposeService?: string;
+  quietProgress?: boolean;
 };
 
 const RECONNECT_SCENARIOS = new Set<ReconnectScenario>([
@@ -112,7 +113,9 @@ async function main(): Promise<void> {
       onProgress: async (snapshot) => {
         latestSnapshot = snapshot;
         await writeProgressArtifacts(snapshot, options);
-        writeProgressLine(snapshot);
+        if (!options.quietProgress) {
+          writeProgressLine(snapshot);
+        }
         if (snapshot.reason !== "final" && !liveBackendTimingFailed) {
           const backendTiming = await loadBackendTimingSummary(snapshot.sessionId, options, {
             required: false,
@@ -349,6 +352,10 @@ function parseArgs(args: string[]): CliOptions {
     } else if (arg === "--backend-docker-compose-service" && next) {
       options.backendDockerComposeService = next;
       index += 1;
+    } else if (arg === "--quiet-progress") {
+      options.quietProgress = true;
+    } else if (arg === "--verbose-progress") {
+      options.quietProgress = false;
     } else if (arg === "--help" || arg === "-h") {
       process.stdout.write(
         [
@@ -386,12 +393,19 @@ function parseArgs(args: string[]): CliOptions {
           "  --backend-docker-compose-project project-mrn-protocol",
           "  --backend-docker-compose-file ../../docker-compose.protocol.yml",
           "  --backend-docker-compose-service server",
+          "  --quiet-progress",
+          "  --verbose-progress",
+          "",
+          "Progress JSON is quiet by default for direct single-game runs. Pass --verbose-progress for live investigation.",
         ].join("\n") + "\n",
       );
       process.exit(0);
     }
   }
-  return options;
+  return {
+    ...options,
+    quietProgress: options.quietProgress ?? true,
+  };
 }
 
 async function loadBackendTimingSummary(

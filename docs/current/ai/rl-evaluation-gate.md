@@ -114,13 +114,14 @@ Each `game-N/` directory is split by inspection cost:
 
 For long or parallel runs, inspect `summary/gate_result.json` and `summary/failure_reason.json` before touching raw logs. Do not load full raw logs into the agent conversation unless the pointer files prove that a narrow grep/slice is insufficient.
 
-Repeated-game runs are quiet by default when `--games` is greater than 1.
-Successful multi-game runs should emit only start/end/pass status lines while
-persisting child progress to `raw/progress.ndjson` and `summary/progress.json`.
-Use `--verbose-progress` only for focused investigation where the extra chat or
-terminal output is intentional. Failure handling must continue to emit
-`PROTOCOL_GATE_FAILURE_POINTER`; the pointer, not the raw log, is the first
-debugging surface.
+Direct and repeated full-stack protocol runs are quiet by default. Successful
+runs should emit summary/status output while keeping progress details in files
+or, for direct runs, only in stderr when `--verbose-progress` is explicitly
+passed. Repeated runs still persist child progress to `raw/progress.ndjson` and
+`summary/progress.json`. Use `--verbose-progress` only for focused investigation
+where the extra chat or terminal output is intentional. Failure handling must
+continue to emit `PROTOCOL_GATE_FAILURE_POINTER`; the pointer, not the raw log,
+is the first debugging surface.
 
 The repeated-game runner must not silently add `--continue-while-progressing`. A 10-minute completion target is a quality gate, not a soft log marker. Use `--continue-while-progressing` only for explicit endurance/debug runs where exceeding `--timeout-ms` is expected evidence, and report that the result is not a pass for the normal RL stability gate.
 

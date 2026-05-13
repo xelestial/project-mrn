@@ -65,7 +65,7 @@ export function parseProtocolGateGameRunnerArgs(args: string[]): ProtocolGateGam
     return {
       ...options,
       concurrency: Math.min(options.games, options.concurrency),
-      quietProgress: options.quietProgress ?? options.games > 1,
+      quietProgress: options.quietProgress ?? true,
     };
   }
   if (!Number.isInteger(options.games) || options.games <= 0) {
@@ -80,7 +80,7 @@ export function parseProtocolGateGameRunnerArgs(args: string[]): ProtocolGateGam
   return {
     ...options,
     concurrency: Math.min(options.games, options.concurrency),
-    quietProgress: options.quietProgress ?? options.games > 1,
+    quietProgress: options.quietProgress ?? true,
   };
 }
 
@@ -102,8 +102,7 @@ export function buildProtocolGateGamesHelpText(): string {
     "",
     "Template variables: {game} is 1-based, {index} is 1-based, and {zeroBased} is 0-based.",
     "The runner writes raw logs under game-N/raw, compact reports under game-N/summary, and inspection pointers under game-N/pointers.",
-    "Single-game runs emit compact PROTOCOL_GATE_GAME_PROGRESS lines unless --quiet-progress is set.",
-    "Multi-game runs suppress progress output by default; pass --verbose-progress only for focused investigation.",
+    "Progress output is suppressed by default; pass --verbose-progress only for focused investigation.",
     "Progress is always persisted to raw/progress.ndjson plus summary/progress.json.",
     "Failures emit PROTOCOL_GATE_FAILURE_POINTER and persist summary/failure_reason.json plus pointers/failure_pointer.json.",
     "Do not pipe through tee for summary capture; use summary/gate_result.json first and raw/protocol_gate.log only from a pointer.",

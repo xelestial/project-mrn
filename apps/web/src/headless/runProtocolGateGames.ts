@@ -144,10 +144,13 @@ function validateSeedArgs(options: ProtocolGateGameRunnerOptions): void {
   }
 }
 
-function defaultGateArgs(gateArgs: string[], backendLogOut: string): string[] {
+export function defaultGateArgs(gateArgs: string[], backendLogOut: string): string[] {
   const args: string[] = [];
   if (!hasCliFlag(gateArgs, "--backend-log-out")) {
     args.push("--backend-log-out", backendLogOut);
+  }
+  if (!hasCliFlag(gateArgs, "--quiet-progress") && !hasCliFlag(gateArgs, "--verbose-progress")) {
+    args.push("--verbose-progress");
   }
   return args;
 }

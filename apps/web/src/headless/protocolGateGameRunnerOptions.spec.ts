@@ -5,10 +5,10 @@ import {
 } from "./protocolGateGameRunnerOptions";
 
 describe("protocolGateGameRunnerOptions", () => {
-  it("keeps single-game progress visible by default", () => {
+  it("suppresses progress output by default for single-game runs", () => {
     const options = parseProtocolGateGameRunnerArgs(["--games", "1"]);
 
-    expect(options.quietProgress).toBe(false);
+    expect(options.quietProgress).toBe(true);
   });
 
   it("suppresses progress output by default for multi-game runs", () => {
@@ -26,7 +26,7 @@ describe("protocolGateGameRunnerOptions", () => {
   it("allows explicit progress verbosity for investigation runs", () => {
     const options = parseProtocolGateGameRunnerArgs([
       "--games",
-      "5",
+      "1",
       "--quiet-progress",
       "--verbose-progress",
     ]);
@@ -36,7 +36,7 @@ describe("protocolGateGameRunnerOptions", () => {
 
   it("documents the file-first output policy", () => {
     expect(buildProtocolGateGamesHelpText()).toContain(
-      "Multi-game runs suppress progress output by default",
+      "Progress output is suppressed by default",
     );
     expect(buildProtocolGateGamesHelpText()).toContain(
       "Failures emit PROTOCOL_GATE_FAILURE_POINTER",

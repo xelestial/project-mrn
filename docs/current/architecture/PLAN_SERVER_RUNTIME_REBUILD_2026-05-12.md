@@ -427,7 +427,7 @@ commit signal
 - 완료: `apps/server/src/services/session_loop_manager.py`를 추가했다. manager는 session id별로 하나의 drain task만 예약하고, 같은 session에 대한 중복 wakeup은 dedupe한다.
 - 완료: `CommandRouter`가 `SessionLoopManager`를 받을 수 있게 바꿨고, 실제 server state에서는 router와 `CommandStreamWakeupWorker` 모두 manager로 위임한다.
 - 완료: manager 위임 후에도 기존 router의 `running_elsewhere` 재시도 의미가 사라지지 않도록 `deferred` drain 결과를 제한 시간 안에서 재시도한다.
-- 완료: loop는 `SessionCommandExecutor`를 통해 command lifecycle control flow를 직접 조립한다. runtime boundary는 Redis lease, command `processing` mark, engine boundary 실행, runtime status/result 적용 같은 저수준 동작을 제공하고, `RuntimeService.process_command_once()`는 같은 executor를 호출하는 호환 wrapper로만 남았다.
+- 완료: loop는 `SessionCommandExecutor`를 통해 command lifecycle control flow를 직접 조립한다. runtime boundary는 Redis lease, command `processing` mark, engine boundary 실행, runtime status/result 적용 같은 저수준 동작만 제공한다. `RuntimeService.process_command_once()` 호환 wrapper는 2026-05-13 cleanup에서 제거했다.
 - 완료: `consumer_name="runtime_wakeup"`을 유지했다. 새 consumer를 만들면 기존 worker offset과 갈라져 같은 command를 두 실행 경로가 다시 보게 되므로, 전환 중에는 같은 offset을 공유하는 것이 맞다.
 - 완료: restart/poll recovery는 기존 `CommandStreamWakeupWorker`가 pending command를 발견한 뒤 manager를 깨우는 형태로 수렴시켰다.
 - 완료: `CommandStreamWakeupWorker`가 runtime 처리를 비활성화한 경우에는 pending command를 소비한 것처럼 `runtime_wakeup` offset을 전진시키지 않는다. 비활성 worker가 offset만 저장하면 나중에 manager가 같은 accepted command를 보지 못하므로 command loss가 된다.
@@ -579,6 +579,15 @@ commit signal
 - 완료: 기존 runtime-service HTTP transport 테스트 중 "session loop가 worker를 직접 호출하고 실패 시 local AI로 fallback한다"를 계약으로 삼던 테스트는 제거했다. 이 동작은 새 구조에서 금지 대상이다. worker 자체 API와 healthcheck/auth helper 검증은 별도 테스트로 유지한다.
 - 범위 제한: `_LocalAiDecisionClient`와 `_LoopbackExternalAiTransport`는 이번 변경 범위가 아니다. 이들은 local/loopback test profile의 동기 AI 경로로 남아 있으며, HTTP external AI 운영 경로만 command-boundary 재진입으로 수렴했다.
 
+2026-05-13 local/loopback AI 정책 결정:
+
+- `local_ai`는 in-process deterministic AI 좌석이다. headless 자동 진행, fallback, local rule smoke를 위한 경로이며 외부 worker 통합 증거가 아니다.
+- `external_ai.transport=loopback`은 external AI seat descriptor와 participant metadata를 local sender로 통과시키는 test-profile seam이다. 현재 `ParameterService`의 기본값도 `loopback`이고, `RuntimeService` factory도 이 값을 `_LoopbackExternalAiTransport`로 보낸다. 따라서 기존 테스트와 local payload 호환성을 유지하기 위해 지금 제거하지 않는다.
+- `external_ai.transport=http`만 운영 external worker 경로다. 이 경로는 runtime call stack에서 worker를 직접 기다리지 않고 provider=`ai` pending prompt에서 멈춘 뒤, admin/worker bridge가 callback decision을 submit하고 `CommandInbox.accept_prompt_decision()`으로 재진입해야 한다.
+- loopback/local 경로는 full-stack external AI 증거로 인정하지 않는다. 운영 증거는 Redis-backed server, worker `/decide`, admin pending-prompt polling, server callback accept, wakeup 로그 또는 smoke summary가 함께 있어야 한다.
+- 향후 loopback 제거나 HTTP 수렴을 하려면 별도 migration으로 진행한다. 선행조건은 `ParameterService` 기본 transport 변경 여부 결정, session payload/test fixture 갱신, deterministic headless fallback 정책 결정, `_LoopbackExternalAiTransport` 의존 테스트의 red-green 전환, 운영 smoke 재검증이다.
+- 지금 강제로 loopback/local을 callback boundary에 끼워 넣으면 test automation 책임과 worker 운영 책임이 섞인다. 이는 이 재건 계획의 목표인 command-boundary 책임 축소가 아니라 또 다른 누더기 경로를 만드는 변경이므로 채택하지 않는다.
+
 ### Phase 8 - prompt identity 재정의
 
 목표: restart/replay/simultaneous frame에서 prompt id가 흔들리지 않게 한다.
@@ -644,20 +653,24 @@ commit signal
 - 완료: `CommandRouter`의 manager-less direct runtime fallback을 제거했다. accepted command wakeup은 `SessionLoopManager`가 있을 때만 schedule되며, manager가 없으면 command를 실행하지 않고 `missing_session_loop_manager`로 skip한다.
 - 완료: WebSocket decision route는 더 이상 `session_service` / `runtime_service`로 fallback `CommandRouter`를 조립하지 않는다. route에 주입된 router가 없으면 wakeup을 skip하고 runtime을 직접 호출하지 않는다.
 - 완료: `CommandRecoveryService`를 추가해 durable command store와 recovery checkpoint만으로 pending resume command, unprocessed command, command seq matching을 판단하게 했다. `sessions` runtime-status route와 WebSocket connect recovery는 이제 `RuntimeService`가 아니라 이 read-side service를 호출한다.
-- 완료: `RuntimeService`의 기존 command recovery 메서드는 내부 command guard 호환을 위한 위임 wrapper로 축소했다. 따라서 route/recovery read path의 소유권은 분리됐지만, `process_command_once()` 내부 guard는 아직 같은 service를 통해 동작한다.
-- 완료: `CommandProcessingGuardService`를 추가해 consumer offset guard, stale command terminal 판단, rejected/superseded/expired command state mark를 `RuntimeService` 밖으로 분리했다. `RuntimeService.process_command_once()`는 여전히 lease를 잡고 engine loop를 호출하지만, command precondition/stale terminal 규칙은 새 service에 위임한다.
+- 완료: `RuntimeService`의 기존 command recovery 메서드는 내부 command guard 호환을 위한 위임 wrapper로 축소했다. 따라서 route/recovery read path의 소유권은 분리됐고, command lifecycle guard는 `SessionCommandExecutor`가 runtime boundary lifecycle methods를 통해 호출한다.
+- 완료: `CommandProcessingGuardService`를 추가해 consumer offset guard, stale command terminal 판단, rejected/superseded/expired command state mark를 `RuntimeService` 밖으로 분리했다. `SessionCommandExecutor`는 lease와 engine loop 실행을 조율하고, command precondition/stale terminal 규칙은 새 service에 위임된 runtime boundary method를 통해 적용한다.
 - 완료: `CommandExecutionGate`를 추가해 in-process active command session lock과 active runtime task guard를 `RuntimeService` 필드 구현에서 분리했다. `RuntimeService`에는 호환 wrapper만 남아 runtime status와 command execution entrypoint가 같은 gate를 바라본다.
 - 완료: `CommandBoundaryFinalizer`를 추가해 command-boundary deferred commit 최종화(`deferred_commit` copy, authoritative Redis commit, latest `view_commit` emit, waiting prompt materialization, timing log)를 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. 최종 commit side effect 묶음의 소유자는 별도 service로 이동했다.
 - 완료: `CommandBoundaryFinalizer`가 authoritative commit 직전에 `commit_guard`를 호출하게 했다. command-boundary loop가 runtime lease를 잃은 상태이면 Redis authoritative state/view/prompt side effect를 실행하지 않고 `runtime_lease_lost_before_commit` stale result를 반환한다.
 - 완료: `CommandBoundaryRunner`를 추가해 command-boundary per-call store 생성, transition 반복, terminal 판단, finalizer 호출, module trace/timing result 조립을 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. `RuntimeService`는 engine transition과 persistence callables를 주입하는 boundary adapter로 남는다.
 - 완료: `SessionCommandExecutor`를 추가해 command lifecycle control flow를 `SessionLoop` 쪽으로 이동했다. `SessionLoop`는 이제 runtime task guard, local command gate, runtime lease acquire/release, command `processing` mark, engine boundary 실행, runtime status result 적용, conflict/failure 처리를 순서대로 조립한다.
 - 완료: `SessionLoop`는 더 이상 runtime boundary가 lifecycle interface를 지원하지 않을 때 `RuntimeService.process_command_once()`로 fallback하지 않는다. command lifecycle은 항상 `SessionCommandExecutor` 경로로 들어간다.
-- 완료: `RuntimeService.process_command_once()`는 `SessionCommandExecutor(runtime_boundary=self)`를 호출하는 compatibility wrapper로 축소했다. 프로덕션 `SessionLoop` 경로는 `process_command_once()` adapter가 없어도 runtime boundary lifecycle 메서드만으로 명령을 처리한다.
+- 완료: `RuntimeService.process_command_once()` compatibility wrapper를 제거했다. 프로덕션 `SessionLoop` 경로와 테스트는 `SessionCommandExecutor`를 직접 사용하고, `RuntimeService`는 runtime boundary lifecycle 메서드만 제공한다.
 - 완료: `RuntimeService`는 아직 engine transition, runtime state persistence, commit conflict recovery 같은 저수준 동작을 제공하지만, accepted command execution lifecycle의 owner는 `SessionLoop`/`SessionCommandExecutor`다.
 - 완료: `CommandBoundaryGameStateStore`를 `apps/server/src/services/command_boundary_store.py`로 분리하고 `RuntimeService` 안의 `_CommandBoundaryGameStateStore` private class 정의를 제거했다. 이제 staging/deferred commit adapter는 독립 테스트를 가진 명시적 service boundary다.
 - 보류: `CommandBoundaryGameStateStore` adapter 자체는 아직 필요하다. SessionLoop가 atomic state/prompt/view/command commit을 직접 소유하기 전에는 제거하면 같은 명령 안의 중간 transition commit 방지가 깨진다.
+- 2026-05-13 검토 결론: `CommandBoundaryGameStateStore`는 legacy compatibility wrapper가 아니라 현재 command atomicity를 지키는 staging boundary다. `CommandBoundaryRunner`는 원본 authoritative store를 이 adapter로 감싼 뒤 engine transition을 반복하고, `RuntimeService`의 non-terminal transition은 `defer_authoritative_transition_commit` / `stage_internal_transition()` 경로로 내부 상태만 stage한다. terminal boundary에 도달하면 `CommandBoundaryFinalizer`가 `deferred_commit()`을 복사해 authoritative Redis commit, latest `view_commit` emit, waiting prompt materialization을 한 번에 실행한다.
+- 제거 금지 근거: 이 adapter를 지금 삭제하면 같은 accepted command 안의 중간 module transition이 authoritative Redis/checkpoint/view/command offset으로 바로 commit되거나, 반대로 terminal commit에 필요한 current_state/checkpoint/view payload를 잃는다. 전자는 command 하나가 여러 external boundary로 보이는 문제이고, 후자는 recovery와 prompt materialization이 깨지는 문제다.
+- 제거 가능 조건: `SessionLoop` 또는 `SessionCommandExecutor`가 별도 UnitOfWork 성격의 boundary를 소유해 current_state, checkpoint, view_state, view_commits, command offset, runtime event payload를 terminal boundary까지 stage하고, lease 재검증 뒤 authoritative commit/prompt materialization을 원자적으로 finalization할 수 있어야 한다. 그 전에는 adapter 제거가 아니라 adapter의 책임을 더 명시적으로 유지하는 것이 올바른 상태다.
+- 검증 기준: `test_command_boundary_store.py`, `test_command_boundary_finalizer.py`, `test_runtime_service.py::test_command_scope_loop_defers_internal_transition_commits`, Redis runtime command-boundary tests가 "중간 transition stage, terminal commit 1회, view commit/prompt materialization finalization" 계약을 계속 잡아야 한다.
 - 완료: `_runtime_prompt_sequence_seed` 구현은 `runtime_service.py`에서 제거하고 `apps/server/src/domain/prompt_sequence.py`의 `runtime_prompt_sequence_seed()`로 이동했다. 이 규칙은 checkpoint/resume prompt instance id를 맞추는 순수 domain 계산으로 분류한다.
-- 보류: `RuntimeService.process_command_once()` wrapper는 아직 제거하지 않는다. `SessionLoop` production path는 wrapper fallback 없이 `SessionCommandExecutor`와 lifecycle boundary 메서드로 동작하지만, 기존 runtime service 테스트와 일부 route/stream 테스트가 wrapper를 진단용 호환 entrypoint로 직접 사용한다. 제거는 별도 compatibility cleanup으로 분리한다.
+- 완료: 기존 runtime service 테스트와 Redis runtime tests는 `RuntimeService.process_command_once()` 대신 `SessionCommandExecutor(runtime_boundary=...)`를 직접 호출하도록 전환했다. 일부 route/stream 테스트는 "fallback을 호출하지 않는다"는 계약만 검증하며 runtime facade method를 monkeypatch하지 않는다.
 
 수정 후보:
 
@@ -743,6 +756,16 @@ commit signal
   command seq 1 took 5357ms under 20 concurrent sessions. The previous
   `replay_wait_ms` prompt bottleneck is gone (`promptTimingCount=0` in the
   failure summary); Redis commit/view commit counts stayed at 1.
+- Capacity response direction:
+  5-game/1-server and 8-game/1-server are valid correctness and small-capacity
+  evidence. 10-game/1-server is the first measured breach of the 5s backend
+  command SLO, and 20-game/1-server is an intentionally harsh overload signal.
+  The next response is not Redis fan-out or prompt/view-commit patching. Treat
+  production capacity as "bounded concurrent sessions per server instance" and
+  scale with more server instances before redesigning the executor. A future
+  executor redesign must be a separate plan with explicit queueing/fairness,
+  per-session work ownership, and SLO targets; it must not be mixed into the
+  correctness rebuild as an opportunistic optimization.
 - Pending prompt reconnect smoke:
   `tmp/rl/full-stack-protocol/server-rebuild-reconnect-pending-prompt-20260513`.
   Full game completed. All four seats and spectator had one forced reconnect,
@@ -759,6 +782,11 @@ commit signal
   bottleneck run is not a pass criterion for one-server capacity; its failure is
   classified as one-server command/engine scheduling contention after prompt
   replay and Redis/view commit were ruled out.
+- Current server-runtime rebuild does not promise 10+ concurrent live games on
+  one Python server process inside the 5s backend command SLO. The supported
+  direction is horizontal server-instance scaling with measured per-instance
+  capacity, not local patches that hide scheduler contention in the protocol
+  correctness layer.
 - `view_commit`으로 pending prompt를 repair하는 code path가 없다.
 - accepted command가 Redis durable inbox를 거치지 않는 code path가 없다.
 

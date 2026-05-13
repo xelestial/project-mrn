@@ -1,7 +1,7 @@
 # External AI Worker Runbook
 
 Status: ACTIVE  
-Updated: 2026-04-07
+Updated: 2026-05-13
 
 ## Purpose
 
@@ -120,6 +120,47 @@ The resolver will fill:
 - `required_policy_class=PriorityScoredPolicy`
 - `required_decision_style=priority_scored_contract`
 - scored-choice capability requirements
+
+## Verify Server Callback Path
+
+The normal human WebSocket client cannot observe private `external_ai` prompt
+payloads. For full-stack evidence, use the admin-only worker bridge smoke.
+
+Start a Redis-backed server. The module runtime requires `game_state_store`, so
+starting the server without `MRN_REDIS_URL` is not valid evidence.
+
+```bash
+MRN_ADMIN_TOKEN=admin-secret \
+MRN_REDIS_URL=redis://127.0.0.1:6380/0 \
+MRN_REDIS_KEY_PREFIX='mrn:{external-ai-smoke}' \
+.venv/bin/python -m uvicorn apps.server.src.app:app --host 127.0.0.1 --port 9090
+```
+
+Then run:
+
+```bash
+.venv/bin/python tools/scripts/external_ai_full_stack_smoke.py \
+  --server-base-url http://127.0.0.1:9090 \
+  --worker-base-url http://127.0.0.1:8011 \
+  --admin-token admin-secret \
+  --summary-out tmp/external-ai-full-stack-smoke/summary.json
+```
+
+This smoke creates a session with an `external_ai` seat, polls
+`GET /api/v1/admin/sessions/{session_id}/external-ai/pending-prompts`, calls the
+worker `/decide` endpoint, and submits the result through
+`POST /api/v1/sessions/{session_id}/external-ai/decisions`.
+
+`participant_client: "local_ai"` and `external_ai.transport=loopback` are
+local/test-profile paths. They are useful for deterministic automation, but
+they do not prove the external worker callback path.
+
+Required evidence:
+
+- the admin pending-prompt endpoint rejects requests without `X-Admin-Token`
+- pending prompts returned by the admin endpoint are filtered to `provider="ai"`
+- callback status is `accepted`
+- the accepted prompt disappears from the pending external-AI list
 
 ## Attach a Seat to the Worker
 
