@@ -39,18 +39,18 @@ The current source of truth for that surface is now:
 
 Read and maintain these:
 
-1. `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+1. `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 2. `docs/current/Game-Rules.md`
-3. `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
-4. `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
+3. `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
+4. `docs/current/planning/PLAN_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
 5. `docs/current/runtime/end-to-end-contract.md`
 6. `docs/current/runtime/round-action-control-matrix.md`
-7. `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
-8. `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
-9. `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
+7. `docs/current/frontend/ACTIVE_UI_UX_FUTURE_WORK_CANONICAL.md`
+8. `docs/current/engineering/WORKLOG_IMPLEMENTATION_JOURNAL.md`
+9. `docs/current/engineering/PLAN_REDIS_AUTHORITATIVE_GAME_STATE.md`
 10. `docs/current/backend/runtime-logging-policy.md`
-11. `docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`
-12. `docs/current/architecture/[PLAN]_SERVER_RUNTIME_REBUILD_2026-05-12.md`
+11. `docs/current/engineering/PLAN_TILE_TRAIT_ACTION_PIPELINE.md`
+12. `docs/current/architecture/PLAN_SERVER_RUNTIME_REBUILD_2026-05-12.md`
 
 ## Current Reference Sets
 
@@ -61,11 +61,11 @@ Read and maintain these:
 - External AI operation: `docs/current/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md`
 - Human/external AI playtest checklist: `docs/current/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md`
 - Current runtime/external evidence:
-  `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`
+  `docs/current/engineering/EVIDENCE_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`
 - Final local manual playtest evidence:
-  `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
+  `docs/current/engineering/EVIDENCE_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
 - Current server runtime rebuild:
-  `docs/current/architecture/[PLAN]_SERVER_RUNTIME_REBUILD_2026-05-12.md`
+  `docs/current/architecture/PLAN_SERVER_RUNTIME_REBUILD_2026-05-12.md`
   Current Phase 9 work has removed direct runtime execution fallback from
   wakeup paths and split route-level command recovery queries into
   `CommandRecoveryService`; command precondition and stale terminal handling now
@@ -117,9 +117,9 @@ Those themes should reopen only if a concrete regression or rollout need appears
    smoke evidence from the actual external topology. The 2026-05-04 evidence
    pass confirmed that the local manifest validates and that
    `--require-external-topology` correctly rejects local-only evidence. See
-   `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`.
+   `docs/current/engineering/PLAN_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 2. Runtime protocol and contract stabilization. The current baseline is guarded
-   by `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`,
+   by `docs/current/planning/PLAN_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`,
    the module-runtime matrix, native module/semantic-guard/continuation and
    idempotency tests, and frontend decision/prompt contract tests. Keep
    end-to-end payload shape, round/action control, prompt lifecycle, and
@@ -132,8 +132,8 @@ Those themes should reopen only if a concrete regression or rollout need appears
    18-test `e2e:human-runtime` gate. The final local 2H+2AI and 4-human manual
    playtest evidence also passed, including active-weather context visibility.
    Use only
-   `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md` and
-   `docs/current/frontend/[AUDIT]_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
+   `docs/current/frontend/ACTIVE_UI_UX_FUTURE_WORK_CANONICAL.md` and
+   `docs/current/frontend/AUDIT_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
    as current frontend planning inputs.
 4. External AI endpoint operation. Local real HTTP worker behavior is verified
    through the priority-scored worker runbook smoke and runtime-service

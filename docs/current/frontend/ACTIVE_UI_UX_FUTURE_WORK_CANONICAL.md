@@ -92,7 +92,7 @@ Automated evidence:
 - `apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_projects_effect_context` and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_effect_context_covers_remaining_effect_prompt_boundaries` passed on 2026-05-04.
 - `src/features/prompt/promptEffectContextDisplay.spec.ts` and `src/domain/selectors/promptSelectors.spec.ts` passed on 2026-05-04.
 - `npm --prefix apps/web run e2e:human-runtime` passed all 18 checks on 2026-05-04, including fortune cash loss, innkeeper lap bonus, Manshin mark, Baksu burden transfer, matchmaker purchase, and mixed participant continuity cases.
-- Detailed evidence lives in `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`.
+- Detailed evidence lives in `docs/current/engineering/EVIDENCE_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`.
 
 Final manual evidence:
 - 2H+2AI session `sess_g9jUne6iNvKi7QC20SJnZYUO` passed with `0` rejected
@@ -101,7 +101,7 @@ Final manual evidence:
   decisions and `4 / 4` replay prompts carrying weather context.
 - Active weather remained visible in final screenshots for `길고 긴 겨울` and
   `맑고 포근한 하루`.
-- Evidence lives in `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`.
+- Evidence lives in `docs/current/engineering/EVIDENCE_FINAL_MANUAL_PLAYTEST_2026-05-04.md`.
 
 Definition of done:
 - a player can explain why a cash, shard, hand-count, burden, movement, or purchase prompt changed without reading debug logs

@@ -53,4 +53,4 @@ Recommended CI policy:
   - Treat it as a runtime diagnostic only; live render recovery must use `/view-commit` or websocket `view_commit`.
 - Keep this file aligned with:
   - `docs/current/runtime/end-to-end-contract.md`
-  - `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+  - `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`

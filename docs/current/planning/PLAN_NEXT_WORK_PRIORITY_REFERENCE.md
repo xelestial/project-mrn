@@ -18,10 +18,10 @@ canonical decision/selector correctness.
 
 ## Always-Check Order
 
-1. `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
-2. `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+1. `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+2. `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 3. `docs/current/planning/PLAN_STATUS_INDEX.md`
-4. `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+4. `docs/current/engineering/WORKLOG_IMPLEMENTATION_JOURNAL.md`
 5. active feature plan or contract for the touched subsystem
 
 ## Current Priority Order
@@ -30,11 +30,11 @@ canonical decision/selector correctness.
 
 Use:
 
-- `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
+- `docs/current/planning/PLAN_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
 - `docs/current/runtime/end-to-end-contract.md`
 - `docs/current/runtime/round-action-control-matrix.md`
-- `docs/current/engineering/[PLAN]_FAST_CHECK_GAME_RULE_HARNESS.md`
-- `docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`
+- `docs/current/engineering/PLAN_FAST_CHECK_GAME_RULE_HARNESS.md`
+- `docs/current/engineering/PLAN_TILE_TRAIT_ACTION_PIPELINE.md`
 
 Current goal:
 
@@ -51,8 +51,8 @@ Current goal:
 
 Use:
 
-- `docs/current/planning/[PLAN]_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
-- `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
+- `docs/current/planning/PLAN_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`
+- `docs/current/engineering/PLAN_REDIS_AUTHORITATIVE_GAME_STATE.md`
 - `docs/current/runtime/end-to-end-contract.md`
 - `docs/current/backend/runtime-logging-policy.md`
 
@@ -72,8 +72,8 @@ Current goal:
 
 Use:
 
-- `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
-- `docs/current/frontend/[AUDIT]_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
+- `docs/current/frontend/ACTIVE_UI_UX_FUTURE_WORK_CANONICAL.md`
+- `docs/current/frontend/AUDIT_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
 
 Current goal:
 

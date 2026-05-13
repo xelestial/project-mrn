@@ -6,8 +6,8 @@ Read in this order:
 
 1. `docs/current/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
 2. `docs/current/engineering/1_HUMAN_GAME_PIPELINES_AND_RUNTIME_REFERENCE.md`
-3. `docs/current/engineering/[PLAN]_ROOM_SERVER_CLIENT_ELECTRON_ARCHITECTURE.md`
-4. `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
+3. `docs/current/engineering/PLAN_ROOM_SERVER_CLIENT_ELECTRON_ARCHITECTURE.md`
+4. `docs/current/frontend/ACTIVE_UI_UX_FUTURE_WORK_CANONICAL.md`
 
 Notes:
 

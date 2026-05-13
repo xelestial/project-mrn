@@ -6,8 +6,8 @@ Status: `ACTIVE`
 Owner: `Shared`  
 Updated: `2026-03-31`  
 Parents:
-- `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
-- `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+- `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+- `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 
 ## Purpose
 
@@ -294,7 +294,7 @@ Canonical codes:
 - Removal/rename requires:
   1. migration window with aliases
   2. parser tests updated for both forms
-  3. explicit note in `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`.
+  3. explicit note in `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`.
 - Rule IDs and display labels evolve independently:
 - IDs are stability-critical
 - labels are replaceable catalogs (locale/theme/client mode)
@@ -383,7 +383,7 @@ export interface ManifestLifecyclePort {
 
 Reference plan:
 
-- `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+- `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 - `docs/current/runtime/end-to-end-contract.md`
 - `docs/current/runtime/round-action-control-matrix.md`
 

@@ -6,8 +6,8 @@ Status: `ACTIVE`
 Owner: `Shared`  
 Updated: `2026-04-14`  
 Parents:
-- `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
-- `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+- `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+- `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 
 ## Purpose
 
@@ -956,7 +956,7 @@ Client runtime rule:
 
 Reference plan:
 
-- `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+- `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 
 Verification reference:
 

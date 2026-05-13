@@ -45,12 +45,12 @@ suite passed.
 
 Read these in order:
 
-1. `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+1. `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 2. `docs/current/Game-Rules.md`
-3. `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+3. `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 4. `docs/current/planning/PLAN_STATUS_INDEX.md`
-5. `docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md`
-6. `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+5. `docs/current/frontend/ACTIVE_UI_UX_FUTURE_WORK_CANONICAL.md`
+6. `docs/current/engineering/WORKLOG_IMPLEMENTATION_JOURNAL.md`
 
 ## Mandatory Engineering Principles
 
@@ -101,7 +101,12 @@ Read these in order:
 - Plans live on `main`.
 - Update relevant plan docs when the implementation direction changes.
 - Leave a summary in:
-  - `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+  - `docs/current/engineering/WORKLOG_IMPLEMENTATION_JOURNAL.md`
+- Do not use square brackets in `docs/current` filenames. Use plain uppercase
+  prefixes such as `PLAN_`, `ACTIVE_`, `WORKLOG_`, `MANDATORY_`, and
+  `CLAUDE-PROPOSAL_` instead of bracketed prefix forms.
+- When a current document is renamed, update all in-repo references and policy
+  gates in the same change.
 
 ### P-07 Work Execution Policy
 
@@ -151,6 +156,6 @@ If text appears broken:
 
 When touching user-facing text, always re-check:
 
-- `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
-- `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
-- `docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md`
+- `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+- `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
+- `docs/current/engineering/WORKLOG_IMPLEMENTATION_JOURNAL.md`

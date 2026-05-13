@@ -11,10 +11,10 @@ material.
 Start here:
 
 1. `docs/current/planning/PLAN_STATUS_INDEX.md`
-2. `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+2. `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 3. `docs/current/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
 4. `docs/current/Game-Rules.md`
-5. `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+5. `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
 
 Current document areas:
 

@@ -9,7 +9,7 @@
 - `docs/current/Game-Rules.md`
 - `docs/current/backend/online-game-interface-spec.md`
 - `packages/runtime-contracts/ws/README.md`
-- `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
+- `docs/current/engineering/PLAN_REDIS_AUTHORITATIVE_GAME_STATE.md`
 - `apps/server/src/state.py`
 - `apps/server/src/app.py`
 - `apps/server/src/routes/sessions.py`

@@ -2,7 +2,7 @@
 
 작성일: 2026-05-12  
 작성자: Claude  
-전제 문서: `[CLAUDE-PROPOSAL]_SERVER_STRUCTURE_DIAGNOSIS_2026-05-12.md`
+전제 문서: `CLAUDE-PROPOSAL_SERVER_STRUCTURE_DIAGNOSIS_2026-05-12.md`
 
 이 문서는 초기 진단 이후 코드를 더 깊이 읽어 발견한 추가 문제들을 기록한다.
 

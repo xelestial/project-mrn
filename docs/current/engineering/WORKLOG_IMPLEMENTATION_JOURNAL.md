@@ -1,5 +1,30 @@
 # Implementation Journal
 
+## 2026-05-13 Current Doc Filename Bracket Removal
+
+- Renamed current documentation files under `docs/current` so filenames no
+  longer contain shell-special square brackets.
+- Kept the existing document prefix semantics by changing names such as
+  plan, active, and worklog bracketed prefixes to plain `PLAN_`, `ACTIVE_`,
+  and `WORKLOG_` prefixes.
+- Updated in-repo references, README pointers, tests, and `tools/plan_policy_gate.py`
+  to use the new names.
+- Added a mandatory documentation policy that forbids square brackets in
+  `docs/current` filenames and requires reference/policy gate updates in the
+  same rename change.
+
+## Verification
+
+- Bracket filename/reference check: `files=0`, `refs=0`.
+- `python3 tools/plan_policy_gate.py`
+- `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`
+- `git diff --check`
+- Additional scope check:
+  `./.venv/bin/python -m pytest tests/test_module_runtime_playtest_matrix_doc.py -q`
+  still fails on pre-existing runtime matrix coverage gaps unrelated to the
+  filename rename (`trick_to_use`, `InitialRewardModule`, and round-frame
+  inventory coverage).
+
 ## 2026-05-13 Server Runtime Rebuild Phase 9 Command Boundary Store Extraction
 
 - Added `CommandBoundaryGameStateStore` in `apps/server/src/services/command_boundary_store.py` as the command-boundary staging/deferred-commit adapter.
@@ -311,7 +336,7 @@ Result: focused worker/session-loop/router tests passed, broader runtime/Redis/p
 
 - Reviewed the current server audit and Claude server redesign proposals.
 - Rejected direct local queue command acceptance, pub/sub-only outbound delivery, non-atomic batch completion, weak deterministic prompt ids, and further expansion of `RuntimeService`.
-- Created the active rebuild plan at `docs/current/architecture/[PLAN]_SERVER_RUNTIME_REBUILD_2026-05-12.md`.
+- Created the active rebuild plan at `docs/current/architecture/PLAN_SERVER_RUNTIME_REBUILD_2026-05-12.md`.
 - Updated the plan index so new server runtime work starts from the rebuild plan instead of reopening older umbrella migration documents.
 
 ## 2026-05-12 Server-Split Shared-Redis Protocol Gate Validation
@@ -391,7 +416,7 @@ Result: focused worker/session-loop/router tests passed, broader runtime/Redis/p
 
 ## 2026-05-13 Pre-Implementation Completion Criteria Rule
 
-- Added a mandatory pre-implementation contract to `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`.
+- Added a mandatory pre-implementation contract to `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`.
 - The contract requires every implementation task to state goal, completion criteria, non-goals, protected boundaries, verification commands, and responsibility check before code edits.
 - Added `P-09 Completion Criteria Discipline` so architecture work is checked for actual responsibility movement, not only test success.
 - Added the same execution rule to root `AGENTS.md` so future sessions inherit it immediately.

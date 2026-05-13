@@ -3,10 +3,10 @@
 작성일: 2026-05-12  
 작성자: Claude  
 근거 파일:
-- `docs/current/rules/[REFERENCE]_CORE_RULE_DECISION_FLOW_2026-05-12.md`
-- `docs/current/architecture/[AUDIT]_CURRENT_GAME_SERVER_STRUCTURE_2026-05-12.md`
-- `docs/current/architecture/[PROPOSAL]_SERVER_LOGIC_DESIGN_AGENT_A_2026-05-12.md`
-- `docs/current/architecture/[PROPOSAL]_SERVER_LOGIC_DESIGN_AGENT_B_2026-05-12.md`
+- `docs/current/rules/REFERENCE_CORE_RULE_DECISION_FLOW_2026-05-12.md`
+- `docs/current/architecture/AUDIT_CURRENT_GAME_SERVER_STRUCTURE_2026-05-12.md`
+- `docs/current/architecture/PROPOSAL_SERVER_LOGIC_DESIGN_AGENT_A_2026-05-12.md`
+- `docs/current/architecture/PROPOSAL_SERVER_LOGIC_DESIGN_AGENT_B_2026-05-12.md`
 - `apps/server/src/routes/stream.py`
 - `apps/server/src/services/runtime_service.py`
 - `apps/server/src/services/prompt_service.py`

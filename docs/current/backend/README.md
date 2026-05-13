@@ -6,8 +6,8 @@ Read these first:
 
 1. `docs/current/1_READ_FIRST_GAME_STABILIZATION_AND_RUNTIME_GUIDE.md`
 2. `docs/current/engineering/1_HUMAN_GAME_PIPELINES_AND_RUNTIME_REFERENCE.md`
-3. `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
-4. `docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md`
+3. `docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`
+4. `docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md`
 5. `docs/current/backend/online-game-interface-spec.md`
 6. `docs/current/backend/turn-structure-and-order-source-map.md`
 
@@ -16,7 +16,7 @@ Canonical backend references:
 - `docs/current/backend/runtime-logging-policy.md`
 - `docs/current/runtime/end-to-end-contract.md`
 - `docs/current/runtime/round-action-control-matrix.md`
-- `docs/current/engineering/[PLAN]_ROOM_SERVER_CLIENT_ELECTRON_ARCHITECTURE.md`
+- `docs/current/engineering/PLAN_ROOM_SERVER_CLIENT_ELECTRON_ARCHITECTURE.md`
 
 Operational defaults:
 

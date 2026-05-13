@@ -2,7 +2,7 @@
 
 작성일: 2026-05-12  
 작성자: Claude  
-전제 문서: `[CLAUDE-PROPOSAL]_SERVER_REDESIGN_2026-05-12.md`
+전제 문서: `CLAUDE-PROPOSAL_SERVER_REDESIGN_2026-05-12.md`
 
 이 문서는 초안에서 빠진 영역을 포함한 완전한 설계다.
 

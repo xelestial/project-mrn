@@ -5,11 +5,11 @@ Date: 2026-05-12
 Owner: Server runtime
 Basis:
 
-- `docs/current/architecture/[AUDIT]_CURRENT_GAME_SERVER_STRUCTURE_2026-05-12.md`
-- `docs/current/architecture/[CLAUDE-PROPOSAL]_SERVER_STRUCTURE_DIAGNOSIS_2026-05-12.md`
-- `docs/current/architecture/[CLAUDE-PROPOSAL]_SERVER_STRUCTURE_ADDENDUM_2026-05-12.md`
-- `docs/current/architecture/[CLAUDE-PROPOSAL]_SERVER_REDESIGN_FULL_2026-05-12.md`
-- `docs/current/engineering/[LESSONS]_REDIS_RUNTIME_UI_PLAYTEST.md`
+- `docs/current/architecture/AUDIT_CURRENT_GAME_SERVER_STRUCTURE_2026-05-12.md`
+- `docs/current/architecture/CLAUDE-PROPOSAL_SERVER_STRUCTURE_DIAGNOSIS_2026-05-12.md`
+- `docs/current/architecture/CLAUDE-PROPOSAL_SERVER_STRUCTURE_ADDENDUM_2026-05-12.md`
+- `docs/current/architecture/CLAUDE-PROPOSAL_SERVER_REDESIGN_FULL_2026-05-12.md`
+- `docs/current/engineering/LESSONS_REDIS_RUNTIME_UI_PLAYTEST.md`
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to execute this plan step by step.
 

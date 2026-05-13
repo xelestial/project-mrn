@@ -14,7 +14,7 @@ This records the verification pass for the requested remaining items:
 5. playtest evidence documentation
 
 Follow-up final manual evidence was completed in
-`docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`.
+`docs/current/engineering/EVIDENCE_FINAL_MANUAL_PLAYTEST_2026-05-04.md`.
 
 ## 1. Redis Platform Topology
 
@@ -218,7 +218,7 @@ Result: final local long-form manual playtests passed.
 
 Evidence:
 
-- `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
+- `docs/current/engineering/EVIDENCE_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
 - `docs/current/engineering/evidence/manual-playtest-2026-05-04/manual-playtest-driver-result.json`
 - eight 1440x900 screenshots under
   `docs/current/engineering/evidence/manual-playtest-2026-05-04/`

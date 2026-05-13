@@ -5,11 +5,11 @@ Current status: playable web/runtime project under UI/UX stabilization.
 ## Read First
 
 - [Game rules](/Users/sil/Workspace/project-mrn/docs/current/Game-Rules.md)
-- [Mandatory engineering rules](/Users/sil/Workspace/project-mrn/docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md)
+- [Mandatory engineering rules](/Users/sil/Workspace/project-mrn/docs/current/engineering/MANDATORY_PRINCIPLES_AND_REQUIRED_PLAN_READING.md)
 - [Current plan status](/Users/sil/Workspace/project-mrn/docs/current/planning/PLAN_STATUS_INDEX.md)
-- [Current next-work board](/Users/sil/Workspace/project-mrn/docs/current/planning/[PLAN]_NEXT_WORK_PRIORITY_REFERENCE.md)
+- [Current next-work board](/Users/sil/Workspace/project-mrn/docs/current/planning/PLAN_NEXT_WORK_PRIORITY_REFERENCE.md)
 - [Documentation index](/Users/sil/Workspace/project-mrn/docs/README.md)
-- [UI/UX canonical future work](/Users/sil/Workspace/project-mrn/docs/current/frontend/[ACTIVE]_UI_UX_FUTURE_WORK_CANONICAL.md)
+- [UI/UX canonical future work](/Users/sil/Workspace/project-mrn/docs/current/frontend/ACTIVE_UI_UX_FUTURE_WORK_CANONICAL.md)
 
 ## Active Areas
 
@@ -43,6 +43,6 @@ This starts Redis (`project-mrn`), the FastAPI server, the standalone prompt tim
 - [docs/current/api/README.md](/Users/sil/Workspace/project-mrn/docs/current/api/README.md)
 - [docs/current/backend/README.md](/Users/sil/Workspace/project-mrn/docs/current/backend/README.md)
 - [docs/current/frontend/README.md](/Users/sil/Workspace/project-mrn/docs/current/frontend/README.md)
-- [docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md](/Users/sil/Workspace/project-mrn/docs/current/engineering/[WORKLOG]_IMPLEMENTATION_JOURNAL.md)
+- [docs/current/engineering/WORKLOG_IMPLEMENTATION_JOURNAL.md](/Users/sil/Workspace/project-mrn/docs/current/engineering/WORKLOG_IMPLEMENTATION_JOURNAL.md)
 - [docs/current/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md](/Users/sil/Workspace/project-mrn/docs/current/engineering/EXTERNAL_AI_WORKER_RUNBOOK.md)
 - [docs/current/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md](/Users/sil/Workspace/project-mrn/docs/current/engineering/HUMAN_EXTERNAL_AI_PLAYTEST_CHECKLIST.md)

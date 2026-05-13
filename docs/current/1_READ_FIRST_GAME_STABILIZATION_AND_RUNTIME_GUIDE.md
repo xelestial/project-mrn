@@ -64,7 +64,7 @@ The automated screen test failure rule is:
 ### Latest browser gate result: REDIS-UI-10
 
 As of 2026-05-01, `REDIS-UI-10` is resolved. The current lesson summary is
-`docs/current/engineering/[LESSONS]_REDIS_RUNTIME_UI_PLAYTEST.md`.
+`docs/current/engineering/LESSONS_REDIS_RUNTIME_UI_PLAYTEST.md`.
 
 The latest Docker Redis/browser retest proved that the game can boot, keep Redis-backed gameplay moving, render a readable board without console errors, and expose stable effect/spectator evidence:
 

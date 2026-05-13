@@ -9,11 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine"))
 
-MATRIX_DOC = ROOT / "docs/current/engineering/[MATRIX]_MODULE_RUNTIME_PLAYTEST_SCENARIOS.md"
+MATRIX_DOC = ROOT / "docs/current/engineering/MATRIX_MODULE_RUNTIME_PLAYTEST_SCENARIOS.md"
 ROUND_ACTION_CONTROL_MATRIX = ROOT / "docs/current/runtime/round-action-control-matrix.md"
 END_TO_END_CONTRACT_DOC = ROOT / "docs/current/runtime/end-to-end-contract.md"
-TILE_TRAIT_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md"
-REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md"
+TILE_TRAIT_PLAN_DOC = ROOT / "docs/current/engineering/PLAN_TILE_TRAIT_ACTION_PIPELINE.md"
+REDIS_STATE_PLAN_DOC = ROOT / "docs/current/engineering/PLAN_REDIS_AUTHORITATIVE_GAME_STATE.md"
 SERVER_README = ROOT / "apps/server/README.md"
 WEB_PACKAGE_JSON = ROOT / "apps/web/package.json"
 WEB_PROMPT_SELECTOR_SPEC = ROOT / "apps/web/src/domain/selectors/promptSelectors.spec.ts"
@@ -21,7 +21,7 @@ WEB_E2E_README = ROOT / "apps/web/e2e/README.md"
 WEB_E2E_PARITY_SPEC = ROOT / "apps/web/e2e/parity.spec.ts"
 WEB_E2E_FIXTURES_DIR = ROOT / "apps/web/e2e/fixtures"
 ONLINE_GAME_API_SPEC = ROOT / "docs/current/api/online-game-api-spec.md"
-DEPLOYMENT_CONTRACT_DOC = ROOT / "docs/current/engineering/[CONTRACT]_REDIS_RUNTIME_DEPLOYMENT.md"
+DEPLOYMENT_CONTRACT_DOC = ROOT / "docs/current/engineering/CONTRACT_REDIS_RUNTIME_DEPLOYMENT.md"
 DEPLOYMENT_PROCESS_CONTRACT = ROOT / "deploy/redis-runtime/process-contract.json"
 ROUND_COMBINATION_REGRESSION_PACK = (
     ROOT / "packages/runtime-contracts/ws/examples/round-combination.regression-pack.json"
