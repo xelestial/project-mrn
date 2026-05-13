@@ -800,6 +800,9 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
         self.assertEqual(acks[-1].get("payload", {}).get("player_id"), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
+        self.assertEqual(acks[-1].get("payload", {}).get("public_player_id"), joined["public_player_id"])
+        self.assertEqual(acks[-1].get("payload", {}).get("seat_id"), joined["seat_id"])
+        self.assertEqual(acks[-1].get("payload", {}).get("viewer_id"), joined["viewer_id"])
 
     def test_visible_ack_is_not_dropped_after_latest_snapshot_advances_stream_seq(self) -> None:
         from apps.server.src import state

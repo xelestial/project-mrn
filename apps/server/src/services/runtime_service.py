@@ -22,7 +22,7 @@ from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
-from apps.server.src.domain.protocol_identity import display_identity_fields, seat_protocol_fields
+from apps.server.src.domain.protocol_identity import display_identity_fields
 from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
 from apps.server.src.domain.prompt_sequence import runtime_prompt_sequence_seed
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
@@ -57,6 +57,15 @@ _PROMPT_BOUNDARY_PUBLISH_TIMEOUT_SECONDS = 5.0
 _PROMPT_BOUNDARY_PUBLISH_ATTEMPTS = 3
 _EVENT_STREAM_PUBLISH_TIMEOUT_SECONDS = 1.0
 _DEFAULT_RUNTIME_AI_DECISION_DELAY_MS = 1000
+_PROTOCOL_IDENTITY_FIELD_NAMES = (
+    "legacy_player_id",
+    "seat_index",
+    "turn_order_index",
+    "player_label",
+    "public_player_id",
+    "seat_id",
+    "viewer_id",
+)
 
 
 def _duration_ms(started: float) -> int:
@@ -2999,13 +3008,12 @@ class RuntimeService:
     def _view_commit_viewer_identity_fields(self, session_id: str, external_player_id: int) -> dict[str, Any]:
         fallback = display_identity_fields(external_player_id, legacy_player_id=external_player_id)
         try:
-            session = self._session_service.get_session(session_id)
+            fields = self._session_service.protocol_identity_fields(session_id, external_player_id)
         except Exception:
             return fallback
-        for seat in getattr(session, "seats", []) or []:
-            if self._int_or_none(getattr(seat, "seat", None)) == external_player_id:
-                return {**fallback, **seat_protocol_fields(seat)}
-        return fallback
+        if not fields:
+            return fallback
+        return {**fallback, **fields}
 
     def _build_authoritative_view_state(
         self,
@@ -3665,6 +3673,9 @@ class RuntimeService:
             return None
         payload.setdefault("provider", "human")
         self._enrich_prompt_boundary_from_active_batch(payload, state)
+        player_id = self._int_or_none(payload.get("player_id"))
+        if player_id is not None:
+            payload.update(self._view_commit_viewer_identity_fields(session_id, player_id))
         try:
             self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
         except ValueError as exc:
@@ -3722,6 +3733,7 @@ class RuntimeService:
             self._prompt_service.mark_prompt_delivered(request_id, session_id=session_id)
 
         public_context = dict(payload.get("public_context") or {})
+        identity_fields = {key: payload[key] for key in _PROTOCOL_IDENTITY_FIELD_NAMES if key in payload}
         requested = build_decision_requested_payload(
             request_id=request_id,
             player_id=player_id,
@@ -3731,6 +3743,7 @@ class RuntimeService:
             round_index=public_context.get("round_index"),
             turn_index=public_context.get("turn_index"),
             public_context=public_context,
+            identity_fields=identity_fields,
         )
         publish_event = lambda: self._stream_service.publish(session_id, "event", requested)
         if stream_backend is None:

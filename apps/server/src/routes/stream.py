@@ -291,6 +291,13 @@ def _resolve_decision_player_id(session_service: Any, session_id: str, message: 
     )
 
 
+def _decision_protocol_identity_fields(session_service: Any, session_id: str, player_id: int | None) -> dict[str, Any]:
+    identity_fields = getattr(session_service, "protocol_identity_fields", None)
+    if not callable(identity_fields) or player_id is None:
+        return {}
+    return dict(identity_fields(session_id, player_id) or {})
+
+
 async def _send_direct_decision_ack(
     *,
     websocket: WebSocket,
@@ -844,6 +851,11 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         player_id=int(message.get("player_id", 0)),
                         reason=decision_state.get("reason"),
                         provider="human",
+                        identity_fields=_decision_protocol_identity_fields(
+                            session_service,
+                            session_id,
+                            resolved_player_id,
+                        ),
                     ),
                 )
                 ack_publish_ms = int((time.perf_counter() - phase_started_ms) * 1000)

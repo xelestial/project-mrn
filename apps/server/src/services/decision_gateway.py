@@ -1793,6 +1793,7 @@ def build_decision_ack_payload(
     reason: str | None = None,
     provider: DecisionProvider = "human",
     command_seq: int | None = None,
+    identity_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "request_id": request_id,
@@ -1800,6 +1801,8 @@ def build_decision_ack_payload(
         "player_id": player_id,
         "provider": provider,
     }
+    if identity_fields:
+        payload.update(dict(identity_fields))
     if reason:
         payload["reason"] = reason
     if command_seq is not None:
@@ -1817,6 +1820,7 @@ def build_decision_requested_payload(
     round_index: int | None = None,
     turn_index: int | None = None,
     public_context: dict[str, Any] | None = None,
+    identity_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "event_type": "decision_requested",
@@ -1828,6 +1832,8 @@ def build_decision_requested_payload(
         "round_index": round_index,
         "turn_index": turn_index,
     }
+    if identity_fields:
+        payload.update(dict(identity_fields))
     if public_context:
         payload["public_context"] = dict(public_context)
     return payload
@@ -1844,6 +1850,7 @@ def build_decision_resolved_payload(
     round_index: int | None = None,
     turn_index: int | None = None,
     public_context: dict[str, Any] | None = None,
+    identity_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "event_type": "decision_resolved",
@@ -1856,6 +1863,8 @@ def build_decision_resolved_payload(
         "round_index": round_index,
         "turn_index": turn_index,
     }
+    if identity_fields:
+        payload.update(dict(identity_fields))
     if public_context:
         payload["public_context"] = dict(public_context)
     return payload

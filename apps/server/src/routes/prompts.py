@@ -196,6 +196,7 @@ async def submit_external_ai_decision(
         reason=decision_state.get("reason"),
         provider="ai",
         command_seq=decision_state.get("command_seq"),
+        identity_fields=sessions.protocol_identity_fields(session_id, resolved_player_id),
     )
     await stream.publish_decision_ack(session_id, ack_payload)
     if decision_state.get("status") == "accepted":

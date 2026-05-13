@@ -5,7 +5,7 @@ from dataclasses import asdict
 import random
 import threading
 
-from apps.server.src.domain.protocol_identity import seat_protocol_fields
+from apps.server.src.domain.protocol_identity import display_identity_fields, seat_protocol_fields
 from apps.server.src.domain.protocol_ids import new_public_player_id, new_seat_id, new_viewer_id
 from apps.server.src.domain.session_models import (
     ParticipantClientType,
@@ -232,6 +232,20 @@ class SessionService:
             if viewer_id is not None and seat_cfg.viewer_id == viewer_id:
                 return seat_cfg.seat
         return None
+
+    def protocol_identity_fields(self, session_id: str, player_id: int | str | None) -> dict:
+        """Return public protocol identity fields for an internal numeric seat id."""
+        numeric = self._optional_int(player_id)
+        if numeric is None:
+            return {}
+        session = self.get_session(session_id)
+        for seat_cfg in session.seats:
+            if seat_cfg.seat == numeric:
+                return {
+                    **display_identity_fields(numeric, legacy_player_id=numeric),
+                    **seat_protocol_fields(seat_cfg),
+                }
+        return {}
 
     def player_display_names(self, session_id: str) -> dict[int, str]:
         session = self.get_session(session_id)

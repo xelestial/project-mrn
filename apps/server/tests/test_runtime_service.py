@@ -8440,6 +8440,14 @@ class RuntimeServiceTests(unittest.TestCase):
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
         loop_thread.start()
         try:
+            session = self.session_service.create_session(
+                [
+                    {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                    {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                ],
+                config={"max_players": 2},
+            )
+            seat = session.seats[1]
             prompt = self._module_prompt(
                 {
                     "request_id": "runtime_boundary_delayed_req_1",
@@ -8458,7 +8466,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
             payload = self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
                 loop,
-                "sess_runtime_boundary_delayed_prompt",
+                session.session_id,
                 prompt,
                 publish=False,
             )
@@ -8466,25 +8474,31 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertIsNotNone(payload)
             self.assertIsNotNone(self.prompt_service.get_pending_prompt("runtime_boundary_delayed_req_1"))
             messages_before_publish = asyncio.run_coroutine_threadsafe(
-                self.stream_service.snapshot("sess_runtime_boundary_delayed_prompt"),
+                self.stream_service.snapshot(session.session_id),
                 loop,
             ).result(timeout=2.0)
             self.assertEqual(messages_before_publish, [])
 
             self.runtime_service._publish_prompt_boundary_sync(  # type: ignore[attr-defined]
                 loop,
-                "sess_runtime_boundary_delayed_prompt",
+                session.session_id,
                 payload,
             )
             messages_after_publish = asyncio.run_coroutine_threadsafe(
-                self.stream_service.snapshot("sess_runtime_boundary_delayed_prompt"),
+                self.stream_service.snapshot(session.session_id),
                 loop,
             ).result(timeout=2.0)
 
             self.assertEqual([msg.type for msg in messages_after_publish], ["prompt", "event"])
             self.assertEqual(messages_after_publish[0].payload["request_id"], "runtime_boundary_delayed_req_1")
+            self.assertEqual(messages_after_publish[0].payload["public_player_id"], seat.public_player_id)
+            self.assertEqual(messages_after_publish[0].payload["seat_id"], seat.seat_id)
+            self.assertEqual(messages_after_publish[0].payload["viewer_id"], seat.viewer_id)
             self.assertEqual(messages_after_publish[1].payload["event_type"], "decision_requested")
             self.assertEqual(messages_after_publish[1].payload["request_id"], "runtime_boundary_delayed_req_1")
+            self.assertEqual(messages_after_publish[1].payload["public_player_id"], seat.public_player_id)
+            self.assertEqual(messages_after_publish[1].payload["seat_id"], seat.seat_id)
+            self.assertEqual(messages_after_publish[1].payload["viewer_id"], seat.viewer_id)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)

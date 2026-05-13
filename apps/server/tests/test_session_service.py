@@ -204,6 +204,22 @@ class SessionServiceTests(unittest.TestCase):
         self.assertEqual(self.service.resolve_protocol_player_id(session.session_id, seat_id=ai_seat["seat_id"]), 2)
         self.assertIsNone(self.service.resolve_protocol_player_id(session.session_id, public_player_id="ply_unknown"))
 
+    def test_protocol_identity_fields_returns_public_identity_for_internal_seat(self) -> None:
+        session = self.service.create_session(_default_seats())
+        public = self.service.to_public(session)
+        seat_2 = public["seats"][1]
+
+        fields = self.service.protocol_identity_fields(session.session_id, 2)
+
+        self.assertEqual(fields["player_label"], "P2")
+        self.assertEqual(fields["legacy_player_id"], 2)
+        self.assertEqual(fields["seat_index"], 2)
+        self.assertEqual(fields["turn_order_index"], 2)
+        self.assertEqual(fields["public_player_id"], seat_2["public_player_id"])
+        self.assertEqual(fields["seat_id"], seat_2["seat_id"])
+        self.assertEqual(fields["viewer_id"], seat_2["viewer_id"])
+        self.assertEqual(self.service.protocol_identity_fields(session.session_id, 99), {})
+
     def test_private_session_rejects_missing_spectator_token(self) -> None:
         session = self.service.create_session(_default_seats())
         with self.assertRaises(SessionStateError):

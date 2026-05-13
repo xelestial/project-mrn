@@ -910,7 +910,8 @@ class SessionsApiTests(unittest.TestCase):
         created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
         session_data = created.json()["data"]
         session_id = session_data["session_id"]
-        public_player_id = session_data["seats"][0]["public_player_id"]
+        seat = session_data["seats"][0]
+        public_player_id = seat["public_player_id"]
         state.prompt_service.create_prompt(
             session_id,
             {
@@ -941,6 +942,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ack.payload["provider"], "ai")
         self.assertEqual(ack.payload["request_id"], "ai_req_public_1")
         self.assertEqual(ack.payload["player_id"], 1)
+        self.assertEqual(ack.payload["public_player_id"], seat["public_player_id"])
+        self.assertEqual(ack.payload["seat_id"], seat["seat_id"])
+        self.assertEqual(ack.payload["viewer_id"], seat["viewer_id"])
 
     def test_start_response_includes_parameter_manifest(self) -> None:
         from apps.server.src import state
