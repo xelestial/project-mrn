@@ -52,6 +52,7 @@ class PromptService:
         self._resolved: dict[str, tuple[int, str, str]] = {}
         self._decisions: dict[str, dict] = {}
         self._lifecycle: dict[str, dict[str, Any]] = {}
+        self._request_aliases: dict[str, str] = {}
         self._waiters: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
         self._resolved_ttl_ms = 60 * 60 * 1000
@@ -630,6 +631,12 @@ class PromptService:
             decision = self._get_decision(request_id, session_id=session_id)
             if decision is not None:
                 return decision
+            indexed_alias = self._resolve_indexed_request_alias(request_id, session_id=session_id)
+            if indexed_alias:
+                request_id = indexed_alias
+                decision = self._get_decision(request_id, session_id=session_id)
+                if decision is not None:
+                    return decision
             lifecycle_alias = self._resolve_lifecycle_request_alias(request_id, session_id=session_id)
             if lifecycle_alias:
                 request_id = lifecycle_alias
@@ -888,6 +895,11 @@ class PromptService:
             )
             return
         self._pending[_scoped_request_key(pending.session_id, pending.request_id)] = pending
+        self._index_request_aliases(
+            request_id=pending.request_id,
+            payload=pending.payload,
+            session_id=pending.session_id,
+        )
 
     def _get_pending(self, request_id: str, session_id: str | None = None) -> PendingPrompt | None:
         if self._prompt_store is not None:
@@ -980,6 +992,7 @@ class PromptService:
             self._prompt_store.save_decision(request_id, payload, session_id=session_id)
             return
         self._decisions[_scoped_request_key(session_id, request_id)] = payload
+        self._index_request_aliases(request_id=request_id, payload=payload, session_id=session_id)
 
     def _get_decision(self, request_id: str, session_id: str | None = None) -> dict | None:
         if self._prompt_store is not None:
@@ -1109,6 +1122,7 @@ class PromptService:
             self._prompt_store.save_lifecycle(request_id, payload, session_id=session_id)
             return
         self._lifecycle[_scoped_request_key(session_id, request_id)] = dict(payload)
+        self._index_request_aliases(request_id=request_id, payload=payload, session_id=session_id)
 
     def _get_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         if self._prompt_store is not None and callable(getattr(self._prompt_store, "get_lifecycle", None)):
@@ -1129,8 +1143,12 @@ class PromptService:
         normalized_request_id = str(request_id or "").strip()
         if not normalized_request_id:
             return ""
-        if self._get_pending(normalized_request_id, session_id=session_id) is not None:
-            return normalized_request_id
+        pending = self._get_pending(normalized_request_id, session_id=session_id)
+        if pending is not None:
+            return pending.request_id
+        indexed_alias = self._resolve_indexed_request_alias(normalized_request_id, session_id=session_id)
+        if indexed_alias:
+            return indexed_alias
         pending_alias = self._resolve_pending_request_alias(normalized_request_id, session_id=session_id)
         if pending_alias:
             return pending_alias
@@ -1140,6 +1158,9 @@ class PromptService:
         return normalized_request_id
 
     def _resolve_pending_request_alias(self, request_id: str, session_id: str | None = None) -> str:
+        indexed_alias = self._resolve_indexed_request_alias(request_id, session_id=session_id)
+        if indexed_alias and self._get_pending(indexed_alias, session_id=session_id) is not None:
+            return indexed_alias
         matches: set[str] = set()
         for pending in self._iter_pending_values():
             if session_id is not None and pending.session_id != str(session_id):
@@ -1149,6 +1170,9 @@ class PromptService:
         return next(iter(matches)) if len(matches) == 1 else ""
 
     def _resolve_lifecycle_request_alias(self, request_id: str, session_id: str | None = None) -> str:
+        indexed_alias = self._resolve_indexed_request_alias(request_id, session_id=session_id)
+        if indexed_alias and self._get_lifecycle(indexed_alias, session_id=session_id) is not None:
+            return indexed_alias
         matches: set[str] = set()
         for lifecycle in self._iter_lifecycle_values(session_id=session_id):
             prompt_payload = lifecycle.get("prompt")
@@ -1205,6 +1229,32 @@ class PromptService:
         if len(matches) == 1:
             return matches[0]
         return None
+
+    def _index_request_aliases(self, *, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        normalized_request_id = str(request_id or "").strip()
+        if not normalized_request_id:
+            return
+        for alias in _request_aliases_from_payload(payload):
+            if alias == normalized_request_id:
+                continue
+            self._request_aliases[_scoped_request_key(session_id, alias)] = normalized_request_id
+
+    def _resolve_indexed_request_alias(self, request_id: str, session_id: str | None = None) -> str:
+        normalized_request_id = str(request_id or "").strip()
+        if not normalized_request_id:
+            return ""
+        normalized_session_id = str(session_id or "").strip()
+        if normalized_session_id:
+            return self._request_aliases.get(_scoped_request_key(normalized_session_id, normalized_request_id), "")
+        unscoped = self._request_aliases.get(normalized_request_id, "")
+        if unscoped:
+            return unscoped
+        matches = {
+            canonical
+            for alias_key, canonical in self._request_aliases.items()
+            if _request_id_from_scoped_key(alias_key) == normalized_request_id
+        }
+        return next(iter(matches)) if len(matches) == 1 else ""
 
     def _waiter_key(self, request_id: str, session_id: str | None = None) -> str | None:
         normalized_session_id = str(session_id or "").strip()
@@ -1365,6 +1415,23 @@ def _payload_request_alias_matches(payload: dict, request_id: str) -> bool:
         if str(payload.get(field) or "").strip() == normalized_request_id:
             return True
     return False
+
+
+def _request_aliases_from_payload(payload: dict[str, Any]) -> set[str]:
+    aliases: set[str] = set()
+    payloads: list[Any] = [payload]
+    for nested_field in ("payload", "prompt", "decision"):
+        nested = payload.get(nested_field)
+        if isinstance(nested, dict):
+            payloads.append(nested)
+    for item in payloads:
+        if not isinstance(item, dict):
+            continue
+        for field in ("legacy_request_id", "public_request_id", "submitted_request_id"):
+            alias = str(item.get(field) or "").strip()
+            if alias:
+                aliases.add(alias)
+    return aliases
 
 
 def _int_or_none(value: object) -> int | None:

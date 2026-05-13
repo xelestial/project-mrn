@@ -33,6 +33,10 @@ in the active plans, status index, tests, or canonical contract documents.
   request aliases through lifecycle metadata for both in-memory and Redis
   stores. Zero-timeout missing-decision probes still avoid pending/resolved hash
   scans.
+- Public request alias lookup now has an in-memory request alias index and
+  Redis prompt-hash alias indexes. Pending-read, accept, wait, and lifecycle
+  reads can resolve `public_request_id` without scanning the pending, decision,
+  or lifecycle hashes in the covered paths.
 - `PromptService.get_prompt_lifecycle()` now accepts the same public request
   alias and returns the legacy-key lifecycle record, which keeps debug/status
   reads usable before the canonical prompt key migration.
@@ -71,9 +75,10 @@ in the active plans, status index, tests, or canonical contract documents.
   semantic `request_id` strings. Runtime batch resume/enrichment also no
   longer manufactures `batch_id` from request-id suffixes. `PromptService`
   command materialization now follows the same rule; producers must carry
-  explicit batch identity. Compatibility storage and replay still keep the
-  legacy request id key until the canonical opaque prompt-key migration is done
-  as a separate, larger change.
+  explicit batch identity. Public prompt-id lookup responsibility moved into
+  the prompt service/store alias indexes, but compatibility storage and replay
+  still keep the legacy request id key until the canonical opaque prompt-key
+  migration is done as a separate, larger change.
 
 Verification:
 
@@ -81,12 +86,14 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_does_not_derive_batch_id_from_batch_request_id apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_boundary_enrichment_uses_explicit_batch_and_player_for_opaque_request_id -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_public_request_alias_resolution_uses_index_before_scans -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_module_decision_command_does_not_derive_batch_id_from_request_id apps/server/tests/test_prompt_service.py::PromptServiceTests::test_module_decision_command_carries_prompt_instance_id_for_public_request_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_mark_prompt_delivered_resolves_public_request_id_alias apps/server/tests/test_prompt_service.py::PromptServiceTests::test_external_decision_result_resolves_public_request_id_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_public_request_id_with_redis_prompt_store apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_expires_public_request_id_with_redis_prompt_store -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_uses_redis_alias_index_for_public_request_id_lookup -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py apps/server/tests/test_redis_realtime_services.py -q -k "runtime_prompt_sequence_seed or prompt_sequence"`
 - `./.venv/bin/python tools/plan_policy_gate.py`
 - `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`

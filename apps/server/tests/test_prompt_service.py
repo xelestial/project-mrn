@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from unittest import mock
 
 from apps.server.src.services.batch_collector import BatchCollectorResult
 from apps.server.src.services.prompt_service import PromptService
@@ -247,6 +248,47 @@ class PromptServiceTests(unittest.TestCase):
         assert by_public is not None
         self.assertEqual(by_public.request_id, pending.request_id)
         self.assertEqual(by_public.payload["public_request_id"], public_request_id)
+
+    def test_public_request_alias_resolution_uses_index_before_scans(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:11",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 11,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        with mock.patch.object(self.service, "_iter_pending_values", side_effect=AssertionError("pending scan")):
+            by_public = self.service.get_pending_prompt(public_request_id, session_id="s1")
+            result = self.service.submit_decision(
+                {
+                    "session_id": "s1",
+                    "request_id": public_request_id,
+                    "player_id": 1,
+                    "choice_id": "roll",
+                }
+            )
+
+        self.assertIsNotNone(by_public)
+        assert by_public is not None
+        self.assertEqual(by_public.request_id, pending.request_id)
+        self.assertEqual(result["status"], "accepted")
+
+        with mock.patch.object(self.service, "_iter_lifecycle_values", side_effect=AssertionError("lifecycle scan")):
+            decision = self.service.wait_for_decision(public_request_id, timeout_ms=0, session_id="s1")
+            lifecycle = self.service.get_prompt_lifecycle(public_request_id, session_id="s1")
+
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision["request_id"], pending.request_id)
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], pending.request_id)
 
     def test_mark_prompt_delivered_resolves_public_request_id_alias(self) -> None:
         pending = self.service.create_prompt(

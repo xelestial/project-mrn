@@ -47,6 +47,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             "decision_resume_request_id": "sess_1:r3:t9:p1:trick_tile_target:18",
             "decision_resume_request_type": "trick_tile_target",
             "decision_resume_player_id": 1,
+            "decision_resume_prompt_instance_id": 18,
             "decision_resume_frame_id": "turn:r3:p1",
             "decision_resume_module_id": "mod:trick",
             "decision_resume_module_type": "TrickWindowModule",
@@ -63,6 +64,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             module_id="mod:trick",
             module_type="TrickWindowModule",
             module_cursor="await_trick_prompt",
+            prompt_instance_id=19,
         )
 
         self.assertEqual(runtime_prompt_sequence_seed(state, checkpoint, resume), 18)
@@ -1507,6 +1509,58 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         assert lifecycle_by_public is not None
         self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
         self.assertEqual(lifecycle_by_public["decision"]["public_request_id"], public_request_id)
+
+    def test_prompt_service_uses_redis_alias_index_for_public_request_id_lookup(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        pending = service.create_prompt(
+            "s-redis-public-index",
+            {
+                "request_id": "s-redis-public-index:r2:t3:p1:movement:7",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 7,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+        original_hgetall = self.fake_redis.hgetall
+        prompt_hashes = {
+            prompt_store._pending_key(),
+            prompt_store._decisions_key(),
+            prompt_store._lifecycle_key(),
+        }
+
+        def _fail_prompt_hash_scan(name: str) -> dict[str, str]:
+            if name in prompt_hashes:
+                raise AssertionError(f"unexpected prompt hash scan: {name}")
+            return original_hgetall(name)
+
+        with unittest.mock.patch.object(self.fake_redis, "hgetall", side_effect=_fail_prompt_hash_scan):
+            pending_by_public = service.get_pending_prompt(public_request_id, session_id=pending.session_id)
+            accepted = service.submit_decision(
+                {
+                    "session_id": pending.session_id,
+                    "request_id": public_request_id,
+                    "player_id": 1,
+                    "choice_id": "roll",
+                }
+            )
+            decision_by_public = service.wait_for_decision(public_request_id, timeout_ms=0, session_id=pending.session_id)
+            lifecycle_by_public = service.get_prompt_lifecycle(public_request_id, session_id=pending.session_id)
+
+        self.assertIsNotNone(pending_by_public)
+        assert pending_by_public is not None
+        self.assertEqual(pending_by_public.request_id, pending.request_id)
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertIsNotNone(decision_by_public)
+        assert decision_by_public is not None
+        self.assertEqual(decision_by_public["request_id"], pending.request_id)
+        self.assertIsNotNone(lifecycle_by_public)
+        assert lifecycle_by_public is not None
+        self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
 
     def test_prompt_service_expires_public_request_id_with_redis_prompt_store(self) -> None:
         prompt_store = RedisPromptStore(self.connection)

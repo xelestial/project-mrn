@@ -387,6 +387,7 @@ class RedisPromptStore:
             field,
             _json_dump(payload),
         )
+        self._save_prompt_aliases(self._pending_key(), field, payload, session_id=session_id)
         self._upsert_debug_record("pending", field, payload, session_id=session_id)
 
     def delete_pending(self, request_id: str, session_id: str | None = None) -> bool:
@@ -396,6 +397,7 @@ class RedisPromptStore:
         raw = self._connection.client().hget(self._pending_key(), field)
         removed = int(self._connection.client().hdel(self._pending_key(), field) or 0)
         if removed > 0:
+            self._delete_prompt_aliases(self._pending_key(), field, raw, session_id=session_id)
             self._delete_debug_record("pending", field, raw, session_id=session_id)
             return True
         return False
@@ -423,6 +425,7 @@ class RedisPromptStore:
             field,
             _json_dump(payload),
         )
+        self._save_prompt_aliases(self._resolved_key(), field, payload, session_id=session_id)
         self._upsert_debug_record("resolved", field, payload, session_id=session_id)
 
     def delete_resolved(self, request_id: str, session_id: str | None = None) -> None:
@@ -430,6 +433,7 @@ class RedisPromptStore:
         if field is not None:
             raw = self._connection.client().hget(self._resolved_key(), field)
             self._connection.client().hdel(self._resolved_key(), field)
+            self._delete_prompt_aliases(self._resolved_key(), field, raw, session_id=session_id)
             self._delete_debug_record("resolved", field, raw, session_id=session_id)
 
     def save_decision(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
@@ -439,6 +443,7 @@ class RedisPromptStore:
             field,
             _json_dump(payload),
         )
+        self._save_prompt_aliases(self._decisions_key(), field, payload, session_id=session_id)
         self._upsert_debug_record("decisions", field, payload, session_id=session_id)
 
     def get_decision(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
@@ -457,6 +462,7 @@ class RedisPromptStore:
         if raw is None:
             return None
         client.hdel(self._decisions_key(), field)
+        self._delete_prompt_aliases(self._decisions_key(), field, raw, session_id=session_id)
         self._delete_debug_record("decisions", field, raw, session_id=session_id)
         return _json_load_dict(str(raw))
 
@@ -465,6 +471,7 @@ class RedisPromptStore:
         if field is not None:
             raw = self._connection.client().hget(self._decisions_key(), field)
             self._connection.client().hdel(self._decisions_key(), field)
+            self._delete_prompt_aliases(self._decisions_key(), field, raw, session_id=session_id)
             self._delete_debug_record("decisions", field, raw, session_id=session_id)
 
     def get_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
@@ -493,6 +500,7 @@ class RedisPromptStore:
             field,
             _json_dump(payload),
         )
+        self._save_prompt_aliases(self._lifecycle_key(), field, payload, session_id=session_id)
         self._upsert_debug_record("lifecycle", field, payload, session_id=session_id)
 
     def delete_lifecycle(self, request_id: str, session_id: str | None = None) -> None:
@@ -500,6 +508,7 @@ class RedisPromptStore:
         if field is not None:
             raw = self._connection.client().hget(self._lifecycle_key(), field)
             self._connection.client().hdel(self._lifecycle_key(), field)
+            self._delete_prompt_aliases(self._lifecycle_key(), field, raw, session_id=session_id)
             self._delete_debug_record("lifecycle", field, raw, session_id=session_id)
 
     def accept_decision_with_command(
@@ -519,6 +528,7 @@ class RedisPromptStore:
             return None
         storage_request_id = self._prompt_field(normalized_request_id, session_id=session_id)
         client = self._connection.client()
+        pending_raw = client.hget(self._pending_key(), storage_request_id)
         decision_json = _json_dump(decision_payload)
         resolved_json = _json_dump(resolved_payload)
         command_json = _json_dump(command_payload)
@@ -547,6 +557,9 @@ class RedisPromptStore:
             )
             if not result:
                 return None
+            self._delete_prompt_aliases(self._pending_key(), storage_request_id, pending_raw, session_id=session_id)
+            self._save_prompt_aliases(self._decisions_key(), storage_request_id, decision_payload, session_id=session_id)
+            self._save_prompt_aliases(self._resolved_key(), storage_request_id, decision_payload, session_id=session_id)
             self._delete_debug_record("pending", storage_request_id, None, session_id=session_id, refresh=False)
             self._upsert_debug_record("decisions", storage_request_id, decision_payload, session_id=session_id, refresh=False)
             self._upsert_debug_record("resolved", storage_request_id, resolved_payload, session_id=session_id, refresh=False)
@@ -560,7 +573,7 @@ class RedisPromptStore:
                 "payload": dict(command_payload),
             }
         _ensure_non_lua_fallback_allowed(self._connection)
-        if client.hget(self._pending_key(), storage_request_id) is None:
+        if pending_raw is None:
             return None
         if not bool(client.hsetnx(command_store._seen_key(), seen_key, "1")):
             return None
@@ -591,6 +604,9 @@ class RedisPromptStore:
             ),
         )
         results = pipeline.execute()
+        self._delete_prompt_aliases(self._pending_key(), storage_request_id, pending_raw, session_id=session_id)
+        self._save_prompt_aliases(self._decisions_key(), storage_request_id, decision_payload, session_id=session_id)
+        self._save_prompt_aliases(self._resolved_key(), storage_request_id, decision_payload, session_id=session_id)
         self._delete_debug_record("pending", storage_request_id, None, session_id=session_id, refresh=False)
         self._upsert_debug_record("decisions", storage_request_id, decision_payload, session_id=session_id, refresh=False)
         self._upsert_debug_record("resolved", storage_request_id, resolved_payload, session_id=session_id, refresh=False)
@@ -704,8 +720,14 @@ class RedisPromptStore:
             scoped = self._prompt_field(normalized_request_id, session_id=normalized_session_id)
             if client.hget(hash_key, scoped) is not None:
                 return scoped
+            alias = client.hget(self._prompt_alias_key(hash_key), scoped)
+            if alias and client.hget(hash_key, str(alias)) is not None:
+                return str(alias)
         if client.hget(hash_key, normalized_request_id) is not None:
             return normalized_request_id
+        alias = client.hget(self._prompt_alias_key(hash_key), normalized_request_id)
+        if alias and client.hget(hash_key, str(alias)) is not None:
+            return str(alias)
         if normalized_session_id:
             return None
         matches: list[str] = []
@@ -721,6 +743,50 @@ class RedisPromptStore:
         if len(matches) == 1:
             return matches[0]
         return None
+
+    def _save_prompt_aliases(
+        self,
+        hash_key: str,
+        canonical_field: str,
+        payload: dict[str, Any],
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        aliases = _prompt_request_aliases_from_payload(payload)
+        if not aliases:
+            return
+        normalized_session_id = str(session_id or payload.get("session_id") or "").strip()
+        mapping: dict[str, str] = {}
+        for alias in aliases:
+            if alias == _request_id_from_scoped_key(canonical_field):
+                continue
+            mapping[self._prompt_field(alias, session_id=normalized_session_id or None)] = canonical_field
+        if mapping:
+            self._connection.client().hset(self._prompt_alias_key(hash_key), mapping=mapping)
+
+    def _delete_prompt_aliases(
+        self,
+        hash_key: str,
+        canonical_field: str,
+        raw_payload: str | None,
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        payload = _json_load_dict(str(raw_payload)) if raw_payload is not None else None
+        if payload is None:
+            return
+        normalized_session_id = str(session_id or payload.get("session_id") or "").strip()
+        alias_fields = [
+            self._prompt_field(alias, session_id=normalized_session_id or None)
+            for alias in _prompt_request_aliases_from_payload(payload)
+            if alias != _request_id_from_scoped_key(canonical_field)
+        ]
+        if alias_fields:
+            self._connection.client().hdel(self._prompt_alias_key(hash_key), *alias_fields)
+
+    @staticmethod
+    def _prompt_alias_key(hash_key: str) -> str:
+        return f"{hash_key}:aliases"
 
     def _pending_key(self) -> str:
         return self._connection.key("prompts", "pending")
@@ -2410,6 +2476,28 @@ def _json_load_dict(raw: str) -> dict[str, Any] | None:
     if isinstance(parsed, dict):
         return parsed
     return None
+
+
+def _request_id_from_scoped_key(key: str) -> str:
+    raw = str(key or "")
+    return raw.rsplit("\x1f", 1)[-1]
+
+
+def _prompt_request_aliases_from_payload(payload: dict[str, Any]) -> set[str]:
+    aliases: set[str] = set()
+    payloads: list[Any] = [payload]
+    for nested_field in ("payload", "prompt", "decision"):
+        nested = payload.get(nested_field)
+        if isinstance(nested, dict):
+            payloads.append(nested)
+    for item in payloads:
+        if not isinstance(item, dict):
+            continue
+        for field in ("legacy_request_id", "public_request_id", "submitted_request_id"):
+            alias = str(item.get(field) or "").strip()
+            if alias:
+                aliases.add(alias)
+    return aliases
 
 
 def _ensure_non_lua_fallback_allowed(connection: RedisConnection) -> None:
