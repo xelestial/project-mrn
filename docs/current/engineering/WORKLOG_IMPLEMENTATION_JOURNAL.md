@@ -140,6 +140,7 @@ Representative verification already passed during this phase:
   boundary finalizer, boundary store, session loop, router, stream, and wakeup
   worker
 - full `apps/server/tests` passes through the Phase 9 checkpoints
+- `npm --prefix apps/web test -- src/headless/protocolGateRunArtifacts.spec.ts src/headless/protocolGateRunProgress.spec.ts src/headless/protocolLatencyGate.spec.ts`
 - `python3 tools/plan_policy_gate.py`
 - `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`
 - `git diff --check`

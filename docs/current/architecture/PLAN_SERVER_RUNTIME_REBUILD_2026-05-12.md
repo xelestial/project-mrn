@@ -672,7 +672,7 @@ commit signal
 - [x] `./.venv/bin/python -m pytest apps/server/tests -q`
 - [x] `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`
 - [x] `python3 tools/plan_policy_gate.py`
-- [ ] `npm --prefix apps/web test -- src/headless/protocolGateRunArtifacts.spec.ts src/headless/protocolGateRunProgress.spec.ts src/headless/protocolLatencyGate.spec.ts`
+- [x] `npm --prefix apps/web test -- src/headless/protocolGateRunArtifacts.spec.ts src/headless/protocolGateRunProgress.spec.ts src/headless/protocolLatencyGate.spec.ts`
 - [ ] 1-game live protocol gate
 - [ ] 5-game, 5-server, 1-Redis protocol gate
 - [ ] 20-game, 1-server bottleneck protocol gate
