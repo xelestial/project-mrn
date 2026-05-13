@@ -1,6 +1,22 @@
 from __future__ import annotations
 
 
+class PromptInstanceSequencer:
+    def __init__(self, current: int = 0) -> None:
+        self._current = _positive_int(current)
+
+    @property
+    def current(self) -> int:
+        return self._current
+
+    def set_current(self, value: object) -> None:
+        self._current = _positive_int(value)
+
+    def allocate_next(self) -> int:
+        self._current += 1
+        return self._current
+
+
 def _positive_int(value: object) -> int:
     try:
         parsed = int(value)
@@ -82,4 +98,4 @@ def runtime_prompt_sequence_seed(
     return prompt_sequence
 
 
-__all__ = ["runtime_prompt_sequence_seed"]
+__all__ = ["PromptInstanceSequencer", "runtime_prompt_sequence_seed"]

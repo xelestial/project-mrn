@@ -24,7 +24,7 @@ from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.domain.protocol_identity import display_identity_fields
 from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
-from apps.server.src.domain.prompt_sequence import runtime_prompt_sequence_seed
+from apps.server.src.domain.prompt_sequence import PromptInstanceSequencer, runtime_prompt_sequence_seed
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.domain.visibility import ViewerContext
@@ -5178,7 +5178,7 @@ def _external_ai_prompt_metadata_from_envelope(envelope: dict[str, object]) -> d
 
 class _LocalHumanDecisionClient:
     def __init__(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway) -> None:
-        self._prompt_seq = 0
+        self._prompt_instances = PromptInstanceSequencer()
         if not human_seats:
             self.policy = None
             return
@@ -5196,13 +5196,13 @@ class _LocalHumanDecisionClient:
 
     @property
     def prompt_seq(self) -> int:
-        return int(self._prompt_seq)
+        return self._prompt_instances.current
 
     def bump_prompt_seq(self) -> None:
-        self._prompt_seq += 1
+        self._prompt_instances.allocate_next()
 
     def set_prompt_seq(self, value: int) -> None:
-        self._prompt_seq = max(0, int(value))
+        self._prompt_instances.set_current(value)
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         started = time.perf_counter()

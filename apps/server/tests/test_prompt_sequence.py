@@ -3,11 +3,28 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from apps.server.src.domain.prompt_sequence import runtime_prompt_sequence_seed
+from apps.server.src.domain.prompt_sequence import PromptInstanceSequencer, runtime_prompt_sequence_seed
 from apps.server.src.services.runtime_service import RuntimeDecisionResume
 
 
 class PromptSequenceTests(unittest.TestCase):
+    def test_prompt_instance_sequencer_resumes_and_allocates_next_instance(self) -> None:
+        sequencer = PromptInstanceSequencer()
+
+        sequencer.set_current(4)
+
+        self.assertEqual(sequencer.current, 4)
+        self.assertEqual(sequencer.allocate_next(), 5)
+        self.assertEqual(sequencer.current, 5)
+
+    def test_prompt_instance_sequencer_clamps_invalid_seed_to_zero(self) -> None:
+        sequencer = PromptInstanceSequencer()
+
+        sequencer.set_current(-7)
+
+        self.assertEqual(sequencer.current, 0)
+        self.assertEqual(sequencer.allocate_next(), 1)
+
     def test_seed_uses_explicit_prompt_instance_id_for_opaque_resume_request_id(self) -> None:
         state = SimpleNamespace(
             prompt_sequence=19,
