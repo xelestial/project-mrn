@@ -53,9 +53,10 @@ in the active plans, status index, tests, or canonical contract documents.
   fallback responses. Numeric `player_id` remains the compatibility routing
   alias.
 - `BatchCollector` completion commands now expose
-  `responses_by_public_player_id` as an additive companion derived from
-  collected response payloads. Numeric `responses_by_player_id` remains the
-  canonical resume map for compatibility.
+  `responses_by_public_player_id` and ordered `expected_public_player_ids` as
+  additive companions derived from collected response payloads. Numeric
+  `responses_by_player_id` and `expected_player_ids` remain the compatibility
+  resume map and ordering contract.
 - `RuntimeDecisionResume` now accepts public-only `batch_complete`
   `responses_by_public_player_id` payloads by resolving public player IDs
   through `SessionService` and materializing the numeric engine bridge map.

@@ -172,6 +172,12 @@ class BatchCollector:
             public_responses = _responses_by_public_player_id(command_payload["responses_by_player_id"])
             if public_responses:
                 command_payload["responses_by_public_player_id"] = public_responses
+            expected_public_player_ids = _expected_public_player_ids(
+                command_payload["responses_by_player_id"],
+                expected_player_ids,
+            )
+            if expected_public_player_ids:
+                command_payload["expected_public_player_ids"] = expected_public_player_ids
             command = self._command_store.append_command(
                 session_id,
                 "batch_complete",
@@ -242,6 +248,18 @@ def _responses_by_public_player_id(responses_by_player_id: dict[str, Any]) -> di
     return responses
 
 
+def _expected_public_player_ids(responses_by_player_id: dict[str, Any], expected_player_ids: list[int]) -> list[str]:
+    result: list[str] = []
+    for expected_player_id in expected_player_ids:
+        response = responses_by_player_id.get(str(expected_player_id))
+        if not isinstance(response, dict):
+            continue
+        public_player_id = str(response.get("public_player_id") or "").strip()
+        if public_player_id:
+            result.append(public_player_id)
+    return result
+
+
 _RECORD_BATCH_RESPONSE_LUA = """
 local inserted = redis.call("HSETNX", KEYS[1], ARGV[1], ARGV[2])
 local expected = cjson.decode(ARGV[3])
@@ -283,6 +301,7 @@ end
 local command_payload = cjson.decode(ARGV[8])
 local responses = {}
 local public_responses = {}
+local expected_public_player_ids = {}
 for i = 1, #expected do
   local player_id = tostring(expected[i])
   local raw_response = redis.call("HGET", KEYS[1], player_id)
@@ -292,12 +311,16 @@ for i = 1, #expected do
     local public_player_id = response["public_player_id"]
     if public_player_id ~= nil and tostring(public_player_id) ~= "" then
       public_responses[tostring(public_player_id)] = response
+      table.insert(expected_public_player_ids, tostring(public_player_id))
     end
   end
 end
 command_payload["responses_by_player_id"] = responses
 if next(public_responses) ~= nil then
   command_payload["responses_by_public_player_id"] = public_responses
+end
+if #expected_public_player_ids > 0 then
+  command_payload["expected_public_player_ids"] = expected_public_player_ids
 end
 command_payload["completed_at_ms"] = tonumber(ARGV[7]) or 0
 local command_payload_json = cjson.encode(command_payload)
