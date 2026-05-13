@@ -1235,6 +1235,73 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_fanout_event_payload_adds_public_identity_for_direct_player(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            stream = _IdempotentStreamServiceStub()
+            fanout = _FanoutVisEventStream(
+                loop,
+                stream,
+                "sess_identity_fanout",
+                lambda _session_id: None,
+                identity_fields_for_player=lambda player_id: {
+                    "legacy_player_id": player_id,
+                    "seat_index": player_id,
+                    "turn_order_index": player_id - 1,
+                    "player_label": f"P{player_id}",
+                    "public_player_id": f"player_{player_id}",
+                    "seat_id": f"seat_{player_id}",
+                    "viewer_id": f"viewer_{player_id}",
+                },
+            )
+
+            fanout.append(_DebugEventStub({"event_type": "dice_roll", "player_id": 2}))
+
+            self.assertEqual(stream.published_payloads[0]["player_id"], 2)
+            self.assertEqual(stream.published_payloads[0]["public_player_id"], "player_2")
+            self.assertEqual(stream.published_payloads[0]["seat_id"], "seat_2")
+            self.assertEqual(stream.published_payloads[0]["viewer_id"], "viewer_2")
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_fanout_event_payload_adds_actor_public_identity_for_acting_player(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            stream = _IdempotentStreamServiceStub()
+            fanout = _FanoutVisEventStream(
+                loop,
+                stream,
+                "sess_identity_fanout",
+                lambda _session_id: None,
+                identity_fields_for_player=lambda player_id: {
+                    "legacy_player_id": player_id,
+                    "seat_index": player_id,
+                    "turn_order_index": player_id - 1,
+                    "player_label": f"P{player_id}",
+                    "public_player_id": f"player_{player_id}",
+                    "seat_id": f"seat_{player_id}",
+                    "viewer_id": f"viewer_{player_id}",
+                },
+            )
+
+            fanout.append(_DebugEventStub({"event_type": "turn_start", "acting_player_id": 3}))
+
+            self.assertEqual(stream.published_payloads[0]["acting_player_id"], 3)
+            self.assertEqual(stream.published_payloads[0]["acting_public_player_id"], "player_3")
+            self.assertEqual(stream.published_payloads[0]["acting_seat_id"], "seat_3")
+            self.assertEqual(stream.published_payloads[0]["acting_viewer_id"], "viewer_3")
+            self.assertNotIn("acting_legacy_player_id", stream.published_payloads[0])
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_fanout_event_stream_drops_publish_timeout_without_blocking_runtime(self) -> None:
         class StreamStub:
             async def latest_seq(self, session_id: str) -> int:
@@ -9202,13 +9269,15 @@ class _IdempotentStreamServiceStub:
     def __init__(self) -> None:
         self.seq = 0
         self.deduplicate_next_publish = False
+        self.published_payloads: list[dict] = []
 
     async def latest_seq(self, session_id: str) -> int:
         del session_id
         return self.seq
 
     async def publish(self, session_id: str, event_type: str, payload: dict) -> _PublishedEventStub:
-        del session_id, event_type, payload
+        del session_id, event_type
+        self.published_payloads.append(copy.deepcopy(payload))
         if self.deduplicate_next_publish:
             self.deduplicate_next_publish = False
             return _PublishedEventStub(self.seq)

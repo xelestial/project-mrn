@@ -16,7 +16,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -1462,6 +1462,9 @@ class RuntimeService:
                 self._touch_activity,
                 human_player_ids=human_player_ids,
                 spectator_event_delay_ms=0,
+                identity_fields_for_player=lambda player_id: self._session_service.protocol_identity_fields(
+                    session_id, player_id
+                ),
             )
             if publish_external_side_effects and loop is not None and self._stream_service is not None
             else None
@@ -2245,6 +2248,9 @@ class RuntimeService:
                     self._touch_activity,
                     human_player_ids=human_player_ids,
                     spectator_event_delay_ms=0,
+                    identity_fields_for_player=lambda player_id: self._session_service.protocol_identity_fields(
+                        session_id, player_id
+                    ),
                 )
                 if publish_external_side_effects and loop is not None and self._stream_service is not None
                 else None
@@ -5232,6 +5238,7 @@ class _FanoutVisEventStream:
         *,
         human_player_ids: list[int] | None = None,
         spectator_event_delay_ms: int = 0,
+        identity_fields_for_player: Callable[[int], dict[str, Any]] | None = None,
     ) -> None:
         self._loop = loop
         self._stream_service = stream_service
@@ -5240,6 +5247,7 @@ class _FanoutVisEventStream:
         self._touch_activity = touch_activity
         self._human_player_ids = frozenset(int(player_id) for player_id in (human_player_ids or []))
         self._spectator_event_delay_ms = max(0, int(spectator_event_delay_ms))
+        self._identity_fields_for_player = identity_fields_for_player
 
     def _run_stream_operation(self, failure_event: str, operation: str, coroutine_factory):
         coro = None
@@ -5270,6 +5278,7 @@ class _FanoutVisEventStream:
         self._events.append(event)
         self._touch_activity(self._session_id)
         payload = event.to_dict()
+        payload = self._with_protocol_identity(payload)
         latest_seq = 0
         if callable(getattr(self._stream_service, "latest_seq", None)):
             latest_seq_value = self._run_stream_operation(
@@ -5348,3 +5357,40 @@ class _FanoutVisEventStream:
         if not isinstance(actor, int):
             return 0.0
         return self._spectator_event_delay_ms / 1000.0 if actor not in self._human_player_ids else 0.0
+
+    def _with_protocol_identity(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self._identity_fields_for_player is None:
+            return payload
+        enriched = dict(payload)
+        self._merge_identity_fields(enriched, enriched.get("player_id"))
+        self._merge_identity_fields(enriched, enriched.get("acting_player_id"), prefix="acting")
+        return enriched
+
+    def _merge_identity_fields(
+        self,
+        payload: dict[str, Any],
+        player_id: object,
+        *,
+        prefix: str | None = None,
+    ) -> None:
+        numeric_player_id = self._numeric_player_id(player_id)
+        if numeric_player_id is None or self._identity_fields_for_player is None:
+            return
+        identity_fields = self._identity_fields_for_player(numeric_player_id)
+        for name, value in identity_fields.items():
+            if prefix is not None and name == "legacy_player_id":
+                continue
+            field_name = f"{prefix}_{name}" if prefix else name
+            payload.setdefault(field_name, value)
+
+    @staticmethod
+    def _numeric_player_id(player_id: object) -> int | None:
+        if isinstance(player_id, bool):
+            return None
+        if isinstance(player_id, int):
+            return player_id
+        if isinstance(player_id, str):
+            stripped = player_id.strip()
+            if stripped.isdecimal():
+                return int(stripped)
+        return None
