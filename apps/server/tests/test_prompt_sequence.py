@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from apps.server.src.domain.prompt_sequence import PromptInstanceSequencer, runtime_prompt_sequence_seed
+from apps.server.src.domain.prompt_sequence import (
+    PromptInstanceSequencer,
+    clear_prompt_boundary_state,
+    record_prompt_boundary_state,
+    runtime_prompt_sequence_seed,
+)
 from apps.server.src.services.runtime_service import RuntimeDecisionResume
 
 
@@ -24,6 +29,56 @@ class PromptSequenceTests(unittest.TestCase):
 
         self.assertEqual(sequencer.current, 0)
         self.assertEqual(sequencer.allocate_next(), 1)
+
+    def test_record_prompt_boundary_state_tracks_pending_prompt_and_sequence(self) -> None:
+        state = SimpleNamespace(prompt_sequence=4)
+
+        record_prompt_boundary_state(
+            state,
+            {
+                "request_id": "req_5",
+                "request_type": "movement",
+                "player_id": 2,
+                "prompt_instance_id": 5,
+            },
+        )
+
+        self.assertEqual(state.prompt_sequence, 5)
+        self.assertEqual(state.pending_prompt_request_id, "req_5")
+        self.assertEqual(state.pending_prompt_type, "movement")
+        self.assertEqual(state.pending_prompt_player_id, 2)
+        self.assertEqual(state.pending_prompt_instance_id, 5)
+
+    def test_record_prompt_boundary_state_preserves_higher_prompt_sequence(self) -> None:
+        state = SimpleNamespace(prompt_sequence=7)
+
+        record_prompt_boundary_state(
+            state,
+            {
+                "request_id": "req_5",
+                "request_type": "movement",
+                "player_id": 2,
+                "prompt_instance_id": 5,
+            },
+        )
+
+        self.assertEqual(state.prompt_sequence, 7)
+        self.assertEqual(state.pending_prompt_instance_id, 5)
+
+    def test_clear_prompt_boundary_state_resets_pending_prompt_fields(self) -> None:
+        state = SimpleNamespace(
+            pending_prompt_request_id="req_5",
+            pending_prompt_type="movement",
+            pending_prompt_player_id=2,
+            pending_prompt_instance_id=5,
+        )
+
+        clear_prompt_boundary_state(state)
+
+        self.assertEqual(state.pending_prompt_request_id, "")
+        self.assertEqual(state.pending_prompt_type, "")
+        self.assertEqual(state.pending_prompt_player_id, 0)
+        self.assertEqual(state.pending_prompt_instance_id, 0)
 
     def test_seed_uses_explicit_prompt_instance_id_for_opaque_resume_request_id(self) -> None:
         state = SimpleNamespace(

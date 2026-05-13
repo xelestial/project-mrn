@@ -34,6 +34,11 @@ in the active plans, status index, tests, or canonical contract documents.
   the bridge still allocates numeric `prompt_instance_id` values during
   compatibility mode, but the local counter rule is now a tested domain helper
   rather than ad hoc runtime-client state.
+- Pending prompt boundary state recording and clearing now also live in
+  `domain.prompt_sequence` helpers. `RuntimeService` still detects the
+  `PromptRequired` boundary, but the checkpoint fields for pending request,
+  prompt type, player, instance id, and sequence advancement are no longer
+  hand-written in the transition loop.
 - Active batch prompt enrichment now requires explicit `batch_id` plus
   submitted player identity when exact request-id equality does not match.
   Runtime no longer derives batch identity or player position from the legacy
@@ -110,7 +115,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_does_not_derive_batch_id_from_batch_request_id apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_boundary_enrichment_uses_explicit_batch_and_player_for_opaque_request_id -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py -q`
-- `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_human_bridge_prompt_sequence_can_resume_from_checkpoint_value apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_runtime_prompt_boundary_can_publish_after_view_commit_guardrail apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_human_bridge_prompt_sequence_can_resume_from_checkpoint_value apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_public_request_alias_resolution_uses_index_before_scans -q`

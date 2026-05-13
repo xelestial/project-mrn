@@ -17,6 +17,22 @@ class PromptInstanceSequencer:
         return self._current
 
 
+def record_prompt_boundary_state(state: object, prompt: dict) -> None:
+    prompt_instance_id = _positive_int(prompt.get("prompt_instance_id"))
+    state.prompt_sequence = max(_positive_int(getattr(state, "prompt_sequence", 0)), prompt_instance_id)
+    state.pending_prompt_request_id = str(prompt.get("request_id") or "")
+    state.pending_prompt_type = str(prompt.get("request_type") or "")
+    state.pending_prompt_player_id = _positive_int(prompt.get("player_id"))
+    state.pending_prompt_instance_id = prompt_instance_id
+
+
+def clear_prompt_boundary_state(state: object) -> None:
+    state.pending_prompt_request_id = ""
+    state.pending_prompt_type = ""
+    state.pending_prompt_player_id = 0
+    state.pending_prompt_instance_id = 0
+
+
 def _positive_int(value: object) -> int:
     try:
         parsed = int(value)
@@ -98,4 +114,9 @@ def runtime_prompt_sequence_seed(
     return prompt_sequence
 
 
-__all__ = ["PromptInstanceSequencer", "runtime_prompt_sequence_seed"]
+__all__ = [
+    "PromptInstanceSequencer",
+    "clear_prompt_boundary_state",
+    "record_prompt_boundary_state",
+    "runtime_prompt_sequence_seed",
+]

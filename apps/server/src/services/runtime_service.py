@@ -24,7 +24,12 @@ from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.domain.protocol_identity import display_identity_fields
 from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
-from apps.server.src.domain.prompt_sequence import PromptInstanceSequencer, runtime_prompt_sequence_seed
+from apps.server.src.domain.prompt_sequence import (
+    PromptInstanceSequencer,
+    clear_prompt_boundary_state,
+    record_prompt_boundary_state,
+    runtime_prompt_sequence_seed,
+)
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
 from apps.server.src.domain.session_models import ParticipantClientType, SeatConfig, SeatType, SessionStatus
 from apps.server.src.domain.visibility import ViewerContext
@@ -2410,12 +2415,7 @@ class RuntimeService:
             if state is None:
                 raise
             prompt_boundary_payload = dict(exc.prompt)
-            prompt_instance_id = int(exc.prompt.get("prompt_instance_id", 0) or 0)
-            state.prompt_sequence = max(int(getattr(state, "prompt_sequence", 0) or 0), prompt_instance_id)
-            state.pending_prompt_request_id = str(exc.prompt.get("request_id") or "")
-            state.pending_prompt_type = str(exc.prompt.get("request_type") or "")
-            state.pending_prompt_player_id = int(exc.prompt.get("player_id", 0) or 0)
-            state.pending_prompt_instance_id = prompt_instance_id
+            record_prompt_boundary_state(state, exc.prompt)
             step = {
                 "status": "waiting_input",
                 "reason": "prompt_required",
@@ -2425,10 +2425,7 @@ class RuntimeService:
             }
         else:
             prompt_boundary_payload = None
-            state.pending_prompt_request_id = ""
-            state.pending_prompt_type = ""
-            state.pending_prompt_player_id = 0
-            state.pending_prompt_instance_id = 0
+            clear_prompt_boundary_state(state)
             _clear_resolved_runtime_prompt_continuation(state, step)
         if transition_context is not None:
             transition_context.state = state
