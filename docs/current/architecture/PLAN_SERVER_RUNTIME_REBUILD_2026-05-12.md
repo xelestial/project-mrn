@@ -594,7 +594,9 @@ commit signal
 - 완료: boundary 없는 prompt는 기존 `session:rX:tY:pZ:type:N` 형식을 유지한다. 이것이 old id shape adapter다.
 - 완료: `DecisionGateway`의 process-local request id retry fallback을 제거했다. blocking human prompt가 같은 deterministic `request_id`의 pending prompt를 다시 만나면 새 id를 만들지 않고 기존 prompt payload를 publish/wait 대상으로 재사용한다.
 - 완료: `DecisionGateway.resolve_ai_decision()`은 process-local counter/random id를 쓰지 않고 request type, player id, public context fingerprint로 stable protocol id를 만든다. 이 값은 AI 이벤트 상관관계용 id이며 외부 AI callback 분리 자체는 Phase 7의 남은 작업이다.
-- 부분 완료: runtime recovery prompt sequence seed 계산은 `apps/server/src/domain/prompt_sequence.py`로 이동했다. 다만 process-local `_prompt_seq` source 자체는 아직 제거하지 않았다. 이를 제거하려면 session loop 또는 prompt boundary service가 prompt boundary 생성을 완전히 소유해야 한다.
+- 완료: runtime recovery prompt sequence seed 계산은 `apps/server/src/domain/prompt_sequence.py`로 이동했다.
+- 완료: 서버 `_LocalHumanDecisionClient`는 더 이상 engine `HumanHttpPolicy._prompt_seq` private field를 prompt sequence source로 읽거나 쓰지 않는다. 서버 adapter가 checkpoint seed에서 이어받은 `_prompt_seq`를 자체 보유한다.
+- 남음: process-local prompt sequence source 자체는 아직 완전히 제거하지 않았다. 이를 제거하려면 session loop 또는 prompt boundary service가 prompt boundary 생성을 완전히 소유해야 한다. engine 독립 실행용 `HumanHttpPolicy._prompt_seq`도 이 단계에서는 유지한다.
 
 ### Phase 9 - RuntimeService 축소와 legacy worker 제거
 

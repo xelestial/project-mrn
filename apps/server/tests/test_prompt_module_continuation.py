@@ -464,7 +464,8 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
         invocation=SimpleNamespace(state=state),
     )
     client = _LocalHumanDecisionClient.__new__(_LocalHumanDecisionClient)
-    client.policy = SimpleNamespace(_prompt_seq=3)
+    client.policy = SimpleNamespace()
+    client._prompt_seq = 3
     client._gateway = _Gateway()
     client._active_call = call
 
@@ -485,3 +486,19 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
     assert captured["runtime_module"]["idempotency_key"] == "idem:trick"
     assert state.runtime_active_prompt is not None
     assert state.runtime_active_prompt.module_cursor == "await_trick_prompt"
+
+
+def test_local_human_client_prompt_sequence_is_owned_by_server_adapter() -> None:
+    client = _LocalHumanDecisionClient.__new__(_LocalHumanDecisionClient)
+    client.policy = SimpleNamespace()
+    client._prompt_seq = 3
+
+    assert client.prompt_seq == 3
+
+    client.bump_prompt_seq()
+    assert client.prompt_seq == 4
+    assert not hasattr(client.policy, "_prompt_seq")
+
+    client.set_prompt_seq(9)
+    assert client.prompt_seq == 9
+    assert not hasattr(client.policy, "_prompt_seq")

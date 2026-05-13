@@ -4790,6 +4790,7 @@ def _classify_external_ai_error(exc: Exception) -> str:
 
 class _LocalHumanDecisionClient:
     def __init__(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway) -> None:
+        self._prompt_seq = 0
         if not human_seats:
             self.policy = None
             return
@@ -4807,17 +4808,13 @@ class _LocalHumanDecisionClient:
 
     @property
     def prompt_seq(self) -> int:
-        if self.policy is None:
-            return 0
-        return int(getattr(self.policy, "_prompt_seq", 0))
+        return int(self._prompt_seq)
 
     def bump_prompt_seq(self) -> None:
-        if self.policy is not None:
-            self.policy._prompt_seq += 1  # type: ignore[attr-defined]
+        self._prompt_seq += 1
 
     def set_prompt_seq(self, value: int) -> None:
-        if self.policy is not None:
-            self.policy._prompt_seq = max(0, int(value))  # type: ignore[attr-defined]
+        self._prompt_seq = max(0, int(value))
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         started = time.perf_counter()

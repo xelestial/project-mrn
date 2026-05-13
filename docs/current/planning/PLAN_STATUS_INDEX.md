@@ -77,8 +77,10 @@ Read and maintain these:
   ownership before authoritative Redis/view/prompt side effects; `SessionLoop`
   now owns command lifecycle control flow through `SessionCommandExecutor`;
   `DecisionGateway` no longer owns process-local/random request id fallback for
-  human prompt retry or AI decision events; `RuntimeService.process_command_once()`
-  remains only as a compatibility wrapper over that executor.
+  human prompt retry or AI decision events; `_LocalHumanDecisionClient` no
+  longer uses engine `HumanHttpPolicy._prompt_seq` as its private prompt
+  sequence source; `RuntimeService.process_command_once()` remains only as a
+  compatibility wrapper over that executor.
 
 ## Closed Enough
 

@@ -11,7 +11,7 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
-## 2026-05-13 DecisionGateway Request Identity Cleanup
+## 2026-05-13 Prompt Identity Cleanup
 
 - Removed `DecisionGateway`'s process-local request id fallback for prompt
   creation errors.
@@ -26,14 +26,21 @@ in the active plans, status index, tests, or canonical contract documents.
   `DecisionGateway` in-memory counter. Prompt identity is owned by protocol
   boundary data, and duplicate pending prompts remain owned by the existing
   prompt lifecycle.
-- Responsibility intentionally remains: engine/runtime `_prompt_seq` ownership
-  is still open and requires prompt boundary creation to move out of the engine
-  policy adapter path.
+- Server `_LocalHumanDecisionClient` no longer reads or writes engine
+  `HumanHttpPolicy._prompt_seq`. Runtime prompt sequence is seeded from
+  checkpoint/domain logic and held by the server adapter while the engine
+  transition is running.
+- Responsibility intentionally remains: process-local runtime `_prompt_seq`
+  ownership is still open and requires prompt boundary creation to move out of
+  the policy adapter path. Engine standalone `HumanHttpPolicy._prompt_seq`
+  remains for non-server human play.
 
 Verification:
 
 - `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_gateway_reuses_pending_prompt_id_when_blocking apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_gateway_has_no_process_local_request_seq_fallback -q`
 - `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q -k 'decision_gateway or runtime_prompt_boundary'`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_prompt_module_continuation.py::test_local_human_client_prompt_sequence_is_owned_by_server_adapter apps/server/tests/test_prompt_module_continuation.py::test_local_human_prompt_created_inside_module_attaches_active_continuation -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_human_bridge_prompt_sequence_can_resume_from_checkpoint_value apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision -q`
 
 ## 2026-05-13 Runtime Matrix Coverage Sync
 
