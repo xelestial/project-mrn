@@ -94,6 +94,7 @@ class RuntimeDecisionResume:
     module_id: str
     module_type: str
     module_cursor: str
+    prompt_instance_id: int = 0
     batch_id: str = ""
     provider: str = "human"
     batch_responses_by_player_id: dict[int, dict[str, Any]] = field(default_factory=dict)
@@ -1920,6 +1921,12 @@ class RuntimeService:
                     value = _derive_batch_id_from_request_id(str(payload.get("request_id") or decision.get("request_id") or ""))
                 return value
 
+            def _int_field(name: str) -> int:
+                value = self._int_or_none(payload.get(name))
+                if value is None:
+                    value = self._int_or_none(decision.get(name))
+                return int(value or 0)
+
             choice_payload = payload.get("choice_payload")
             if not isinstance(choice_payload, dict):
                 choice_payload = decision.get("choice_payload")
@@ -1937,6 +1944,7 @@ class RuntimeService:
                 module_id=_field("module_id"),
                 module_type=_field("module_type"),
                 module_cursor=_field("module_cursor"),
+                prompt_instance_id=_int_field("prompt_instance_id"),
                 batch_id=_field("batch_id"),
                 provider=provider,
             )
@@ -1985,6 +1993,7 @@ class RuntimeService:
             module_id=str(primary.get("module_id") or ""),
             module_type=str(primary.get("module_type") or ""),
             module_cursor=str(primary.get("module_cursor") or ""),
+            prompt_instance_id=int(self._int_or_none(primary.get("prompt_instance_id")) or 0),
             batch_id=batch_id,
             provider=provider,
             batch_responses_by_player_id=normalized,
@@ -4229,7 +4238,7 @@ class _ServerDecisionPolicyBridge:
         return True
 
     def _decision_resume_matches_next_prompt_instance(self, resume: RuntimeDecisionResume) -> bool:
-        parsed_instance_id = self._prompt_instance_id_from_resume_request_id(resume)
+        parsed_instance_id = self._prompt_instance_id_from_resume(resume)
         if parsed_instance_id <= 0 or self._human_client is None:
             return True
         current_prompt_seq = int(self._human_client.prompt_seq)
@@ -4359,12 +4368,15 @@ class _ServerDecisionPolicyBridge:
     def _advance_prompt_sequence_after_decision_resume(self, resume: RuntimeDecisionResume) -> None:
         if self._human_client is None:
             return
-        parsed_instance_id = self._prompt_instance_id_from_resume_request_id(resume)
+        parsed_instance_id = self._prompt_instance_id_from_resume(resume)
         next_instance_id = max(self._human_client.prompt_seq + 1, parsed_instance_id)
         self._human_client.set_prompt_seq(next_instance_id)
 
     @staticmethod
-    def _prompt_instance_id_from_resume_request_id(resume: RuntimeDecisionResume) -> int:
+    def _prompt_instance_id_from_resume(resume: RuntimeDecisionResume) -> int:
+        explicit = int(getattr(resume, "prompt_instance_id", 0) or 0)
+        if explicit > 0:
+            return explicit
         request_type = str(resume.request_type or "").strip()
         request_id = str(resume.request_id or "").strip()
         if not request_type or not request_id:

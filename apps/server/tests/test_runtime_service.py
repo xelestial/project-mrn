@@ -6953,6 +6953,47 @@ class RuntimeServiceTests(unittest.TestCase):
             "batch:simul:resupply:2:107:mod:simul:resupply:2:107:resupply:1",
         )
 
+    def test_decision_resume_uses_explicit_prompt_instance_id_with_opaque_request_id(self) -> None:
+        class _CommandStoreStub:
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [
+                    {
+                        "seq": 7,
+                        "type": "decision_submitted",
+                        "session_id": session_id,
+                        "payload": {
+                            "request_id": "req_opaque_prompt",
+                            "prompt_instance_id": 60,
+                            "player_id": 1,
+                            "request_type": "trick_tile_target",
+                            "choice_id": "8",
+                            "resume_token": "resume_current",
+                            "frame_id": "seq:action:1:p0:89",
+                            "module_id": "mod:seq:action:1:p0:89:fortuneresolve",
+                            "module_type": "FortuneResolveModule",
+                            "module_cursor": "await_action_prompt",
+                            "decision": {},
+                        },
+                    }
+                ]
+
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=_CommandStoreStub(),
+        )
+
+        resume = runtime._decision_resume_from_command("sess_opaque_prompt", 7)
+
+        self.assertIsNotNone(resume)
+        assert resume is not None
+        self.assertEqual(resume.request_id, "req_opaque_prompt")
+        self.assertEqual(resume.prompt_instance_id, 60)
+        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+
+        self.assertEqual(_ServerDecisionPolicyBridge._prompt_instance_id_from_resume(resume), 60)
+
     def test_decision_resume_from_batch_complete_command_uses_collected_response(self) -> None:
         class _CommandStoreStub:
             def list_commands(self, session_id: str) -> list[dict]:

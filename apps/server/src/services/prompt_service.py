@@ -1272,6 +1272,11 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
             value = _derive_batch_id_from_request_id(str(decision.get("request_id") or prompt.get("request_id") or ""))
         if value:
             fields[field] = value
+    prompt_instance_id = _int_or_none(decision.get("prompt_instance_id"))
+    if prompt_instance_id is None:
+        prompt_instance_id = _int_or_none(prompt.get("prompt_instance_id"))
+    if prompt_instance_id is not None:
+        fields["prompt_instance_id"] = prompt_instance_id
     for field in (
         "missing_player_ids",
         "missing_public_player_ids",

@@ -67,6 +67,31 @@ class FailingCommandStore:
         return None
 
 
+class CapturingCommandStore:
+    def __init__(self) -> None:
+        self.commands: list[dict[str, object]] = []
+
+    def append_command(
+        self,
+        session_id: str,
+        command_type: str,
+        payload: dict,
+        *,
+        request_id: str | None = None,
+        server_time_ms: int | None = None,
+    ) -> dict[str, object]:
+        command = {
+            "seq": len(self.commands) + 1,
+            "session_id": session_id,
+            "type": command_type,
+            "request_id": request_id,
+            "payload": dict(payload),
+            "server_time_ms": server_time_ms,
+        }
+        self.commands.append(command)
+        return command
+
+
 class BatchCollectorStub:
     def __init__(self, results: list[BatchCollectorResult]) -> None:
         self.results = list(results)
@@ -192,6 +217,32 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(lifecycle["request_id"], pending.request_id)
         self.assertEqual(lifecycle["decision"]["request_id"], pending.request_id)
         self.assertEqual(lifecycle["decision"]["public_request_id"], public_request_id)
+
+    def test_module_decision_command_carries_prompt_instance_id_for_public_request_alias(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        pending = service.create_prompt(
+            "s1",
+            {
+                **_batch_prompt(player_id=1),
+                "request_id": "batch:explicit:prompt:p1",
+                "prompt_instance_id": 31,
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        result = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": public_request_id,
+                "player_id": 1,
+                "choice_id": "yes",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(command_store.commands[0]["payload"]["request_id"], pending.request_id)
+        self.assertEqual(command_store.commands[0]["payload"]["prompt_instance_id"], 31)
 
     def test_simultaneous_batch_decisions_wait_for_collector_completion(self) -> None:
         collector = BatchCollectorStub(
