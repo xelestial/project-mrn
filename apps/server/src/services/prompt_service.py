@@ -280,6 +280,7 @@ class PromptService:
                 decision_payload = dict(payload)
                 decision_payload["provider"] = provider
                 _copy_prompt_protocol_identity(pending.payload, decision_payload)
+                _copy_prompt_player_identity(pending.payload, decision_payload)
                 if expected_fingerprint:
                     decision_payload["prompt_fingerprint"] = expected_fingerprint
                     decision_payload["prompt_fingerprint_version"] = PROMPT_FINGERPRINT_VERSION
@@ -301,6 +302,7 @@ class PromptService:
                     "decision": decision_payload,
                     "submitted_at_ms": now,
                 }
+                _copy_prompt_player_identity(decision_payload, command_payload)
                 command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
                 resolved_payload = {
                     "request_id": request_id,
@@ -521,6 +523,7 @@ class PromptService:
             "provider": "timeout_fallback",
         }
         _copy_prompt_protocol_identity(pending.payload, decision_payload)
+        _copy_prompt_player_identity(pending.payload, decision_payload)
         decision_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         expected_fingerprint = str(pending.payload.get("prompt_fingerprint") or "").strip()
         if expected_fingerprint:
@@ -537,6 +540,7 @@ class PromptService:
             "submitted_at_ms": now,
             "source": "timeout_fallback",
         }
+        _copy_prompt_player_identity(decision_payload, command_payload)
         command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
         with self._lock:
             self._set_decision(request_id, decision_payload, session_id=pending.session_id)
@@ -1328,6 +1332,21 @@ def _ensure_prompt_protocol_identity(prompt: dict, *, request_id: str) -> None:
 
 def _copy_prompt_protocol_identity(source: dict, target: dict) -> None:
     for field in ("legacy_request_id", "public_request_id", "public_prompt_instance_id"):
+        value = source.get(field)
+        if str(value or "").strip():
+            target.setdefault(field, value)
+
+
+def _copy_prompt_player_identity(source: dict, target: dict) -> None:
+    for field in (
+        "public_player_id",
+        "seat_id",
+        "viewer_id",
+        "legacy_player_id",
+        "seat_index",
+        "turn_order_index",
+        "player_label",
+    ):
         value = source.get(field)
         if str(value or "").strip():
             target.setdefault(field, value)

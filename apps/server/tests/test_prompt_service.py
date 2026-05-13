@@ -254,6 +254,36 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(command_store.commands[0]["payload"]["request_id"], pending.request_id)
         self.assertEqual(command_store.commands[0]["payload"]["prompt_instance_id"], 31)
 
+    def test_decision_command_carries_prompt_player_identity_fields(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_public_player_identity",
+                "request_type": "movement",
+                "player_id": 1,
+                "public_player_id": "ply_1",
+                "seat_id": "seat_1",
+                "viewer_id": "view_1",
+                "legacy_player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        result = service.submit_decision(
+            {"session_id": "s1", "request_id": "r_public_player_identity", "player_id": 1, "choice_id": "roll"}
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        command_payload = command_store.commands[0]["payload"]
+        self.assertEqual(command_payload["public_player_id"], "ply_1")
+        self.assertEqual(command_payload["seat_id"], "seat_1")
+        self.assertEqual(command_payload["viewer_id"], "view_1")
+        self.assertEqual(command_payload["legacy_player_id"], 1)
+        self.assertEqual(command_payload["decision"]["public_player_id"], "ply_1")
+
     def test_simultaneous_batch_decisions_wait_for_collector_completion(self) -> None:
         collector = BatchCollectorStub(
             [
@@ -286,6 +316,32 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual([call["player_id"] for call in collector.calls], [1, 2])
         self.assertEqual(service.wait_for_decision("batch:1:p1", timeout_ms=0, session_id="s1")["choice_id"], "yes")
 
+    def test_simultaneous_batch_collector_response_carries_prompt_player_identity_fields(self) -> None:
+        collector = BatchCollectorStub([BatchCollectorResult(status="pending", remaining_player_ids=[2])])
+        service = PromptService(batch_collector=collector)
+        prompt = _batch_prompt(player_id=1)
+        prompt.update(
+            {
+                "public_player_id": "ply_batch_1",
+                "seat_id": "seat_batch_1",
+                "viewer_id": "view_batch_1",
+                "legacy_player_id": 1,
+            }
+        )
+        service.create_prompt("s1", prompt)
+
+        result = service.submit_decision(
+            {"session_id": "s1", "request_id": "batch:1:p1", "player_id": 1, "choice_id": "yes"}
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        response = collector.calls[0]["response"]
+        self.assertEqual(response["public_player_id"], "ply_batch_1")
+        self.assertEqual(response["seat_id"], "seat_batch_1")
+        self.assertEqual(response["viewer_id"], "view_batch_1")
+        self.assertEqual(response["legacy_player_id"], 1)
+        self.assertEqual(response["decision"]["public_player_id"], "ply_batch_1")
+
     def test_simultaneous_batch_timeout_fallback_uses_collector(self) -> None:
         collector = BatchCollectorStub(
             [
@@ -297,7 +353,16 @@ class PromptServiceTests(unittest.TestCase):
             ]
         )
         service = PromptService(batch_collector=collector)
-        pending = service.create_prompt("s1", _batch_prompt(player_id=1))
+        prompt = _batch_prompt(player_id=1)
+        prompt.update(
+            {
+                "public_player_id": "ply_timeout_1",
+                "seat_id": "seat_timeout_1",
+                "viewer_id": "view_timeout_1",
+                "legacy_player_id": 1,
+            }
+        )
+        pending = service.create_prompt("s1", prompt)
 
         decision = service.record_timeout_fallback_decision(pending, choice_id="yes", submitted_at_ms=123)
 
@@ -305,6 +370,8 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(decision["command_seq"], 11)
         self.assertEqual(decision["batch_status"], "completed")
         self.assertEqual(collector.calls[0]["response"]["provider"], "timeout_fallback")
+        self.assertEqual(collector.calls[0]["response"]["public_player_id"], "ply_timeout_1")
+        self.assertEqual(collector.calls[0]["response"]["decision"]["public_player_id"], "ply_timeout_1")
 
     def test_records_prompt_lifecycle_from_create_to_resolve(self) -> None:
         self.service.create_prompt(

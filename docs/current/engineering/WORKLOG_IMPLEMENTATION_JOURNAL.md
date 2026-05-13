@@ -34,6 +34,11 @@ in the active plans, status index, tests, or canonical contract documents.
 - `PromptService.get_prompt_lifecycle()` now accepts the same public request
   alias and returns the legacy-key lifecycle record, which keeps debug/status
   reads usable before the canonical prompt key migration.
+- Decision command materialization now copies prompt player identity companions
+  (`public_player_id`, `seat_id`, `viewer_id`, and display aliases) into normal
+  decision commands, simultaneous batch collector responses, and timeout
+  fallback responses. Numeric `player_id` remains the compatibility routing
+  alias.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Compatibility storage and replay still keep
   the legacy request id key until the canonical opaque prompt-key migration is
