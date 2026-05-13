@@ -8964,6 +8964,103 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_decision_gateway_reuses_pending_prompt_id_when_blocking(self) -> None:
+        from apps.server.src.services.decision_gateway import DecisionGateway
+
+        session_id = "sess_blocking_pending_reuse"
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        wait_thread: threading.Thread | None = None
+        try:
+            gateway = DecisionGateway(
+                session_id=session_id,
+                prompt_service=self.prompt_service,
+                stream_service=self.stream_service,
+                loop=loop,
+                touch_activity=lambda _session_id: None,
+                fallback_executor=self.runtime_service.execute_prompt_fallback,
+                blocking_human_prompts=True,
+            )
+            prompt = self._module_prompt(
+                {
+                    "request_id": "blocking_reuse_req_1",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 500,
+                    "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                    "fallback_policy": "timeout_fallback",
+                    "public_context": {"round_index": 1, "turn_index": 0},
+                }
+            )
+            self.prompt_service.create_prompt(session_id, prompt)
+
+            result: dict[str, str] = {}
+            errors: list[BaseException] = []
+
+            def _wait_for_prompt() -> None:
+                try:
+                    result["choice"] = gateway.resolve_human_prompt(
+                        prompt,
+                        lambda response: str(response.get("choice_id", "")),
+                        lambda: "fallback",
+                    )
+                except BaseException as exc:  # pragma: no cover - surfaced by assertion below
+                    errors.append(exc)
+
+            wait_thread = threading.Thread(target=_wait_for_prompt, daemon=True)
+            wait_thread.start()
+
+            observed_prompt: dict | None = None
+            deadline = time.time() + 2.0
+            while time.time() < deadline and observed_prompt is None:
+                messages = asyncio.run_coroutine_threadsafe(
+                    self.stream_service.snapshot(session_id),
+                    loop,
+                ).result(timeout=2.0)
+                prompt_messages = [msg for msg in messages if msg.type == "prompt"]
+                if prompt_messages:
+                    observed_prompt = dict(prompt_messages[-1].payload)
+                    break
+                time.sleep(0.01)
+
+            self.assertIsNotNone(observed_prompt)
+            assert observed_prompt is not None
+            accepted = self.prompt_service.submit_decision(
+                self._module_decision(observed_prompt, "roll", player_id=1)
+            )
+            self.assertEqual(accepted["status"], "accepted")
+            wait_thread.join(timeout=2.0)
+
+            self.assertFalse(wait_thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(observed_prompt["request_id"], "blocking_reuse_req_1")
+            self.assertEqual(result.get("choice"), "roll")
+
+            messages = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot(session_id),
+                loop,
+            ).result(timeout=2.0)
+            published_request_ids = [
+                str(msg.payload.get("request_id"))
+                for msg in messages
+                if msg.type in {"prompt", "event"} and msg.payload.get("request_id")
+            ]
+            self.assertNotIn(f"{session_id}_req_", " ".join(published_request_ids))
+        finally:
+            if wait_thread is not None:
+                wait_thread.join(timeout=1.0)
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_decision_gateway_has_no_process_local_request_seq_fallback(self) -> None:
+        source = Path("apps/server/src/services/decision_gateway.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("_request_seq", source)
+        self.assertNotIn("next_request_id", source)
+        self.assertNotIn("uuid.uuid4", source)
+
     def test_runtime_prompt_boundary_materializes_missing_stream_prompt(self) -> None:
         loop = asyncio.new_event_loop()
         loop_thread = threading.Thread(target=loop.run_forever, daemon=True)

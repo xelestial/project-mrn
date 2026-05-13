@@ -76,8 +76,9 @@ Read and maintain these:
   private class; command-boundary final commit now rechecks runtime lease
   ownership before authoritative Redis/view/prompt side effects; `SessionLoop`
   now owns command lifecycle control flow through `SessionCommandExecutor`;
-  `RuntimeService.process_command_once()` remains only as a compatibility
-  wrapper over that executor.
+  `DecisionGateway` no longer owns process-local/random request id fallback for
+  human prompt retry or AI decision events; `RuntimeService.process_command_once()`
+  remains only as a compatibility wrapper over that executor.
 
 ## Closed Enough
 

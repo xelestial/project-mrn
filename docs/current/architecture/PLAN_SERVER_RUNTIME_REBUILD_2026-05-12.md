@@ -567,7 +567,7 @@ commit signal
 
 - [x] `PromptBoundaryId` 또는 `protocol_ids.py` 추가
 - [x] identity 구성 요소를 engine boundary에서 가져온다.
-- [ ] process-local `_request_seq` fallback을 제거한다.
+- [x] process-local `_request_seq` fallback을 제거한다.
 - [x] deterministic id collision test를 추가한다.
 - [x] old id shape와 호환이 필요한 외부 payload는 adapter를 둔다.
 
@@ -592,6 +592,8 @@ commit signal
 - 완료: `_LocalHumanDecisionClient._attach_active_module_continuation()`은 module prompt의 `frame_id`, `module_id`, `module_cursor`, `runtime_module`을 request id 생성 전에 envelope에 넣는다.
 - 완료: boundary id는 `frame_id`, `module_id`, `module_cursor`, optional `batch_id`, `player_id`, `request_type`, `prompt_instance_id`를 포함한다. 따라서 같은 round/turn/player/request_type이라도 module boundary가 다르면 충돌하지 않는다.
 - 완료: boundary 없는 prompt는 기존 `session:rX:tY:pZ:type:N` 형식을 유지한다. 이것이 old id shape adapter다.
+- 완료: `DecisionGateway`의 process-local request id retry fallback을 제거했다. blocking human prompt가 같은 deterministic `request_id`의 pending prompt를 다시 만나면 새 id를 만들지 않고 기존 prompt payload를 publish/wait 대상으로 재사용한다.
+- 완료: `DecisionGateway.resolve_ai_decision()`은 process-local counter/random id를 쓰지 않고 request type, player id, public context fingerprint로 stable protocol id를 만든다. 이 값은 AI 이벤트 상관관계용 id이며 외부 AI callback 분리 자체는 Phase 7의 남은 작업이다.
 - 부분 완료: runtime recovery prompt sequence seed 계산은 `apps/server/src/domain/prompt_sequence.py`로 이동했다. 다만 process-local `_prompt_seq` source 자체는 아직 제거하지 않았다. 이를 제거하려면 session loop 또는 prompt boundary service가 prompt boundary 생성을 완전히 소유해야 한다.
 
 ### Phase 9 - RuntimeService 축소와 legacy worker 제거

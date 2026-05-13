@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import sys
 import time
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -33,6 +34,17 @@ def _ensure_engine_import_path() -> None:
 
 def _duration_ms(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
+
+
+def _stable_payload_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass(frozen=True)
@@ -1893,13 +1905,8 @@ class DecisionGateway:
         self._loop = loop
         self._touch_activity = touch_activity
         self._fallback_executor = fallback_executor
-        self._request_seq = 0
         self._ai_decision_delay_ms = max(0, int(ai_decision_delay_ms))
         self._blocking_human_prompts = bool(blocking_human_prompts)
-
-    def next_request_id(self) -> str:
-        self._request_seq += 1
-        return f"{self._session_id}_req_{self._request_seq}_{uuid.uuid4().hex[:6]}"
 
     def _publish_decision_requested(
         self,
@@ -2000,6 +2007,8 @@ class DecisionGateway:
         envelope["request_id"] = request_id
         envelope["timeout_ms"] = timeout_ms
         envelope = ensure_prompt_fingerprint(envelope)
+        response: dict[str, Any] | None = None
+        should_publish_prompt = True
         _mark_phase("envelope_prepare")
 
         try:
@@ -2034,47 +2043,67 @@ class DecisionGateway:
                 _mark_phase("create_prompt")
             except ValueError as exc:
                 _mark_phase("create_prompt_error")
-                if str(exc) == "prompt_fingerprint_mismatch":
+                prompt_error = str(exc)
+                if prompt_error == "prompt_fingerprint_mismatch":
                     raise PromptFingerprintMismatch(request_id=request_id) from exc
-                if str(exc) == "duplicate_pending_request_id" and not self._blocking_human_prompts:
+                if prompt_error == "duplicate_pending_request_id":
                     pending = self._prompt_service.get_pending_prompt(request_id, session_id=self._session_id)
-                    prompt_payload = dict(pending.payload) if pending is not None else envelope
-                    self._touch_activity(self._session_id)
-                    _mark_phase("duplicate_prompt_touch_activity")
-                    raise PromptRequired(prompt_payload)
+                    if pending is None:
+                        raise
+                    prompt_payload = dict(pending.payload)
+                    if prompt_fingerprint_mismatch(prompt_payload, envelope):
+                        raise PromptFingerprintMismatch(request_id=request_id) from exc
+                    envelope = ensure_prompt_fingerprint(prompt_payload)
+                    lifecycle = self._prompt_service.get_prompt_lifecycle(
+                        request_id,
+                        session_id=self._session_id,
+                    )
+                    should_publish_prompt = not (lifecycle is not None and lifecycle.get("state") == "delivered")
+                    if not self._blocking_human_prompts:
+                        self._touch_activity(self._session_id)
+                        _mark_phase("duplicate_prompt_touch_activity")
+                        raise PromptRequired(prompt_payload)
+                    _mark_phase("duplicate_prompt_reuse")
+                elif prompt_error == "duplicate_recent_request_id":
+                    should_publish_prompt = False
+                    response = self._prompt_service.wait_for_decision(
+                        request_id=request_id,
+                        timeout_ms=1,
+                        session_id=self._session_id,
+                    )
+                    _mark_phase("duplicate_recent_replay_wait")
                 if not self._blocking_human_prompts:
                     self._touch_activity(self._session_id)
                     _mark_phase("prompt_error_touch_activity")
                     raise PromptRequired(envelope)
-                request_id = self.next_request_id()
-                envelope["request_id"] = request_id
-                envelope = ensure_prompt_fingerprint(envelope)
-                self._prompt_service.create_prompt(session_id=self._session_id, prompt=envelope)
-                _mark_phase("create_prompt_retry")
+                if prompt_error not in {"duplicate_pending_request_id", "duplicate_recent_request_id"}:
+                    raise
 
             if not self._blocking_human_prompts:
                 self._touch_activity(self._session_id)
                 _mark_phase("touch_activity")
                 raise PromptRequired(envelope)
 
-            self.publish("prompt", {**envelope, "provider": "human"})
-            self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
-            self._publish_decision_requested(
-                request_id=request_id,
-                player_id=player_id,
-                request_type=str(envelope.get("request_type", "")),
-                fallback_policy=fallback_policy,
-                provider="human",
-                public_context=public_context,
-            )
+            if should_publish_prompt:
+                self.publish("prompt", {**envelope, "provider": "human"})
+                self._prompt_service.mark_prompt_delivered(request_id, session_id=self._session_id)
+                self._publish_decision_requested(
+                    request_id=request_id,
+                    player_id=player_id,
+                    request_type=str(envelope.get("request_type", "")),
+                    fallback_policy=fallback_policy,
+                    provider="human",
+                    public_context=public_context,
+                )
+                _mark_phase("publish_prompt")
             self._touch_activity(self._session_id)
-            _mark_phase("publish_prompt")
-            response = self._prompt_service.wait_for_decision(
-                request_id=request_id,
-                timeout_ms=timeout_ms,
-                session_id=self._session_id,
-            )
-            _mark_phase("blocking_wait")
+            if response is None:
+                response = self._prompt_service.wait_for_decision(
+                    request_id=request_id,
+                    timeout_ms=timeout_ms,
+                    session_id=self._session_id,
+                )
+                _mark_phase("blocking_wait")
         except BaseException as exc:
             error = exc
             raise
@@ -2167,6 +2196,32 @@ class DecisionGateway:
             public_context=public_context,
         )
 
+    def _stable_ai_request_id(self, *, request_type: str, player_id: int, public_context: dict[str, Any]) -> str:
+        fingerprint = _stable_payload_fingerprint(
+            {
+                "request_type": request_type,
+                "player_id": player_id,
+                "public_context": public_context,
+            }
+        )
+        request_kind = str(request_type or "decision").replace(":", "_")
+        envelope = {
+            "request_type": f"ai_{request_kind}",
+            "player_id": player_id,
+            "prompt_instance_id": public_context.get("prompt_instance_id", 0),
+            "runtime_module": {
+                "batch_id": public_context.get("batch_id"),
+                "frame_id": public_context.get("frame_id") or f"ai:{fingerprint}",
+                "module_id": public_context.get("module_id") or f"ai:{request_kind}",
+                "module_cursor": public_context.get("module_cursor") or fingerprint,
+            },
+        }
+        return stable_prompt_request_id(
+            session_id=self._session_id,
+            envelope=envelope,
+            public_context=public_context,
+        )
+
     def _require_matching_prompt_fingerprint(
         self,
         *,
@@ -2235,7 +2290,11 @@ class DecisionGateway:
         resolver: Callable[[], Any],
         choice_serializer: Callable[[Any], str],
     ) -> Any:
-        request_id = self.next_request_id()
+        request_id = self._stable_ai_request_id(
+            request_type=request_type,
+            player_id=player_id,
+            public_context=public_context,
+        )
         self._publish_decision_requested(
             request_id=request_id,
             player_id=player_id,

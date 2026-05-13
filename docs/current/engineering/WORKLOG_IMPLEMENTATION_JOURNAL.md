@@ -11,6 +11,30 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-13 DecisionGateway Request Identity Cleanup
+
+- Removed `DecisionGateway`'s process-local request id fallback for prompt
+  creation errors.
+- Blocking human prompt replay now reuses an existing pending prompt with the
+  same deterministic `request_id`; it does not create a new per-process/random
+  request id and supersede the original prompt.
+- AI decision events now use a deterministic protocol id derived from request
+  type, player id, and public context fingerprint. This only removes local
+  random identity from the current in-process AI event path; it does not replace
+  the still-open external AI worker/callback redesign.
+- Responsibility moved: request identity is no longer owned by a
+  `DecisionGateway` in-memory counter. Prompt identity is owned by protocol
+  boundary data, and duplicate pending prompts remain owned by the existing
+  prompt lifecycle.
+- Responsibility intentionally remains: engine/runtime `_prompt_seq` ownership
+  is still open and requires prompt boundary creation to move out of the engine
+  policy adapter path.
+
+Verification:
+
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_gateway_reuses_pending_prompt_id_when_blocking apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_gateway_has_no_process_local_request_seq_fallback -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q -k 'decision_gateway or runtime_prompt_boundary'`
+
 ## 2026-05-13 Runtime Matrix Coverage Sync
 
 - Fixed `tests/test_module_runtime_playtest_matrix_doc.py` failures caused by
