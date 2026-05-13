@@ -1026,15 +1026,32 @@ class SessionsApiTests(unittest.TestCase):
             if event.get("type") == "event" and event.get("payload", {}).get("event_type") == "session_start"
         )
         active_by_card = session_start.get("payload", {}).get("active_by_card", {})
+        start_players = session_start.get("payload", {}).get("players", [])
         snapshot = session_start.get("payload", {}).get("snapshot", {})
         snapshot_players = snapshot.get("players", [])
+        snapshot_board = snapshot.get("board", {})
         snapshot_tiles = snapshot.get("board", {}).get("tiles", [])
 
         self.assertEqual(len(active_by_card), 8)
         self.assertTrue(all(str(active_by_card.get(str(slot)) or active_by_card.get(slot) or "").strip() for slot in range(1, 9)))
+        self.assertEqual([player.get("legacy_player_id") for player in start_players], [1, 2, 3, 4])
+        self.assertTrue(all(str(player.get("public_player_id") or "").startswith("ply_") for player in start_players))
+        self.assertTrue(all(str(player.get("seat_id") or "").startswith("seat_") for player in start_players))
+        self.assertTrue(all(str(player.get("viewer_id") or "").startswith("view_") for player in start_players))
         self.assertEqual([player.get("player_id") for player in snapshot_players], [1, 2, 3, 4])
+        self.assertNotIn("legacy_player_id", snapshot_players[0])
+        self.assertTrue(all(str(player.get("public_player_id") or "").startswith("ply_") for player in snapshot_players))
+        self.assertTrue(all(str(player.get("seat_id") or "").startswith("seat_") for player in snapshot_players))
+        self.assertTrue(all(str(player.get("viewer_id") or "").startswith("view_") for player in snapshot_players))
+        self.assertEqual(snapshot_board.get("marker_owner_player_id"), 1)
+        self.assertTrue(str(snapshot_board.get("marker_owner_public_player_id") or "").startswith("ply_"))
+        self.assertTrue(str(snapshot_board.get("marker_owner_seat_id") or "").startswith("seat_"))
+        self.assertTrue(str(snapshot_board.get("marker_owner_viewer_id") or "").startswith("view_"))
         self.assertEqual(len(snapshot_tiles), 40)
         self.assertEqual(snapshot_tiles[0].get("pawn_player_ids"), [1, 2, 3, 4])
+        self.assertTrue(all(str(value or "").startswith("ply_") for value in snapshot_tiles[0].get("pawn_public_player_ids", [])))
+        self.assertTrue(all(str(value or "").startswith("seat_") for value in snapshot_tiles[0].get("pawn_seat_ids", [])))
+        self.assertTrue(all(str(value or "").startswith("view_") for value in snapshot_tiles[0].get("pawn_viewer_ids", [])))
 
     def test_start_replay_parameter_manifest_also_carries_initial_active_faces(self) -> None:
         from apps.server.src import state

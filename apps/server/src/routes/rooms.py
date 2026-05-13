@@ -13,7 +13,11 @@ from apps.server.src.services.room_service import (
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
-from apps.server.src.routes.sessions import _initial_active_by_card, _initial_public_snapshot
+from apps.server.src.routes.sessions import (
+    _initial_active_by_card,
+    _initial_public_snapshot,
+    _session_start_player_payload,
+)
 
 router = APIRouter(prefix="/api/v1/rooms", tags=["rooms"])
 
@@ -203,15 +207,7 @@ async def start_room(
             "turn_index": session.turn_index,
             "player_count": len(session.seats),
             "players": [
-                {
-                    "seat": seat.seat,
-                    "player_id": seat.player_id,
-                    "seat_type": seat.seat_type.value,
-                    "display_name": seat.display_name,
-                    "ai_profile": seat.ai_profile,
-                    "participant_client": seat.participant_client.value if seat.participant_client is not None else None,
-                    "participant_config": dict(seat.participant_config),
-                }
+                _session_start_player_payload(seat, include_display_name=True)
                 for seat in session.seats
             ],
             "active_by_card": active_by_card,
@@ -231,6 +227,11 @@ async def start_room(
                     "seat": seat.seat,
                     "player_id": seat.player_id,
                     "display_name": seat.display_name,
+                    **{
+                        key: value
+                        for key, value in _session_start_player_payload(seat).items()
+                        if key in {"legacy_player_id", "public_player_id", "seat_id", "viewer_id"}
+                    },
                 }
                 for seat in session.seats
             ],

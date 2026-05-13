@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from apps.server.src.core.error_payload import build_error_payload
+from apps.server.src.domain.protocol_identity import seat_protocol_fields
 from apps.server.src.domain.visibility import ViewerContext, project_stream_message_for_viewer, viewer_from_auth_context
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
@@ -139,6 +140,83 @@ def _initial_active_by_card(session) -> dict[int, str]:
     return dict(config.characters.starting_active_by_card)
 
 
+def _session_start_player_payload(seat, *, include_display_name: bool = False) -> dict:
+    legacy_player_id = seat.player_id if isinstance(seat.player_id, int) else seat.seat
+    payload = {
+        "seat": seat.seat,
+        "player_id": seat.player_id,
+        "seat_type": seat.seat_type.value,
+        "ai_profile": seat.ai_profile,
+        "participant_client": seat.participant_client.value if seat.participant_client is not None else None,
+        "participant_config": dict(seat.participant_config),
+    }
+    payload.update(seat_protocol_fields(seat))
+    payload.setdefault("legacy_player_id", legacy_player_id)
+    if include_display_name:
+        payload["display_name"] = seat.display_name
+    return payload
+
+
+def _identity_fields_by_player_id(session) -> dict[int, dict]:
+    identity_by_player_id: dict[int, dict] = {}
+    for fallback_index, seat in enumerate(session.seats, start=1):
+        player_id = seat.player_id if isinstance(seat.player_id, int) else fallback_index
+        identity_by_player_id[player_id] = seat_protocol_fields(seat)
+    return identity_by_player_id
+
+
+def _merge_identity_fields(
+    payload: dict,
+    identity_by_player_id: dict[int, dict],
+    player_id: object,
+    *,
+    prefix: str | None = None,
+    include_legacy: bool = True,
+) -> None:
+    if not isinstance(player_id, int):
+        return
+    identity_fields = identity_by_player_id.get(player_id)
+    if not identity_fields:
+        return
+    for name, value in identity_fields.items():
+        if name == "legacy_player_id" and (prefix is not None or not include_legacy):
+            continue
+        field_name = f"{prefix}_{name}" if prefix else name
+        payload.setdefault(field_name, value)
+
+
+def _identity_list_field_name(prefix: str, identity_field_name: str) -> str:
+    if identity_field_name.endswith("_id"):
+        return f"{prefix}_{identity_field_name[:-3]}_ids"
+    if identity_field_name.endswith("_index"):
+        return f"{prefix}_{identity_field_name[:-6]}_indices"
+    return f"{prefix}_{identity_field_name}s"
+
+
+def _merge_identity_list_fields(
+    payload: dict,
+    identity_by_player_id: dict[int, dict],
+    player_ids: object,
+    *,
+    prefix: str,
+) -> None:
+    if not isinstance(player_ids, list):
+        return
+    collected: dict[str, list] = {}
+    for player_id in player_ids:
+        if not isinstance(player_id, int):
+            return
+        identity_fields = identity_by_player_id.get(player_id)
+        if not identity_fields:
+            return
+        for name, value in identity_fields.items():
+            if name == "legacy_player_id":
+                continue
+            collected.setdefault(_identity_list_field_name(prefix, name), []).append(value)
+    for name, values in collected.items():
+        payload.setdefault(name, values)
+
+
 def _initial_public_snapshot(session, active_by_card: dict[int, str]) -> dict:
     manifest = session.parameter_manifest if isinstance(session.parameter_manifest, dict) else {}
     economy = manifest.get("economy") if isinstance(manifest.get("economy"), dict) else {}
@@ -149,11 +227,13 @@ def _initial_public_snapshot(session, active_by_card: dict[int, str]) -> dict:
         seat.player_id if isinstance(seat.player_id, int) else index + 1
         for index, seat in enumerate(session.seats)
     ]
+    identity_by_player_id = _identity_fields_by_player_id(session)
     starting_cash = economy.get("starting_cash", 0)
     starting_shards = resources.get("starting_shards", 0)
     dice = manifest.get("dice") if isinstance(manifest.get("dice"), dict) else {}
-    players = [
-        {
+    players = []
+    for player_id, seat in zip(player_ids, session.seats):
+        player = {
             "player_id": player_id,
             "seat": seat.seat,
             "display_name": seat.display_name or f"Player {player_id}",
@@ -174,10 +254,12 @@ def _initial_public_snapshot(session, active_by_card: dict[int, str]) -> dict:
             "burden_summary": [],
             "remaining_dice_cards": list(dice.get("values") or []),
         }
-        for player_id, seat in zip(player_ids, session.seats)
-    ]
-    tiles = [
-        {
+        _merge_identity_fields(player, identity_by_player_id, player_id, include_legacy=False)
+        players.append(player)
+    tiles = []
+    for fallback_index, tile in enumerate(raw_tiles):
+        tile_index = tile.get("tile_index", fallback_index) if isinstance(tile, dict) else fallback_index
+        tile_payload = {
             "tile_index": tile.get("tile_index", fallback_index) if isinstance(tile, dict) else fallback_index,
             "tile_kind": tile.get("tile_kind", "") if isinstance(tile, dict) else "",
             "block_id": tile.get("block_id", -1) if isinstance(tile, dict) else -1,
@@ -187,20 +269,24 @@ def _initial_public_snapshot(session, active_by_card: dict[int, str]) -> dict:
             "owner_player_id": None,
             "score_coin_count": 0,
             "pawn_player_ids": list(player_ids)
-            if (tile.get("tile_index", fallback_index) if isinstance(tile, dict) else fallback_index) == 0
+            if tile_index == 0
             else [],
         }
-        for fallback_index, tile in enumerate(raw_tiles)
-    ]
+        _merge_identity_fields(tile_payload, identity_by_player_id, tile_payload.get("owner_player_id"), prefix="owner")
+        _merge_identity_list_fields(tile_payload, identity_by_player_id, tile_payload.get("pawn_player_ids"), prefix="pawn")
+        tiles.append(tile_payload)
+    marker_owner_player_id = player_ids[0] if player_ids else None
+    board_payload = {
+        "tiles": tiles,
+        "f_value": 0,
+        "marker_owner_player_id": marker_owner_player_id,
+        "round_index": session.round_index + 1,
+        "turn_index": session.turn_index + 1,
+    }
+    _merge_identity_fields(board_payload, identity_by_player_id, marker_owner_player_id, prefix="marker_owner")
     return {
         "players": players,
-        "board": {
-            "tiles": tiles,
-            "f_value": 0,
-            "marker_owner_player_id": player_ids[0] if player_ids else None,
-            "round_index": session.round_index + 1,
-            "turn_index": session.turn_index + 1,
-        },
+        "board": board_payload,
         "active_by_card": dict(active_by_card),
     }
 
@@ -335,14 +421,7 @@ async def start_session(
             "turn_index": session.turn_index,
             "player_count": len(session.seats),
             "players": [
-                {
-                    "seat": seat.seat,
-                    "player_id": seat.player_id,
-                    "seat_type": seat.seat_type.value,
-                    "ai_profile": seat.ai_profile,
-                    "participant_client": seat.participant_client.value if seat.participant_client is not None else None,
-                    "participant_config": dict(seat.participant_config),
-                }
+                _session_start_player_payload(seat)
                 for seat in session.seats
             ],
             "active_by_card": active_by_card,

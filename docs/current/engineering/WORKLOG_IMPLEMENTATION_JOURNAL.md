@@ -39,6 +39,10 @@ in the active plans, status index, tests, or canonical contract documents.
 - Admin external-AI pending prompt reads now expose the public canonical
   request id, legacy request alias, public player id, seat id, and viewer id
   while retaining numeric `player_id` as a compatibility routing alias.
+- Session bootstrap identity was aligned with the runtime protocol identity
+  migration. `session_start.players`, initial snapshot players, marker owner,
+  and starting pawn lists now carry public player, seat, and viewer companion
+  fields while retaining numeric compatibility aliases.
 - `PromptService.wait_for_decision()` now resolves already-submitted public
   request aliases through lifecycle metadata for both in-memory and Redis
   stores. Zero-timeout missing-decision probes still avoid pending/resolved hash
@@ -87,9 +91,12 @@ in the active plans, status index, tests, or canonical contract documents.
   Runtime batch resume/enrichment also no longer manufactures `batch_id` from
   request-id suffixes. `PromptService` command materialization now follows the
   same rule; producers must carry explicit batch identity. Public prompt-id
-  lookup responsibility moved into the prompt service/store alias indexes, and
-  legacy request IDs now remain compatibility inputs rather than the canonical
-  storage key.
+  lookup responsibility moved into the prompt service/store alias indexes.
+  Bootstrap event construction now owns additive public identity enrichment
+  before runtime fanout starts. Runtime fanout still owns post-start view
+  commits, and engine actor indexes remain internal numeric state. Legacy
+  request IDs now remain compatibility inputs rather than the canonical storage
+  key.
 
 Verification:
 
@@ -104,6 +111,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_start_replay_session_start_includes_initial_active_faces -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_public_request_id_with_redis_prompt_store apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_expires_public_request_id_with_redis_prompt_store -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_uses_redis_alias_index_for_public_request_id_lookup -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py apps/server/tests/test_redis_realtime_services.py -q -k "runtime_prompt_sequence_seed or prompt_sequence"`
