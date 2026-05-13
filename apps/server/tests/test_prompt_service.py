@@ -222,6 +222,11 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(lifecycle["request_id"], pending.request_id)
         self.assertEqual(lifecycle["decision"]["request_id"], pending.request_id)
         self.assertEqual(lifecycle["decision"]["public_request_id"], public_request_id)
+        lifecycle_by_public = self.service.get_prompt_lifecycle(public_request_id, session_id="s1")
+        self.assertIsNotNone(lifecycle_by_public)
+        assert lifecycle_by_public is not None
+        self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
+        self.assertEqual(lifecycle_by_public["decision"]["public_request_id"], public_request_id)
 
     def test_module_decision_command_carries_prompt_instance_id_for_public_request_alias(self) -> None:
         command_store = CapturingCommandStore()

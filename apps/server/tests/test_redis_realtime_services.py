@@ -1497,6 +1497,11 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         assert decision_by_public is not None
         self.assertEqual(decision_by_public["request_id"], pending.request_id)
         self.assertEqual(decision_by_public["public_request_id"], public_request_id)
+        lifecycle_by_public = service.get_prompt_lifecycle(public_request_id, session_id=pending.session_id)
+        self.assertIsNotNone(lifecycle_by_public)
+        assert lifecycle_by_public is not None
+        self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
+        self.assertEqual(lifecycle_by_public["decision"]["public_request_id"], public_request_id)
 
     def test_command_store_recovers_seq_after_seq_key_eviction(self) -> None:
         command_store = RedisCommandStore(self.connection)

@@ -31,6 +31,9 @@ in the active plans, status index, tests, or canonical contract documents.
   request aliases through lifecycle metadata for both in-memory and Redis
   stores. Zero-timeout missing-decision probes still avoid pending/resolved hash
   scans.
+- `PromptService.get_prompt_lifecycle()` now accepts the same public request
+  alias and returns the legacy-key lifecycle record, which keeps debug/status
+  reads usable before the canonical prompt key migration.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Compatibility storage and replay still keep
   the legacy request id key until the canonical opaque prompt-key migration is

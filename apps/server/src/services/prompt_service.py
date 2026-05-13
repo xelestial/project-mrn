@@ -742,7 +742,12 @@ class PromptService:
 
     def get_prompt_lifecycle(self, request_id: str, session_id: str | None = None) -> dict[str, Any] | None:
         with self._lock:
-            lifecycle = self._get_lifecycle(str(request_id).strip(), session_id=session_id)
+            normalized_request_id = str(request_id).strip()
+            lifecycle = self._get_lifecycle(normalized_request_id, session_id=session_id)
+            if lifecycle is None:
+                lifecycle_alias = self._resolve_lifecycle_request_alias(normalized_request_id, session_id=session_id)
+                if lifecycle_alias:
+                    lifecycle = self._get_lifecycle(lifecycle_alias, session_id=session_id)
             return dict(lifecycle) if lifecycle is not None else None
 
     def list_prompt_lifecycle(self, session_id: str | None = None) -> list[dict[str, Any]]:
