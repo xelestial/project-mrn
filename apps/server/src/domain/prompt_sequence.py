@@ -17,6 +17,38 @@ class PromptInstanceSequencer:
         return self._current
 
 
+def prepare_prompt_boundary_envelope(
+    prompt: dict,
+    *,
+    prompt_instance_id: int,
+    active_call: object | None = None,
+    replace_prompt_instance_id: bool = False,
+) -> dict:
+    envelope = dict(prompt)
+    if replace_prompt_instance_id:
+        envelope["prompt_instance_id"] = prompt_instance_id
+    else:
+        envelope.setdefault("prompt_instance_id", prompt_instance_id)
+    if active_call is None:
+        return envelope
+
+    request = getattr(active_call, "request", None)
+    if request is None:
+        return envelope
+
+    envelope.setdefault("request_type", getattr(request, "request_type", None))
+    internal_player_id = getattr(request, "player_id", None)
+    if internal_player_id is not None:
+        envelope["player_id"] = int(internal_player_id) + 1
+    else:
+        envelope.setdefault("player_id", None)
+    envelope.setdefault("fallback_policy", getattr(request, "fallback_policy", None))
+    prompt_context = dict(envelope.get("public_context") or {})
+    request_context = dict(getattr(request, "public_context", {}) or {})
+    envelope["public_context"] = {**prompt_context, **request_context}
+    return envelope
+
+
 def record_prompt_boundary_state(state: object, prompt: dict) -> None:
     prompt_instance_id = _positive_int(prompt.get("prompt_instance_id"))
     state.prompt_sequence = max(_positive_int(getattr(state, "prompt_sequence", 0)), prompt_instance_id)
@@ -117,6 +149,7 @@ def runtime_prompt_sequence_seed(
 __all__ = [
     "PromptInstanceSequencer",
     "clear_prompt_boundary_state",
+    "prepare_prompt_boundary_envelope",
     "record_prompt_boundary_state",
     "runtime_prompt_sequence_seed",
 ]

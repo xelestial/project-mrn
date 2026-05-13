@@ -39,6 +39,14 @@ in the active plans, status index, tests, or canonical contract documents.
   `PromptRequired` boundary, but the checkpoint fields for pending request,
   prompt type, player, instance id, and sequence advancement are no longer
   hand-written in the transition loop.
+- Prompt boundary envelope preparation now lives in
+  `domain.prompt_sequence.prepare_prompt_boundary_envelope()`. The server
+  bridge and local human decision client still allocate compatibility
+  `prompt_instance_id` values, but request metadata, public-context merging,
+  and prompt copy semantics are no longer hand-written in `_ask()` bodies.
+  Module continuation attachment remains in the local runtime client until a
+  future prompt-boundary owner can receive the active module/frame context
+  directly.
 - Active batch prompt enrichment now requires explicit `batch_id` plus
   submitted player identity when exact request-id equality does not match.
   Runtime no longer derives batch identity or player position from the legacy
@@ -116,6 +124,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_runtime_prompt_boundary_can_publish_after_view_commit_guardrail apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_human_bridge_prompt_sequence_can_resume_from_checkpoint_value apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_prompt_module_continuation.py::test_local_human_client_prompt_sequence_is_owned_by_server_adapter apps/server/tests/test_prompt_module_continuation.py::test_local_human_prompt_created_inside_module_attaches_active_continuation -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_public_request_alias_resolution_uses_index_before_scans -q`

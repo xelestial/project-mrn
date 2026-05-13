@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from apps.server.src.domain.prompt_sequence import (
     PromptInstanceSequencer,
     clear_prompt_boundary_state,
+    prepare_prompt_boundary_envelope,
     record_prompt_boundary_state,
     runtime_prompt_sequence_seed,
 )
@@ -29,6 +30,49 @@ class PromptSequenceTests(unittest.TestCase):
 
         self.assertEqual(sequencer.current, 0)
         self.assertEqual(sequencer.allocate_next(), 1)
+
+    def test_prepare_prompt_boundary_envelope_adds_instance_without_mutating_prompt(self) -> None:
+        prompt = {"request_type": "movement", "public_context": {"source": "prompt"}}
+
+        envelope = prepare_prompt_boundary_envelope(prompt, prompt_instance_id=3)
+
+        self.assertEqual(envelope["prompt_instance_id"], 3)
+        self.assertEqual(envelope["request_type"], "movement")
+        self.assertNotIn("prompt_instance_id", prompt)
+
+    def test_prepare_prompt_boundary_envelope_can_replace_existing_instance(self) -> None:
+        prompt = {"prompt_instance_id": 2}
+
+        envelope = prepare_prompt_boundary_envelope(
+            prompt,
+            prompt_instance_id=4,
+            replace_prompt_instance_id=True,
+        )
+
+        self.assertEqual(envelope["prompt_instance_id"], 4)
+        self.assertEqual(prompt["prompt_instance_id"], 2)
+
+    def test_prepare_prompt_boundary_envelope_merges_active_request_metadata(self) -> None:
+        prompt = {"public_context": {"source": "prompt", "shared": "prompt_value"}}
+        active_call = SimpleNamespace(
+            request=SimpleNamespace(
+                request_type="trick_tile_target",
+                player_id=1,
+                fallback_policy="required",
+                public_context={"shared": "request_value", "frame_id": "turn:r2:p1"},
+            )
+        )
+
+        envelope = prepare_prompt_boundary_envelope(prompt, prompt_instance_id=8, active_call=active_call)
+
+        self.assertEqual(envelope["prompt_instance_id"], 8)
+        self.assertEqual(envelope["request_type"], "trick_tile_target")
+        self.assertEqual(envelope["player_id"], 2)
+        self.assertEqual(envelope["fallback_policy"], "required")
+        self.assertEqual(
+            envelope["public_context"],
+            {"source": "prompt", "shared": "request_value", "frame_id": "turn:r2:p1"},
+        )
 
     def test_record_prompt_boundary_state_tracks_pending_prompt_and_sequence(self) -> None:
         state = SimpleNamespace(prompt_sequence=4)

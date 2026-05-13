@@ -27,6 +27,7 @@ from apps.server.src.domain.protocol_ids import int_or_default, turn_label as pr
 from apps.server.src.domain.prompt_sequence import (
     PromptInstanceSequencer,
     clear_prompt_boundary_state,
+    prepare_prompt_boundary_envelope,
     record_prompt_boundary_state,
     runtime_prompt_sequence_seed,
 )
@@ -4230,8 +4231,11 @@ class _ServerDecisionPolicyBridge:
     def _ask(self, prompt: dict, parser, fallback_fn):
         if self._human_client is not None:
             self._human_client.bump_prompt_seq()
-            prompt = dict(prompt)
-            prompt["prompt_instance_id"] = self._human_client.prompt_seq
+            prompt = prepare_prompt_boundary_envelope(
+                prompt,
+                prompt_instance_id=self._human_client.prompt_seq,
+                replace_prompt_instance_id=True,
+            )
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
 
     def request(self, request):
@@ -5212,24 +5216,15 @@ class _LocalHumanDecisionClient:
             phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
             phase_started = time.perf_counter()
 
-        envelope = dict(prompt)
         self.bump_prompt_seq()
-        envelope.setdefault("prompt_instance_id", self.prompt_seq)
         active_call = self._active_call
+        envelope = prepare_prompt_boundary_envelope(
+            prompt,
+            prompt_instance_id=self.prompt_seq,
+            active_call=active_call,
+        )
         _mark_phase("envelope_prepare")
         if active_call is not None:
-            request = getattr(active_call, "request", None)
-            if request is not None:
-                envelope.setdefault("request_type", getattr(request, "request_type", None))
-                internal_player_id = getattr(request, "player_id", None)
-                if internal_player_id is not None:
-                    envelope["player_id"] = int(internal_player_id) + 1 if internal_player_id is not None else None
-                else:
-                    envelope.setdefault("player_id", None)
-                envelope.setdefault("fallback_policy", getattr(request, "fallback_policy", None))
-                prompt_context = dict(envelope.get("public_context") or {})
-                request_context = dict(getattr(request, "public_context", {}) or {})
-                envelope["public_context"] = {**prompt_context, **request_context}
             self._attach_active_module_continuation(envelope, active_call)
         _mark_phase("active_call_attach")
         try:

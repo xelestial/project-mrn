@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from runtime_modules.contracts import FrameState, ModuleRef
+from apps.server.src.domain.prompt_sequence import PromptInstanceSequencer
 from apps.server.src.services.decision_gateway import METHOD_SPECS
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
@@ -465,7 +466,7 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
     )
     client = _LocalHumanDecisionClient.__new__(_LocalHumanDecisionClient)
     client.policy = SimpleNamespace()
-    client._prompt_seq = 3
+    client._prompt_instances = PromptInstanceSequencer(3)
     client._gateway = _Gateway()
     client._active_call = call
 
@@ -491,7 +492,7 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
 def test_local_human_client_prompt_sequence_is_owned_by_server_adapter() -> None:
     client = _LocalHumanDecisionClient.__new__(_LocalHumanDecisionClient)
     client.policy = SimpleNamespace()
-    client._prompt_seq = 3
+    client._prompt_instances = PromptInstanceSequencer(3)
 
     assert client.prompt_seq == 3
 
