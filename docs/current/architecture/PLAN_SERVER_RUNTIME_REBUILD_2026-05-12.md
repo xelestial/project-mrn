@@ -631,12 +631,13 @@ commit signal
 - 완료: `CommandBoundaryFinalizer`가 authoritative commit 직전에 `commit_guard`를 호출하게 했다. command-boundary loop가 runtime lease를 잃은 상태이면 Redis authoritative state/view/prompt side effect를 실행하지 않고 `runtime_lease_lost_before_commit` stale result를 반환한다.
 - 완료: `CommandBoundaryRunner`를 추가해 command-boundary per-call store 생성, transition 반복, terminal 판단, finalizer 호출, module trace/timing result 조립을 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. `RuntimeService`는 engine transition과 persistence callables를 주입하는 boundary adapter로 남는다.
 - 완료: `SessionCommandExecutor`를 추가해 command lifecycle control flow를 `SessionLoop` 쪽으로 이동했다. `SessionLoop`는 이제 runtime task guard, local command gate, runtime lease acquire/release, command `processing` mark, engine boundary 실행, runtime status result 적용, conflict/failure 처리를 순서대로 조립한다.
+- 완료: `SessionLoop`는 더 이상 runtime boundary가 lifecycle interface를 지원하지 않을 때 `RuntimeService.process_command_once()`로 fallback하지 않는다. command lifecycle은 항상 `SessionCommandExecutor` 경로로 들어간다.
 - 완료: `RuntimeService.process_command_once()`는 `SessionCommandExecutor(runtime_boundary=self)`를 호출하는 compatibility wrapper로 축소했다. 프로덕션 `SessionLoop` 경로는 `process_command_once()` adapter가 없어도 runtime boundary lifecycle 메서드만으로 명령을 처리한다.
 - 완료: `RuntimeService`는 아직 engine transition, runtime state persistence, commit conflict recovery 같은 저수준 동작을 제공하지만, accepted command execution lifecycle의 owner는 `SessionLoop`/`SessionCommandExecutor`다.
 - 완료: `CommandBoundaryGameStateStore`를 `apps/server/src/services/command_boundary_store.py`로 분리하고 `RuntimeService` 안의 `_CommandBoundaryGameStateStore` private class 정의를 제거했다. 이제 staging/deferred commit adapter는 독립 테스트를 가진 명시적 service boundary다.
 - 보류: `CommandBoundaryGameStateStore` adapter 자체는 아직 필요하다. SessionLoop가 atomic state/prompt/view/command commit을 직접 소유하기 전에는 제거하면 같은 명령 안의 중간 transition commit 방지가 깨진다.
 - 완료: `_runtime_prompt_sequence_seed` 구현은 `runtime_service.py`에서 제거하고 `apps/server/src/domain/prompt_sequence.py`의 `runtime_prompt_sequence_seed()`로 이동했다. 이 규칙은 checkpoint/resume prompt instance id를 맞추는 순수 domain 계산으로 분류한다.
-- 보류: `RuntimeService.process_command_once()` wrapper는 아직 제거하지 않는다. `SessionLoop` production path는 wrapper 없이 `SessionCommandExecutor`와 lifecycle boundary 메서드로 동작하지만, 기존 runtime service 테스트와 일부 route/stream 테스트가 wrapper를 진단용 호환 entrypoint로 직접 사용한다. 제거는 별도 compatibility cleanup으로 분리한다.
+- 보류: `RuntimeService.process_command_once()` wrapper는 아직 제거하지 않는다. `SessionLoop` production path는 wrapper fallback 없이 `SessionCommandExecutor`와 lifecycle boundary 메서드로 동작하지만, 기존 runtime service 테스트와 일부 route/stream 테스트가 wrapper를 진단용 호환 entrypoint로 직접 사용한다. 제거는 별도 compatibility cleanup으로 분리한다.
 
 수정 후보:
 

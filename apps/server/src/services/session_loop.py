@@ -21,30 +21,8 @@ async def _maybe_await(value: Any) -> Any:
 class SessionCommandExecutor:
     """Own the command-processing lifecycle for one command boundary."""
 
-    _REQUIRED_RUNTIME_METHODS = (
-        "runtime_task_processing_guard",
-        "begin_command_processing",
-        "command_processing_guard",
-        "acquire_runtime_lease",
-        "runtime_lease_owner",
-        "start_runtime_lease_renewer",
-        "stop_runtime_lease_renewer",
-        "release_runtime_lease",
-        "end_command_processing",
-        "mark_command_processing_started",
-        "run_command_boundary",
-        "record_command_process_timing",
-        "apply_command_process_result",
-        "handle_command_commit_conflict",
-        "handle_command_failure",
-    )
-
     def __init__(self, *, runtime_boundary: Any) -> None:
         self._runtime_boundary = runtime_boundary
-
-    @classmethod
-    def supports(cls, runtime_boundary: Any) -> bool:
-        return all(callable(getattr(runtime_boundary, method_name, None)) for method_name in cls._REQUIRED_RUNTIME_METHODS)
 
     async def process_command_once(
         self,
@@ -304,10 +282,7 @@ class SessionLoop:
     async def _process_command(self, *, session_id: str, command_seq: int) -> dict[str, Any]:
         session = self._session_service.get_session(session_id)
         runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
-        process_command = self._command_executor.process_command_once
-        if not SessionCommandExecutor.supports(self._runtime_service):
-            process_command = self._runtime_service.process_command_once
-        return await process_command(
+        return await self._command_executor.process_command_once(
             session_id=session_id,
             command_seq=int(command_seq),
             consumer_name=self._consumer_name,

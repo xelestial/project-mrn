@@ -120,13 +120,17 @@ boundary adapter. The current split is:
   over the `SessionCommandExecutor` path. It remains because existing
   runtime/route/stream tests still use it as a diagnostic compatibility
   entrypoint; the production `SessionLoop` path does not require it.
+- `SessionLoop` no longer has a fallback to
+  `RuntimeService.process_command_once()` when a runtime boundary lacks the
+  lifecycle interface. Loop tests now exercise the lifecycle boundary path.
 
 Important remaining responsibility:
 
 - Remove process-local prompt sequence ownership entirely by moving prompt
   boundary creation out of the runtime policy/engine adapter path.
 - Remove the `RuntimeService.process_command_once()` compatibility wrapper
-  after direct test and diagnostic callers are migrated.
+  after direct test and diagnostic callers are migrated. The production
+  `SessionLoop` fallback has already been removed.
 - Keep Redis authoritative and `view_commit` as read model; do not reintroduce
   route-level runtime execution or heartbeat-driven repair.
 

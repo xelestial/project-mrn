@@ -75,7 +75,8 @@ Read and maintain these:
   now lives in `CommandBoundaryGameStateStore` instead of a `RuntimeService`
   private class; command-boundary final commit now rechecks runtime lease
   ownership before authoritative Redis/view/prompt side effects; `SessionLoop`
-  now owns command lifecycle control flow through `SessionCommandExecutor`;
+  now owns command lifecycle control flow through `SessionCommandExecutor` and
+  no longer falls back to `RuntimeService.process_command_once()`;
   `DecisionGateway` no longer owns process-local/random request id fallback for
   human prompt retry or AI decision events; `_LocalHumanDecisionClient` no
   longer uses engine `HumanHttpPolicy._prompt_seq` as its private prompt

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from pathlib import Path
 
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
 from apps.server.src.services.persistence import RedisSessionStore
@@ -13,6 +14,11 @@ from apps.server.tests.test_redis_realtime_services import _FakeRedis
 
 
 class SessionLoopTests(unittest.TestCase):
+    def test_session_loop_has_no_runtime_process_command_fallback(self) -> None:
+        source = Path("apps/server/src/services/session_loop.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("self._runtime_service.process_command_once", source)
+
     def test_session_loop_processes_decision_command_through_runtime_boundary(self) -> None:
         command_store, sessions, session = _build_session(seed=31)
         runtime = _RuntimeBoundaryStub(command_store=command_store)
@@ -255,14 +261,71 @@ class _RuntimeBoundaryStub:
         self._results = list(results or [{"status": "committed"}])
         self.processed: list[tuple[str, int, str, int, str | None]] = []
 
-    async def process_command_once(
+    def runtime_task_processing_guard(
         self,
         *,
         session_id: str,
         command_seq: int,
         consumer_name: str,
+        stage: str,
+    ) -> dict | None:
+        return None
+
+    def begin_command_processing(self, session_id: str) -> bool:
+        return True
+
+    def command_processing_guard(
+        self,
+        *,
+        session_id: str,
+        consumer_name: str,
+        command_seq: int,
+        stage: str,
+    ) -> dict | None:
+        return None
+
+    def acquire_runtime_lease(self, session_id: str) -> bool:
+        return True
+
+    def runtime_lease_owner(self, session_id: str) -> str | None:
+        return None
+
+    def start_runtime_lease_renewer(
+        self,
+        *,
+        session_id: str,
+        reason: str,
+        command_seq: int | None = None,
+        consumer_name: str | None = None,
+    ) -> object:
+        return object()
+
+    def stop_runtime_lease_renewer(self, handle: object) -> None:
+        return None
+
+    def release_runtime_lease(self, session_id: str) -> bool:
+        return True
+
+    def end_command_processing(self, session_id: str) -> None:
+        return None
+
+    def mark_command_processing_started(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+    ) -> None:
+        return None
+
+    async def run_command_boundary(
+        self,
+        *,
+        session_id: str,
         seed: int,
-        policy_mode: str | None = None,
+        policy_mode: str | None,
+        consumer_name: str,
+        command_seq: int,
     ) -> dict:
         if self._started is not None:
             self._started.set()
@@ -273,6 +336,40 @@ class _RuntimeBoundaryStub:
         if self._advance_offset and str(result.get("status") or "") != "running_elsewhere":
             self._command_store.save_consumer_offset(consumer_name, session_id, command_seq)
         return {**result, "processed_command_seq": command_seq}
+
+    def record_command_process_timing(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        result: dict,
+        process_started: float,
+        pre_executor_ms: int,
+        executor_wall_ms: int,
+    ) -> None:
+        return None
+
+    async def apply_command_process_result(
+        self,
+        *,
+        session_id: str,
+        result: dict,
+    ) -> None:
+        return None
+
+    async def handle_command_commit_conflict(
+        self,
+        *,
+        session_id: str,
+        command_seq: int,
+        consumer_name: str,
+        exc: Exception,
+    ) -> dict:
+        raise exc
+
+    def handle_command_failure(self, *, session_id: str, exc: Exception) -> None:
+        raise exc
 
 
 class _RuntimeLifecycleBoundaryStub:
