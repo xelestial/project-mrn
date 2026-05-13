@@ -43,6 +43,10 @@ in the active plans, status index, tests, or canonical contract documents.
   active pending aliases before deletion/resolution. Delivered, external-result,
   and expired states therefore update the same legacy-key lifecycle record
   instead of creating or missing a parallel public-key record.
+- Redis-backed `PromptService` coverage now proves the same public request
+  alias adapter at pending-read, accept, wait, lifecycle-read, and expire
+  boundaries. That keeps the Redis path aligned with the in-memory service
+  tests instead of relying on one backend's behavior as evidence for both.
 - Decision command materialization now copies prompt player identity companions
   (`public_player_id`, `seat_id`, `viewer_id`, and display aliases) into normal
   decision commands, simultaneous batch collector responses, and timeout
@@ -68,7 +72,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
-- `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_public_request_id_with_redis_prompt_store -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_public_request_id_with_redis_prompt_store apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_expires_public_request_id_with_redis_prompt_store -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py apps/server/tests/test_redis_realtime_services.py -q -k "runtime_prompt_sequence_seed or prompt_sequence"`
 - `./.venv/bin/python tools/plan_policy_gate.py`
 - `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`

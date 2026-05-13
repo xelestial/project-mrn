@@ -1475,6 +1475,11 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         )
         public_request_id = str(pending.payload["public_request_id"])
 
+        pending_by_public = service.get_pending_prompt(public_request_id, session_id=pending.session_id)
+        self.assertIsNotNone(pending_by_public)
+        assert pending_by_public is not None
+        self.assertEqual(pending_by_public.request_id, pending.request_id)
+
         accepted = service.submit_decision(
             {
                 "session_id": "s-redis-public-request",
@@ -1502,6 +1507,40 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         assert lifecycle_by_public is not None
         self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
         self.assertEqual(lifecycle_by_public["decision"]["public_request_id"], public_request_id)
+
+    def test_prompt_service_expires_public_request_id_with_redis_prompt_store(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        service = PromptService(prompt_store=prompt_store)
+        pending = service.create_prompt(
+            "s-redis-public-expire",
+            {
+                "request_id": "s-redis-public-expire:r1:t2:p0:movement:4",
+                "request_type": "movement",
+                "player_id": 0,
+                "prompt_instance_id": 4,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        expired = service.expire_prompt(public_request_id, reason="manual_cleanup", session_id=pending.session_id)
+
+        self.assertIsNotNone(expired)
+        assert expired is not None
+        self.assertEqual(expired.request_id, pending.request_id)
+        self.assertIsNone(prompt_store.get_pending(pending.request_id, session_id=pending.session_id))
+        self.assertIsNone(service.get_pending_prompt(public_request_id, session_id=pending.session_id))
+        resolved = prompt_store.get_resolved(pending.request_id, session_id=pending.session_id)
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved["reason"], "manual_cleanup")
+        lifecycle_by_public = service.get_prompt_lifecycle(public_request_id, session_id=pending.session_id)
+        self.assertIsNotNone(lifecycle_by_public)
+        assert lifecycle_by_public is not None
+        self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
+        self.assertEqual(lifecycle_by_public["state"], "expired")
+        self.assertEqual(lifecycle_by_public["reason"], "manual_cleanup")
 
     def test_command_store_recovers_seq_after_seq_key_eviction(self) -> None:
         command_store = RedisCommandStore(self.connection)
