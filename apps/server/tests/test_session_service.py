@@ -8,6 +8,12 @@ import unittest
 
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
 
+_PUBLIC_ID_PATTERNS = {
+    "public_player_id": r"^ply_[0-9a-f-]{36}$",
+    "seat_id": r"^seat_[0-9a-f-]{36}$",
+    "viewer_id": r"^view_[0-9a-f-]{36}$",
+}
+
 
 def _default_seats() -> list[dict]:
     return [
@@ -25,6 +31,31 @@ def _all_ai_seats() -> list[dict]:
         {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
         {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
     ]
+
+
+def _assert_public_identity_fields(
+    testcase: unittest.TestCase,
+    payload: dict,
+    *,
+    seat_index: int,
+    legacy_player_id: int | None = None,
+) -> None:
+    for field, pattern in _PUBLIC_ID_PATTERNS.items():
+        testcase.assertIn(field, payload)
+        testcase.assertIsInstance(payload[field], str)
+        testcase.assertRegex(payload[field], pattern)
+        testcase.assertNotEqual(payload[field], str(seat_index))
+        if legacy_player_id is not None:
+            testcase.assertNotEqual(payload[field], str(legacy_player_id))
+
+    testcase.assertEqual(payload["seat_index"], seat_index)
+    testcase.assertEqual(payload["turn_order_index"], seat_index)
+    testcase.assertEqual(payload["player_label"], f"P{seat_index}")
+    if legacy_player_id is None:
+        testcase.assertNotIn("legacy_player_id", payload)
+    else:
+        testcase.assertEqual(payload["legacy_player_id"], legacy_player_id)
+        testcase.assertIsInstance(payload["legacy_player_id"], int)
 
 
 class SessionServiceTests(unittest.TestCase):
@@ -70,14 +101,8 @@ class SessionServiceTests(unittest.TestCase):
         public = self.service.to_public(session)
         seat_payload = public["seats"][0]
 
+        _assert_public_identity_fields(self, join_1, seat_index=1, legacy_player_id=1)
         self.assertEqual(join_1["player_id"], 1)
-        self.assertEqual(join_1["legacy_player_id"], 1)
-        self.assertEqual(join_1["seat_index"], 1)
-        self.assertEqual(join_1["turn_order_index"], 1)
-        self.assertEqual(join_1["player_label"], "P1")
-        self.assertRegex(join_1["public_player_id"], r"^ply_[0-9a-f-]{36}$")
-        self.assertRegex(join_1["seat_id"], r"^seat_[0-9a-f-]{36}$")
-        self.assertRegex(join_1["viewer_id"], r"^view_[0-9a-f-]{36}$")
         self.assertNotEqual(join_1["public_player_id"], str(join_1["player_id"]))
         self.assertEqual(auth["public_player_id"], join_1["public_player_id"])
         self.assertEqual(auth["seat_id"], join_1["seat_id"])
@@ -95,16 +120,36 @@ class SessionServiceTests(unittest.TestCase):
         seen_player_ids = set()
         seen_seat_ids = set()
         for index, seat_payload in enumerate(public["seats"], start=1):
-            self.assertRegex(seat_payload["public_player_id"], r"^ply_[0-9a-f-]{36}$")
-            self.assertRegex(seat_payload["seat_id"], r"^seat_[0-9a-f-]{36}$")
-            self.assertRegex(seat_payload["viewer_id"], r"^view_[0-9a-f-]{36}$")
-            self.assertEqual(seat_payload["seat_index"], index)
-            self.assertEqual(seat_payload["turn_order_index"], index)
-            self.assertEqual(seat_payload["player_label"], f"P{index}")
+            _assert_public_identity_fields(self, seat_payload, seat_index=index)
             seen_player_ids.add(seat_payload["public_player_id"])
             seen_seat_ids.add(seat_payload["seat_id"])
         self.assertEqual(len(seen_player_ids), 4)
         self.assertEqual(len(seen_seat_ids), 4)
+
+    def test_new_protocol_identity_fields_never_serialize_numeric_player_ids(self) -> None:
+        session = self.service.create_session(_default_seats(), config={"visibility": "public"})
+
+        join_1 = self.service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        join_4 = self.service.join_session(session.session_id, 4, session.join_tokens[4], "P4")
+        auth_1 = self.service.verify_session_token(session.session_id, join_1["session_token"])
+        public = self.service.to_public(session)
+
+        _assert_public_identity_fields(self, join_1, seat_index=1, legacy_player_id=1)
+        _assert_public_identity_fields(self, join_4, seat_index=4, legacy_player_id=4)
+        _assert_public_identity_fields(self, auth_1, seat_index=1, legacy_player_id=1)
+        for seat_payload in public["seats"]:
+            legacy_player_id = seat_payload["player_id"]
+            _assert_public_identity_fields(
+                self,
+                seat_payload,
+                seat_index=seat_payload["seat"],
+                legacy_player_id=legacy_player_id,
+            )
+
+        self.assertIsInstance(join_1["player_id"], int)
+        self.assertIsInstance(join_1["legacy_player_id"], int)
+        self.assertIsInstance(join_4["player_id"], int)
+        self.assertIsInstance(join_4["legacy_player_id"], int)
 
     def test_store_backed_session_identity_fields_survive_reload(self) -> None:
         store = _MemorySessionStore()

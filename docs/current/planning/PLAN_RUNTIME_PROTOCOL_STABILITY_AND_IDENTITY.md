@@ -88,7 +88,7 @@ Current Phase 0 evidence, 2026-05-13:
 | Contract | Current evidence |
 | --- | --- |
 | Protocol ID helpers | `apps/server/src/domain/protocol_ids.py` defines `new_public_player_id`, `new_seat_id`, `new_viewer_id`, `new_event_id`, `new_request_uuid`, `player_label`, and `turn_label`. |
-| Additive session identity | `apps/server/tests/test_session_service.py` covers join payloads, public session payloads, auth context, and store-backed reload preserving `public_player_id`, `seat_id`, and `viewer_id`. |
+| Additive session identity | `apps/server/tests/test_session_service.py` covers join payloads, public session payloads, auth context, and store-backed reload preserving `public_player_id`, `seat_id`, and `viewer_id`. `test_new_protocol_identity_fields_never_serialize_numeric_player_ids` locks the rule that newly added public identity fields remain string IDs and do not collapse back to numeric `player_id` values. |
 | Legacy numeric compatibility | `player_id`, `seat`, `seat_index`, `turn_order_index`, and `legacy_player_id` remain in the join/auth/viewer payloads while public UUID-like IDs are additive. |
 | `view_commit` round/turn metadata | `apps/server/src/services/runtime_service.py` builds authoritative commits with `round_index`, `turn_index`, and `turn_label` at both payload and `runtime` levels; frontend contract fields are in `apps/web/src/core/contracts/stream.ts`. |
 | Viewer display metadata | `display_identity_fields()` populates seat display fields; `apps/server/tests/test_visibility_projection.py` proves auth-derived viewer identity is preserved without changing visibility checks. |
@@ -169,6 +169,12 @@ The engine still contains numeric assumptions. Rewriting the whole engine identi
 ### Residual Fix Plan
 
 Keep a strict adapter boundary. Engine modules can use `engine_player_index`, but no WebSocket payload or Redis debug snapshot should expose it as public identity. Add a test that fails if new protocol fields serialize `player_id` as a number.
+
+Residual status, 2026-05-14: the additive public identity fields are now guarded by
+`apps/server/tests/test_session_service.py::test_new_protocol_identity_fields_never_serialize_numeric_player_ids`.
+This does not close the full protocol `player_id` migration: numeric `player_id`, `seat`, and
+`legacy_player_id` remain intentional compatibility aliases until the frontend and decision submit path
+move to the string public identity contract.
 
 ## Problem 2. Numeric Sequences Are Doing Too Much
 
@@ -822,6 +828,9 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
 Acceptance evidence status, 2026-05-14:
 
 - `apps/server/tests/test_session_service.py` verifies `seat_index` and `player_label` stay aligned with `P1` through `P4`.
+- `apps/server/tests/test_session_service.py::test_new_protocol_identity_fields_never_serialize_numeric_player_ids`
+  verifies that `public_player_id`, `seat_id`, and `viewer_id` serialize as string IDs, while numeric
+  `player_id` and `legacy_player_id` remain only as compatibility fields.
 - `apps/server/tests/test_redis_realtime_services.py` verifies Redis stream/view-commit sequence persistence, monotonic command offsets, non-monotonic view-commit rejection, stale previous-commit rejection, and cached next-commit sequencing.
 - `apps/server/tests/test_prompt_service.py`, `apps/server/tests/test_prompt_module_continuation.py`, and `apps/server/tests/test_stream_api.py` verify prompt lifecycle states, active prompt persistence, resume tokens, required commit sequence handling, reconnect/resume repair, and target-scoped prompt delivery.
 - `apps/server/tests/test_stream_service.py`, `apps/server/tests/test_visibility_projection.py`, and `apps/server/tests/test_stream_api.py::test_spectator_does_not_receive_prompt_or_decision_ack_for_seat` verify private prompt and `decision_ack` projection boundaries.
