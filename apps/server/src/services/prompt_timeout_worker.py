@@ -11,10 +11,11 @@ from apps.server.src.services.decision_gateway import (
 
 
 class PromptTimeoutWorker:
-    def __init__(self, *, prompt_service, runtime_service, stream_service) -> None:
+    def __init__(self, *, prompt_service, runtime_service, stream_service, command_router=None) -> None:
         self._prompt_service = prompt_service
         self._runtime_service = runtime_service
         self._stream_service = stream_service
+        self._command_router = command_router
 
     async def run_once(self, *, now_ms: int | None = None, session_id: str | None = None) -> list[dict]:
         timed_out = self._prompt_service.timeout_pending(now_ms=now_ms, session_id=session_id)
@@ -34,11 +35,17 @@ class PromptTimeoutWorker:
             choice_id = str(fallback_result.get("choice_id") or "timeout_fallback")
             record_decision = getattr(self._prompt_service, "record_timeout_fallback_decision", None)
             if callable(record_decision):
-                record_decision(
+                decision_state = record_decision(
                     pending,
                     choice_id=choice_id,
                     submitted_at_ms=int(fallback_result.get("executed_at_ms") or 0) or None,
                 )
+                if self._command_router is not None and isinstance(decision_state, dict):
+                    self._command_router.wake_after_accept(
+                        command_ref=decision_state,
+                        session_id=pending.session_id,
+                        trigger="timeout_fallback",
+                    )
             await self._stream_service.publish(
                 pending.session_id,
                 "decision_ack",

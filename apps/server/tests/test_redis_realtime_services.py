@@ -6,6 +6,7 @@ import unittest
 import unittest.mock
 from types import SimpleNamespace
 
+from apps.server.src.domain.command_state import CommandState, TERMINAL_COMMAND_STATES
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.view_state.projector import project_replay_view_state
 from apps.server.src.infra.redis_client import RedisConnection, RedisConnectionSettings
@@ -20,6 +21,8 @@ from apps.server.src.services.realtime_persistence import (
     ViewCommitSequenceConflict,
 )
 from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService, _runtime_prompt_sequence_seed
+from apps.server.src.services.session_loop import SessionLoop
+from apps.server.src.services.session_loop_manager import SessionLoopManager
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorker
@@ -136,6 +139,27 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual([command["seq"] for command in recent], [5, 6])
         self.assertEqual([command["seq"] for command in after_tail], [5, 6])
         self.assertEqual([command["seq"] for command in after_gap], [3, 4, 5, 6])
+        states = command_store.list_command_states("s-command-tail")
+        self.assertEqual([state["seq"] for state in states], [1, 2, 3, 4, 5, 6])
+        self.assertEqual({state["status"] for state in states}, {"accepted"})
+        self.assertEqual(command_store.load_command_state("s-command-tail", 3)["request_id"], "req_3")
+        self.assertIn(CommandState.COMMITTED, TERMINAL_COMMAND_STATES)
+        with self.assertRaises(ValueError):
+            command_store.mark_command_state("s-command-tail", 3, "unknown")
+
+    def test_command_store_requires_lua_for_default_redis_client_without_eval(self) -> None:
+        setattr(self.connection, "_uses_default_client_factory", True)
+        command_store = RedisCommandStore(self.connection)
+
+        with self.assertRaisesRegex(RuntimeError, "redis_lua_required"):
+            command_store.append_command(
+                "s-command-lua-required",
+                "decision_submitted",
+                {"request_id": "req_1", "choice_id": "roll"},
+                request_id="req_1",
+            )
+
+        self.assertEqual(command_store.list_commands("s-command-lua-required"), [])
 
     def test_stream_event_index_maps_event_id_to_source_sequence(self) -> None:
         stream_store = RedisStreamStore(self.connection)
@@ -1298,6 +1322,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         commands = command_store.list_commands("s-atomic")
         self.assertEqual(len(commands), 1)
         self.assertEqual(commands[0]["payload"]["request_id"], "r-atomic")
+        self.assertEqual(command_store.load_command_state("s-atomic", int(commands[0]["seq"]))["status"], "accepted")
         self.assertEqual(result["session_id"], "s-atomic")
         self.assertEqual(result["command_seq"], int(commands[0]["seq"]))
         self.assertIn(
@@ -1306,6 +1331,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
                 "hset",
                 "hset",
                 "xadd",
+                "hset",
             ],
             self.fake_redis.pipeline_executions,
         )
@@ -1407,6 +1433,76 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(
             [command["seq"] for command in command_store.list_commands("s-command-seq-recover")],
             [1, 2],
+        )
+
+    def test_command_store_rejects_duplicate_request_id_without_advancing_seq(self) -> None:
+        command_store = RedisCommandStore(self.connection)
+
+        first = command_store.append_command(
+            "s-command-duplicate",
+            "decision_submitted",
+            {"request_id": "r-duplicate", "choice_id": "roll"},
+            request_id="r-duplicate",
+            server_time_ms=100,
+        )
+        duplicate = command_store.append_command(
+            "s-command-duplicate",
+            "decision_submitted",
+            {"request_id": "r-duplicate", "choice_id": "reroll"},
+            request_id="r-duplicate",
+            server_time_ms=200,
+        )
+        second = command_store.append_command(
+            "s-command-duplicate",
+            "decision_submitted",
+            {"request_id": "r-next", "choice_id": "roll"},
+            request_id="r-next",
+            server_time_ms=300,
+        )
+
+        self.assertEqual(first["seq"], 1)
+        self.assertIsNone(duplicate)
+        self.assertEqual(second["seq"], 2)
+        self.assertEqual(
+            [command["payload"]["request_id"] for command in command_store.list_commands("s-command-duplicate")],
+            ["r-duplicate", "r-next"],
+        )
+
+    def test_command_store_sequence_is_monotonic_per_session(self) -> None:
+        command_store = RedisCommandStore(self.connection)
+
+        s1_first = command_store.append_command(
+            "s-command-monotonic-a",
+            "decision_submitted",
+            {"request_id": "r-a1", "choice_id": "roll"},
+            request_id="r-a1",
+            server_time_ms=100,
+        )
+        s2_first = command_store.append_command(
+            "s-command-monotonic-b",
+            "decision_submitted",
+            {"request_id": "r-b1", "choice_id": "roll"},
+            request_id="r-b1",
+            server_time_ms=100,
+        )
+        s1_second = command_store.append_command(
+            "s-command-monotonic-a",
+            "decision_submitted",
+            {"request_id": "r-a2", "choice_id": "roll"},
+            request_id="r-a2",
+            server_time_ms=100,
+        )
+
+        self.assertEqual(s1_first["seq"], 1)
+        self.assertEqual(s2_first["seq"], 1)
+        self.assertEqual(s1_second["seq"], 2)
+        self.assertEqual(
+            [command["seq"] for command in command_store.list_commands("s-command-monotonic-a")],
+            [1, 2],
+        )
+        self.assertEqual(
+            [command["seq"] for command in command_store.list_commands("s-command-monotonic-b")],
+            [1],
         )
 
     def test_prompt_service_recovers_command_seq_after_seq_key_eviction(self) -> None:
@@ -2035,6 +2131,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             runtime_state_store=runtime_state_store,
             game_state_store=game_state,
             command_store=command_store,
+            runtime_ai_decision_delay_ms=0,
         )
         config = first_runtime._config_factory.create(session.resolved_parameters)
         state = GameState.create(config)
@@ -2125,15 +2222,38 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             runtime_state_store=runtime_state_store,
             game_state_store=game_state,
             command_store=command_store,
+            runtime_ai_decision_delay_ms=0,
         )
-        worker = CommandStreamWakeupWorker(
+        session_loop = SessionLoop(
             command_store=command_store,
             session_service=sessions,
             runtime_service=restarted_runtime,
             consumer_name="runtime_wakeup",
         )
+        session_loop_manager = SessionLoopManager(
+            session_loop=session_loop,
+            retry_delay_sec=0.001,
+            retry_deadline_sec=0.5,
+        )
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=restarted_runtime,
+            session_loop_manager=session_loop_manager,
+            consumer_name="runtime_wakeup",
+        )
 
-        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+        async def _wake_and_wait_for_drain() -> list[dict]:
+            wakeup_result = await worker.run_once(session_id=session.session_id)
+            for _ in range(200):
+                active_task = session_loop_manager._tasks.get(session.session_id)
+                current_offset = command_store.load_consumer_offset("runtime_wakeup", session.session_id)
+                if (active_task is None or active_task.done()) and current_offset >= int(command["seq"]):
+                    return wakeup_result
+                await asyncio.sleep(0.01)
+            raise AssertionError("session loop manager did not drain restarted command")
+
+        wakeups = asyncio.run(_wake_and_wait_for_drain())
         saved_after_restart = game_state.load_current_state(session.session_id)
         checkpoint_after_restart = game_state.load_checkpoint(session.session_id)
         prompt_messages = [
@@ -2144,7 +2264,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
 
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["command_seq"], int(command["seq"]))
-        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), int(command["seq"]))
+        self.assertGreaterEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), int(command["seq"]))
         self.assertEqual(prompt_store.get_pending(request_id), None)
         self.assertEqual(len(prompt_messages), 1)
         self.assertEqual(saved_after_restart["tiles"][tile_index]["owner_id"], 0)
@@ -2816,6 +2936,10 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(view_commits[-1]["payload"]["commit_seq"], saved_checkpoint["latest_commit_seq"])
         self.assertEqual(view_commits[-1]["payload"]["source_event_seq"], saved_checkpoint["latest_source_event_seq"])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 4)
+        command_state = command_store.load_command_state(session.session_id, 4)
+        self.assertEqual(command_state["status"], "committed")
+        self.assertEqual(command_state["consumer_name"], "runtime_wakeup")
+        self.assertEqual(command_state["commit_seq"], saved_checkpoint["latest_commit_seq"])
 
     def test_human_prompt_reentry_consumes_decision_without_duplicate_prompt(self) -> None:
         sessions = SessionService()

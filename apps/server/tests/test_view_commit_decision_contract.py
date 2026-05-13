@@ -2,129 +2,56 @@ from __future__ import annotations
 
 import unittest
 
-from apps.server.src.routes.stream import _decision_view_commit_rejection_reason
+from apps.server.src.routes import stream
+from apps.server.src.services.prompt_service import PromptService
 
 
 class ViewCommitDecisionContractTests(unittest.TestCase):
-    def test_rejects_missing_view_commit_seq_seen(self) -> None:
-        reason = _decision_view_commit_rejection_reason(
-            {"type": "decision", "request_id": "req_1", "player_id": 1},
-            _latest_commit(commit_seq=4, request_id="req_1", player_id=1, prompt_commit_seq=4),
+    def test_decision_route_has_no_view_commit_rejection_helper(self) -> None:
+        self.assertFalse(hasattr(stream, "_decision_view_commit_rejection_reason"))
+        self.assertFalse(hasattr(stream, "_repair_missing_pending_prompt_from_view_commit"))
+
+    def test_prompt_decision_acceptance_does_not_require_view_commit_seq_seen(self) -> None:
+        service = PromptService()
+        service.create_prompt(
+            "session_1",
+            {
+                "request_id": "req_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
         )
 
-        self.assertEqual(reason, "missing_view_commit_seq_seen")
-
-    def test_accepts_current_prompt_even_when_seen_commit_lags_prompt_commit(self) -> None:
-        reason = _decision_view_commit_rejection_reason(
-            {"type": "decision", "request_id": "req_1", "player_id": 1, "view_commit_seq_seen": 3},
-            _latest_commit(commit_seq=5, request_id="req_1", player_id=1, prompt_commit_seq=4),
-        )
-
-        self.assertIsNone(reason)
-
-    def test_rejects_mismatched_active_prompt_request(self) -> None:
-        reason = _decision_view_commit_rejection_reason(
-            {"type": "decision", "request_id": "req_old", "player_id": 1, "view_commit_seq_seen": 5},
-            _latest_commit(commit_seq=5, request_id="req_new", player_id=1, prompt_commit_seq=5),
-        )
-
-        self.assertEqual(reason, "stale_prompt_request")
-
-    def test_rejects_mismatched_prompt_instance_id(self) -> None:
-        reason = _decision_view_commit_rejection_reason(
+        result = service.submit_decision(
             {
                 "type": "decision",
+                "session_id": "session_1",
                 "request_id": "req_1",
                 "player_id": 1,
-                "prompt_instance_id": 8,
-                "resume_token": "resume_9",
-                "view_commit_seq_seen": 5,
-            },
-            _latest_commit(
-                commit_seq=5,
-                request_id="req_1",
-                player_id=1,
-                prompt_commit_seq=5,
-                prompt_instance_id=9,
-                resume_token="resume_9",
-            ),
+                "choice_id": "roll",
+                "choice_payload": {},
+            }
         )
 
-        self.assertEqual(reason, "stale_prompt_instance")
+        self.assertEqual(result["status"], "accepted")
+        self.assertIsNone(result["reason"])
 
-    def test_rejects_mismatched_resume_token(self) -> None:
-        reason = _decision_view_commit_rejection_reason(
+    def test_missing_pending_prompt_is_not_reconstructed_from_view_state(self) -> None:
+        service = PromptService()
+
+        result = service.submit_decision(
             {
                 "type": "decision",
-                "request_id": "req_1",
+                "session_id": "session_1",
+                "request_id": "req_missing",
                 "player_id": 1,
-                "prompt_instance_id": 9,
-                "resume_token": "resume_old",
-                "view_commit_seq_seen": 5,
-            },
-            _latest_commit(
-                commit_seq=5,
-                request_id="req_1",
-                player_id=1,
-                prompt_commit_seq=5,
-                prompt_instance_id=9,
-                resume_token="resume_9",
-            ),
+                "choice_id": "roll",
+                "choice_payload": {},
+                "view_commit_seq_seen": 7,
+            }
         )
 
-        self.assertEqual(reason, "stale_prompt_resume_token")
-
-    def test_accepts_current_prompt_decision(self) -> None:
-        reason = _decision_view_commit_rejection_reason(
-            {
-                "type": "decision",
-                "request_id": "req_1",
-                "player_id": 1,
-                "prompt_instance_id": 9,
-                "resume_token": "resume_9",
-                "view_commit_seq_seen": 5,
-            },
-            _latest_commit(
-                commit_seq=5,
-                request_id="req_1",
-                player_id=1,
-                prompt_commit_seq=4,
-                prompt_instance_id=9,
-                resume_token="resume_9",
-            ),
-        )
-
-        self.assertIsNone(reason)
-
-
-def _latest_commit(
-    *,
-    commit_seq: int,
-    request_id: str,
-    player_id: int,
-    prompt_commit_seq: int,
-    prompt_instance_id: int | None = None,
-    resume_token: str | None = None,
-) -> dict:
-    active_prompt = {
-        "request_id": request_id,
-        "player_id": player_id,
-        "view_commit_seq": prompt_commit_seq,
-    }
-    if prompt_instance_id is not None:
-        active_prompt["prompt_instance_id"] = prompt_instance_id
-    if resume_token is not None:
-        active_prompt["resume_token"] = resume_token
-    return {
-        "type": "view_commit",
-        "seq": commit_seq,
-        "session_id": "s1",
-        "payload": {
-            "commit_seq": commit_seq,
-            "view_state": {
-                "prompt": {
-                    "active": active_prompt,
-                },
-            },
-        },
-    }
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["reason"], "request_not_pending")

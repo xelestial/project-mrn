@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+from apps.server.src.domain.protocol_ids import stable_prompt_request_id
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprint, prompt_fingerprint_mismatch
 
@@ -2160,12 +2161,11 @@ class DecisionGateway:
         )
 
     def _stable_prompt_request_id(self, envelope: dict[str, Any], public_context: dict[str, Any]) -> str:
-        request_type = str(envelope.get("request_type") or "prompt")
-        player_id = int(envelope.get("player_id", 0) or 0)
-        round_index = int(public_context.get("round_index", 0) or 0)
-        turn_index = int(public_context.get("turn_index", 0) or 0)
-        prompt_instance_id = int(envelope.get("prompt_instance_id", 0) or 0)
-        return f"{self._session_id}:r{round_index}:t{turn_index}:p{player_id}:{request_type}:{prompt_instance_id}"
+        return stable_prompt_request_id(
+            session_id=self._session_id,
+            envelope=envelope,
+            public_context=public_context,
+        )
 
     def _require_matching_prompt_fingerprint(
         self,

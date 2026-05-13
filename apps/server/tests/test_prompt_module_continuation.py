@@ -236,14 +236,15 @@ def test_module_decision_command_payload_carries_continuation() -> None:
 
     class _CommandStore:
         def append_command(self, session_id, command_type, payload, **kwargs):  # noqa: ANN001
-            commands.append(
-                {
-                    "session_id": session_id,
-                    "type": command_type,
-                    "payload": dict(payload),
-                    "kwargs": dict(kwargs),
-                }
-            )
+            command = {
+                "seq": len(commands) + 1,
+                "session_id": session_id,
+                "type": command_type,
+                "payload": dict(payload),
+                "kwargs": dict(kwargs),
+            }
+            commands.append(command)
+            return command
 
     service = PromptService(command_store=_CommandStore())
     service.create_prompt("s1", _module_prompt())
@@ -383,14 +384,15 @@ def test_prompt_decision_contract_matrix_preserves_required_wire_fields() -> Non
 
     class _CommandStore:
         def append_command(self, session_id, command_type, payload, **kwargs):  # noqa: ANN001
-            commands.append(
-                {
-                    "session_id": session_id,
-                    "type": command_type,
-                    "payload": dict(payload),
-                    "kwargs": dict(kwargs),
-                }
-            )
+            command = {
+                "seq": len(commands) + 1,
+                "session_id": session_id,
+                "type": command_type,
+                "payload": dict(payload),
+                "kwargs": dict(kwargs),
+            }
+            commands.append(command)
+            return command
 
     pack = json.loads(ROUND_COMBINATION_PACK.read_text(encoding="utf-8"))
     service = PromptService(command_store=_CommandStore())
@@ -417,9 +419,11 @@ def test_prompt_decision_contract_matrix_request_types_are_decision_gateway_spec
 
 def test_local_human_prompt_created_inside_module_attaches_active_continuation() -> None:
     captured: dict = {}
+    stable_request_input: dict = {}
 
     class _Gateway:
         def _stable_prompt_request_id(self, envelope, public_context):  # noqa: ANN001
+            stable_request_input.update(envelope)
             return "s1:r1:t2:p1:trick:4"
 
         def resolve_human_prompt(self, envelope, parser, fallback_fn):  # noqa: ANN001
@@ -470,6 +474,9 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
     assert captured["runner_kind"] == "module"
     assert captured["player_id"] == 1
     assert captured["request_id"] == "s1:r1:t2:p1:trick:4"
+    assert stable_request_input["frame_id"] == "seq:trick:1:p0"
+    assert stable_request_input["module_id"] == "mod:trick_sequence:1:p0:choice"
+    assert stable_request_input["module_cursor"] == "await_trick_prompt"
     assert captured["resume_token"]
     assert captured["frame_id"] == "seq:trick:1:p0"
     assert captured["module_id"] == "mod:trick_sequence:1:p0:choice"

@@ -1,7 +1,7 @@
 # PLAN Status Index
 
 Status: ACTIVE  
-Updated: 2026-05-08
+Updated: 2026-05-13
 Owner: Engine runtime
 
 ## Purpose
@@ -16,7 +16,7 @@ The broad architecture migration era is closed enough. Current work should start
 from the runtime contracts, current gameplay rules, and the short priority board
 instead of reopening broad umbrella plans.
 
-Current repo-side work has five active tracks:
+Current repo-side work has six active tracks:
 
 1. Runtime contract and modular-runtime stabilization
 2. Redis-authoritative game state and visibility projection hardening
@@ -24,6 +24,7 @@ Current repo-side work has five active tracks:
 4. Real human/local-AI/external-AI playtest stabilization
 5. Runtime protocol identity, prompt lifecycle, viewer outbox, and WebSocket
    recovery stabilization
+6. Server runtime rebuild after the 2026-05-12 structure diagnosis
 
 The 2026-05-02 modular runtime migration plans are implemented and no longer
 kept as active execution context.
@@ -49,6 +50,7 @@ Read and maintain these:
 9. `docs/current/engineering/[PLAN]_REDIS_AUTHORITATIVE_GAME_STATE.md`
 10. `docs/current/backend/runtime-logging-policy.md`
 11. `docs/current/engineering/[PLAN]_TILE_TRAIT_ACTION_PIPELINE.md`
+12. `docs/current/architecture/[PLAN]_SERVER_RUNTIME_REBUILD_2026-05-12.md`
 
 ## Current Reference Sets
 
@@ -62,6 +64,14 @@ Read and maintain these:
   `docs/current/engineering/[EVIDENCE]_RUNTIME_CONTRACT_EXTERNAL_CHECKS_2026-05-04.md`
 - Final local manual playtest evidence:
   `docs/current/engineering/[EVIDENCE]_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
+- Current server runtime rebuild:
+  `docs/current/architecture/[PLAN]_SERVER_RUNTIME_REBUILD_2026-05-12.md`
+  Current Phase 9 work has removed direct runtime execution fallback from
+  wakeup paths and split route-level command recovery queries into
+  `CommandRecoveryService`; command precondition and stale terminal handling now
+  live in `CommandProcessingGuardService`; in-process active command/task gating
+  lives in `CommandExecutionGate`; `RuntimeService.process_command_once()` remains
+  the transitional lease/commit adapter.
 
 ## Closed Enough
 

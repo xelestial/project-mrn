@@ -5,6 +5,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from apps.server.src.services.command_inbox import CommandInbox
 from apps.server.src.services.prompt_fingerprint import (
     PROMPT_FINGERPRINT_VERSION,
     ensure_prompt_fingerprint,
@@ -39,7 +40,12 @@ class PendingPrompt:
 class PromptService:
     """In-memory prompt lifecycle manager (B3 baseline)."""
 
-    def __init__(self, prompt_store=None, command_store=None) -> None:
+    def __init__(
+        self,
+        prompt_store=None,
+        command_store=None,
+        command_inbox: CommandInbox | None = None,
+    ) -> None:
         self._pending: dict[str, PendingPrompt] = {}
         self._resolved: dict[str, tuple[int, str, str]] = {}
         self._decisions: dict[str, dict] = {}
@@ -49,6 +55,9 @@ class PromptService:
         self._resolved_ttl_ms = 60 * 60 * 1000
         self._prompt_store = prompt_store
         self._command_store = command_store
+        self._command_inbox = command_inbox or (
+            CommandInbox(command_store=command_store) if command_store is not None else None
+        )
 
     def create_prompt(self, session_id: str, prompt: dict) -> PendingPrompt:
         superseded_waiters: list[threading.Event] = []
@@ -113,6 +122,32 @@ class PromptService:
                 created_at_ms=pending.created_at_ms,
                 payload=dict(pending.payload),
             )
+
+    def list_pending_prompts(
+        self,
+        *,
+        session_id: str | None = None,
+        player_id: int | None = None,
+    ) -> list[PendingPrompt]:
+        with self._lock:
+            prompts: list[PendingPrompt] = []
+            for pending in self._iter_pending_values():
+                if session_id is not None and pending.session_id != session_id:
+                    continue
+                if player_id is not None and pending.player_id != int(player_id):
+                    continue
+                prompts.append(
+                    PendingPrompt(
+                        session_id=pending.session_id,
+                        request_id=pending.request_id,
+                        player_id=pending.player_id,
+                        timeout_ms=pending.timeout_ms,
+                        created_at_ms=pending.created_at_ms,
+                        payload=dict(pending.payload),
+                    )
+                )
+            prompts.sort(key=lambda item: (item.created_at_ms, item.request_id))
+            return prompts
 
     def submit_decision(self, payload: dict) -> dict:
         waiter: threading.Event | None = None
@@ -232,16 +267,14 @@ class PromptService:
                     "reason": "accepted",
                     "session_id": pending.session_id,
                 }
-                atomic_accept = getattr(self._prompt_store, "accept_decision_with_command", None)
                 accepted_command: dict | None = None
-                if callable(atomic_accept) and self._command_store is not None:
-                    accepted_command = atomic_accept(
+                if self._command_inbox is not None and self._command_inbox.supports_atomic_prompt_decision(self._prompt_store):
+                    accepted_command = self._command_inbox.accept_prompt_decision(
+                        prompt_store=self._prompt_store,
                         session_id=pending.session_id,
                         request_id=request_id,
                         decision_payload=decision_payload,
                         resolved_payload=resolved_payload,
-                        command_store=self._command_store,
-                        command_type="decision_submitted",
                         command_payload=command_payload,
                         server_time_ms=now,
                     )
@@ -258,16 +291,27 @@ class PromptService:
                         )
                         return {"status": "stale", "reason": "request_not_pending"}
                 else:
-                    self._delete_pending(request_id, session_id=pending.session_id)
-                    self._set_decision(request_id, decision_payload, session_id=pending.session_id)
-                    if self._command_store is not None:
-                        accepted_command = self._command_store.append_command(
-                            pending.session_id,
-                            "decision_submitted",
-                            command_payload,
+                    if self._command_inbox is not None:
+                        accepted_command = self._command_inbox.append_decision_command(
+                            session_id=pending.session_id,
+                            command_payload=command_payload,
                             request_id=request_id,
                             server_time_ms=now,
                         )
+                        if accepted_command is None:
+                            self._record_lifecycle(
+                                request_id=request_id,
+                                state="stale",
+                                session_id=pending.session_id,
+                                player_id=pending.player_id,
+                                prompt=pending.payload,
+                                decision=decision_payload,
+                                reason="command_append_failed",
+                                now_ms=now,
+                            )
+                            return {"status": "stale", "reason": "command_append_failed"}
+                    self._delete_pending(request_id, session_id=pending.session_id)
+                    self._set_decision(request_id, decision_payload, session_id=pending.session_id)
                     self._record_resolved(
                         request_id=request_id,
                         reason="accepted",
@@ -433,14 +477,18 @@ class PromptService:
                 reason="timeout_fallback",
                 now_ms=now,
             )
-            if self._command_store is not None:
-                self._command_store.append_command(
-                    pending.session_id,
-                    "decision_submitted",
-                    command_payload,
+            command_ref = None
+            if self._command_inbox is not None:
+                command_ref = self._command_inbox.append_decision_command(
+                    session_id=pending.session_id,
+                    command_payload=command_payload,
                     request_id=request_id,
                     server_time_ms=now,
                 )
+            if command_ref is not None:
+                decision_payload["status"] = "accepted"
+                decision_payload["session_id"] = pending.session_id
+                decision_payload["command_seq"] = command_ref.get("seq")
         return decision_payload
 
     def wait_for_decision(self, request_id: str, timeout_ms: int, session_id: str | None = None) -> dict | None:

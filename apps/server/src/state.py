@@ -11,6 +11,7 @@ from apps.server.src.services.persistence import (
 )
 from apps.server.src.services.archive_service import LocalJsonArchiveService
 from apps.server.src.services.command_wakeup_worker import CommandStreamWakeupWorker
+from apps.server.src.services.command_router import CommandRouter
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.realtime_persistence import (
     RedisCommandStore,
@@ -22,6 +23,8 @@ from apps.server.src.services.realtime_persistence import (
 from apps.server.src.services.prompt_timeout_worker import PromptTimeoutWorker
 from apps.server.src.services.room_service import RoomService
 from apps.server.src.services.runtime_service import RuntimeService
+from apps.server.src.services.session_loop import SessionLoop
+from apps.server.src.services.session_loop_manager import SessionLoopManager
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
 
@@ -98,19 +101,41 @@ runtime_service = RuntimeService(
     runtime_state_store=runtime_state_store,
     game_state_store=game_state_store,
     command_store=command_store,
+    runtime_ai_decision_delay_ms=runtime_settings.runtime_ai_decision_delay_ms,
     runtime_engine_workers=runtime_settings.runtime_engine_workers,
+)
+command_recovery_service = runtime_service.command_recovery_service
+session_loop = (
+    SessionLoop(
+        command_store=command_store,
+        session_service=session_service,
+        runtime_service=runtime_service,
+    )
+    if command_store is not None
+    else None
+)
+session_loop_manager = (
+    SessionLoopManager(session_loop=session_loop)
+    if session_loop is not None
+    else None
+)
+command_router = CommandRouter(
+    session_loop_manager=session_loop_manager,
 )
 prompt_timeout_worker = PromptTimeoutWorker(
     prompt_service=prompt_service,
     runtime_service=runtime_service,
     stream_service=stream_service,
+    command_router=command_router,
 )
 command_wakeup_worker = (
     CommandStreamWakeupWorker(
         command_store=command_store,
         session_service=session_service,
         runtime_service=runtime_service,
+        session_loop_manager=session_loop_manager,
         poll_interval_ms=runtime_settings.command_wakeup_worker_poll_interval_ms,
+        runtime_processing_enabled=runtime_settings.command_wakeup_worker_runtime_processing_enabled,
     )
     if command_store is not None
     else None

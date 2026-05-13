@@ -18,6 +18,7 @@ except ModuleNotFoundError:
 
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.config.runtime_settings import RuntimeSettings
+from apps.server.src.services.command_router import CommandRouter
 from apps.server.src.services.runtime_service import RuntimeService
 from apps.server.src.services.session_service import SessionService
 from apps.server.src.services.stream_service import StreamService
@@ -73,10 +74,12 @@ def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> N
         stream_service=state.stream_service,
         prompt_service=state.prompt_service,
     )
+    state.command_router = CommandRouter()
     state.prompt_timeout_worker = PromptTimeoutWorker(
         prompt_service=state.prompt_service,
         runtime_service=state.runtime_service,
         stream_service=state.stream_service,
+        command_router=state.command_router,
     )
 
 
@@ -208,13 +211,10 @@ class StreamApiTests(unittest.TestCase):
         with self.assertRaises(WebSocketDisconnect):
             asyncio.run(_receive_json_or_disconnect(ClosedWebSocket()))  # type: ignore[arg-type]
 
-    def test_heartbeat_snapshot_waits_behind_pending_subscriber_messages(self) -> None:
-        from apps.server.src.routes.stream import _should_send_heartbeat_view_commit
+    def test_heartbeat_has_no_view_commit_snapshot_repair_gate(self) -> None:
+        from apps.server.src.routes import stream
 
-        queue: asyncio.Queue[dict] = asyncio.Queue()
-        self.assertTrue(_should_send_heartbeat_view_commit(queue))
-        queue.put_nowait({"type": "decision_ack", "seq": 8})
-        self.assertFalse(_should_send_heartbeat_view_commit(queue))
+        self.assertFalse(hasattr(stream, "_should_send_heartbeat_view_commit"))
 
     def test_stale_raw_view_commit_can_be_suppressed_before_projection(self) -> None:
         from apps.server.src.routes.stream import _should_suppress_stale_raw_view_commit
@@ -286,7 +286,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(heartbeat.get("type"), "heartbeat")
         self.assertEqual(calls, [])
 
-    def test_heartbeat_sends_new_cached_view_commit_when_subscriber_misses_event(self) -> None:
+    def test_heartbeat_does_not_send_new_cached_view_commit_snapshot(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 71, "visibility": "public"})
@@ -300,17 +300,103 @@ class StreamApiTests(unittest.TestCase):
             )
 
             messages: list[dict] = []
-            commit: dict | None = None
             for _ in range(8):
                 msg = ws.receive_json()
                 messages.append(msg)
-                if msg.get("type") == "view_commit":
-                    commit = msg
+                if msg.get("type") == "heartbeat":
                     break
 
-        self.assertIsNotNone(commit, messages)
-        self.assertEqual(commit.get("payload", {}).get("commit_seq"), 3)
-        self.assertEqual(commit.get("payload", {}).get("source_event_seq"), 2)
+        commits = [msg for msg in messages if msg.get("type") == "view_commit"]
+        self.assertEqual(commits, [])
+        self.assertIn("heartbeat", {msg.get("type") for msg in messages})
+
+    def test_connect_resends_pending_prompt_to_matching_seat_without_stream_event(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 701})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+        session_token = joined["session_token"]
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_connect_pending_prompt",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "fallback_policy": "timeout_fallback",
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+        with self.client.websocket_connect(path) as ws:
+            message = ws.receive_json()
+
+        self.assertEqual(message.get("type"), "prompt")
+        self.assertEqual(message.get("payload", {}).get("request_id"), "r_connect_pending_prompt")
+        lifecycle = state.prompt_service.get_prompt_lifecycle("r_connect_pending_prompt", session_id=session.session_id)
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle.get("state"), "delivered")
+
+    def test_resume_resends_pending_prompt_created_without_stream_event(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 702})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+        session_token = joined["session_token"]
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+        with self.client.websocket_connect(path) as ws:
+            state.prompt_service.create_prompt(
+                session.session_id,
+                {
+                    "request_id": "r_resume_pending_prompt",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 5000,
+                    "fallback_policy": "timeout_fallback",
+                    "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                },
+            )
+            ws.send_json({"type": "resume", "last_commit_seq": 0})
+
+            prompts: list[dict] = []
+            for _ in range(6):
+                msg = ws.receive_json()
+                if msg.get("type") == "prompt":
+                    prompts.append(msg)
+                    break
+
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(prompts[0].get("payload", {}).get("request_id"), "r_resume_pending_prompt")
+        lifecycle = state.prompt_service.get_prompt_lifecycle("r_resume_pending_prompt", session_id=session.session_id)
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle.get("state"), "delivered")
+
+    def test_spectator_does_not_receive_pending_prompt_repair(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 703, "visibility": "public"})
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_spectator_hidden_prompt",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "fallback_policy": "timeout_fallback",
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream"
+        with self.client.websocket_connect(path) as ws:
+            message = ws.receive_json()
+
+        self.assertEqual(message.get("type"), "heartbeat")
+        self.assertNotEqual(message.get("type"), "prompt")
 
     def test_resume_sends_only_latest_view_commit_snapshot(self) -> None:
         from apps.server.src import state
@@ -643,7 +729,6 @@ class StreamApiTests(unittest.TestCase):
                     "player_id": 1,
                     "choice_id": "roll",
                     "choice_payload": {},
-                    "view_commit_seq_seen": 0,
                 }
             )
 
@@ -722,7 +807,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(len(acks), 1)
         self.assertEqual(acks[0].get("payload", {}).get("status"), "accepted")
 
-    def test_seat_decision_repairs_missing_pending_prompt_from_latest_view_commit(self) -> None:
+    def test_seat_decision_does_not_repair_missing_pending_prompt_from_latest_view_commit(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 19})
@@ -782,8 +867,8 @@ class StreamApiTests(unittest.TestCase):
             if m.get("type") == "decision_ack" and m.get("payload", {}).get("request_id") == "r_repair_from_commit_1"
         ]
         self.assertGreaterEqual(len(acks), 1)
-        self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
-        self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
+        self.assertEqual(acks[-1].get("payload", {}).get("status"), "stale")
+        self.assertEqual(acks[-1].get("payload", {}).get("reason"), "request_not_pending")
 
     def test_seat_decision_wakes_runtime_after_accepted_ack(self) -> None:
         from apps.server.src import state
@@ -792,8 +877,8 @@ class StreamApiTests(unittest.TestCase):
         joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
         session_token = joined["session_token"]
         original_submit = state.prompt_service.submit_decision
-        original_process = state.runtime_service.process_command_once
-        process_calls: list[tuple[str, int, str, int, str | None]] = []
+        original_router = state.command_router
+        wake_calls: list[tuple[dict, str, str]] = []
 
         def _fake_submit_decision(_message: dict) -> dict:
             return {
@@ -803,19 +888,13 @@ class StreamApiTests(unittest.TestCase):
                 "command_seq": 42,
             }
 
-        async def _fake_process_command_once(
-            *,
-            session_id: str,
-            command_seq: int,
-            consumer_name: str,
-            seed: int,
-            policy_mode: str | None = None,
-        ) -> dict:
-            process_calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
-            return {"status": "committed"}
+        class _Router:
+            def wake_after_accept(self, *, command_ref: dict, session_id: str, trigger: str) -> dict:
+                wake_calls.append((command_ref, session_id, trigger))
+                return {"status": "scheduled", "command_seq": int(command_ref["command_seq"])}
 
         state.prompt_service.submit_decision = _fake_submit_decision  # type: ignore[method-assign]
-        state.runtime_service.process_command_once = _fake_process_command_once  # type: ignore[method-assign]
+        state.command_router = _Router()  # type: ignore[assignment]
         try:
             path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
             with self.client.websocket_connect(path) as ws:
@@ -838,30 +917,61 @@ class StreamApiTests(unittest.TestCase):
                         break
         finally:
             state.prompt_service.submit_decision = original_submit  # type: ignore[method-assign]
-            state.runtime_service.process_command_once = original_process  # type: ignore[method-assign]
+            state.command_router = original_router
 
         acks = [m for m in messages if m.get("type") == "decision_ack" and m.get("payload", {}).get("request_id") == "r_wakeup_1"]
         self.assertGreaterEqual(len(acks), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
-        self.assertEqual(process_calls, [(session.session_id, 42, "runtime_wakeup", 23, None)])
+        self.assertEqual(
+            wake_calls,
+            [
+                (
+                    {"status": "accepted", "reason": None, "session_id": session.session_id, "command_seq": 42},
+                    session.session_id,
+                    "accepted_decision",
+                )
+            ],
+        )
 
-    def test_accepted_decision_schedules_runtime_wakeup_without_awaiting_processing(self) -> None:
+    def test_accepted_decision_schedules_session_loop_wakeup(self) -> None:
         from apps.server.src.routes import stream
 
-        started = asyncio.Event()
-        release = asyncio.Event()
-        finished = asyncio.Event()
-        calls: list[tuple[str, int, str, int, str | None]] = []
+        calls: list[tuple[dict, str, str]] = []
 
-        class _Session:
-            config = {"seed": 31}
-            resolved_parameters = {"runtime": {}}
+        class _Router:
+            def wake_after_accept(self, *, command_ref: dict, session_id: str, trigger: str) -> dict:
+                calls.append((command_ref, session_id, trigger))
+                return {"status": "scheduled", "command_seq": int(command_ref["command_seq"])}
 
-        class _SessionService:
-            def get_session(self, _session_id: str) -> _Session:
-                return _Session()
+        async def _scenario() -> None:
+            await stream._wake_runtime_after_accepted_decision(
+                decision_state={
+                    "status": "accepted",
+                    "session_id": "sess_async_wakeup",
+                    "command_seq": 77,
+                },
+                session_id="sess_async_wakeup",
+                command_router=_Router(),
+            )
+
+        asyncio.run(_scenario())
+        self.assertEqual(
+            calls,
+            [
+                (
+                    {"status": "accepted", "session_id": "sess_async_wakeup", "command_seq": 77},
+                    "sess_async_wakeup",
+                    "accepted_decision",
+                )
+            ],
+        )
+
+    def test_accepted_decision_without_command_router_does_not_call_runtime(self) -> None:
+        from apps.server.src.routes import stream
 
         class _RuntimeService:
+            called = False
+
             async def process_command_once(
                 self,
                 *,
@@ -871,87 +981,23 @@ class StreamApiTests(unittest.TestCase):
                 seed: int,
                 policy_mode: str | None = None,
             ) -> dict:
-                started.set()
-                await release.wait()
-                calls.append((session_id, command_seq, consumer_name, seed, policy_mode))
-                finished.set()
+                self.called = True
                 return {"status": "committed"}
 
         async def _scenario() -> None:
-            schedule_task = asyncio.create_task(
-                stream._wake_runtime_after_accepted_decision(
-                    decision_state={
-                        "status": "accepted",
-                        "session_id": "sess_async_wakeup",
-                        "command_seq": 77,
-                    },
-                    session_id="sess_async_wakeup",
-                    session_service=_SessionService(),
-                    runtime_service=_RuntimeService(),
-                )
+            runtime = _RuntimeService()
+            await stream._wake_runtime_after_accepted_decision(
+                decision_state={
+                    "status": "accepted",
+                    "session_id": "sess_missing_router",
+                    "command_seq": 88,
+                },
+                session_id="sess_missing_router",
+                runtime_service=runtime,
             )
-            await asyncio.wait_for(schedule_task, timeout=0.05)
-            await asyncio.wait_for(started.wait(), timeout=0.05)
-            self.assertFalse(finished.is_set())
-            release.set()
-            await asyncio.wait_for(finished.wait(), timeout=0.2)
+            self.assertFalse(runtime.called)
 
         asyncio.run(_scenario())
-        self.assertEqual(calls, [("sess_async_wakeup", 77, "runtime_wakeup", 31, None)])
-
-    def test_deferred_runtime_wakeup_retries_after_active_command_finishes(self) -> None:
-        from apps.server.src.routes import stream
-
-        calls: list[int] = []
-        completed = asyncio.Event()
-
-        class _Session:
-            config = {"seed": 31}
-            resolved_parameters = {"runtime": {}}
-
-        class _SessionService:
-            def get_session(self, _session_id: str) -> _Session:
-                return _Session()
-
-        class _RuntimeService:
-            async def process_command_once(
-                self,
-                *,
-                session_id: str,
-                command_seq: int,
-                consumer_name: str,
-                seed: int,
-                policy_mode: str | None = None,
-            ) -> dict:
-                calls.append(command_seq)
-                if len(calls) == 1:
-                    return {"status": "running_elsewhere", "reason": "command_processing_already_active"}
-                completed.set()
-                return {"status": "waiting_input"}
-
-        async def _scenario() -> None:
-            original_delay = stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC
-            original_deadline = stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC
-            stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC = 0.001
-            stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC = 0.2
-            try:
-                await stream._wake_runtime_after_accepted_decision(
-                    decision_state={
-                        "status": "accepted",
-                        "session_id": "sess_deferred_wakeup",
-                        "command_seq": 88,
-                    },
-                    session_id="sess_deferred_wakeup",
-                    session_service=_SessionService(),
-                    runtime_service=_RuntimeService(),
-                )
-                await asyncio.wait_for(completed.wait(), timeout=0.1)
-            finally:
-                stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DELAY_SEC = original_delay
-                stream._RUNTIME_WAKEUP_DEFERRED_RETRY_DEADLINE_SEC = original_deadline
-
-        asyncio.run(_scenario())
-        self.assertEqual(calls, [88, 88])
 
     def test_direct_decision_ack_sends_once_and_marks_stream_seq_delivered(self) -> None:
         from apps.server.src.routes import stream

@@ -9,6 +9,7 @@ from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
 from apps.server.src.services.stream_service import StreamService
+from apps.server.src.services.command_recovery import CommandRecoveryService
 from apps.server.src.services.runtime_service import RuntimeService
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -55,6 +56,12 @@ def _runtime() -> RuntimeService:
     return runtime_service
 
 
+def _command_recovery() -> CommandRecoveryService:
+    from apps.server.src.state import command_recovery_service
+
+    return command_recovery_service
+
+
 def _stream_service() -> StreamService:
     from apps.server.src.state import stream_service
 
@@ -71,6 +78,7 @@ async def _recover_runtime_for_authenticated_seat(
     auth_ctx: dict,
     service: SessionService,
     runtime: RuntimeService,
+    command_recovery: CommandRecoveryService,
 ) -> None:
     if auth_ctx.get("role") != "seat":
         return
@@ -80,7 +88,7 @@ async def _recover_runtime_for_authenticated_seat(
         return
     session = service.get_session(session_id)
     runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
-    pending_command = runtime.pending_resume_command(session_id)
+    pending_command = command_recovery.pending_resume_command(session_id)
     if pending_command is not None:
         return
     if runtime.recovery_state_has_waiting_input(runtime_state):
@@ -94,7 +102,7 @@ async def _recover_runtime_for_authenticated_seat(
         return
     if runtime_status != "recovery_required":
         return
-    if runtime.has_unprocessed_runtime_commands(session_id):
+    if command_recovery.has_unprocessed_runtime_commands(session_id):
         log_event(
             "runtime_recovery_deferred_pending_commands",
             session_id=session_id,
@@ -381,6 +389,7 @@ async def runtime_status(
     token: str | None = None,
     service: SessionService = Depends(_service),
     runtime: RuntimeService = Depends(_runtime),
+    command_recovery: CommandRecoveryService = Depends(_command_recovery),
 ) -> dict:
     try:
         auth_ctx = service.verify_session_token(session_id, token)
@@ -393,6 +402,7 @@ async def runtime_status(
         auth_ctx=auth_ctx,
         service=service,
         runtime=runtime,
+        command_recovery=command_recovery,
     )
     runtime_payload = runtime.public_runtime_status(session_id)
     return _ok({"session_id": session_id, "runtime": runtime_payload})

@@ -5,10 +5,12 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from apps.server.src.domain.command_state import CommandState, normalize_command_state
 from apps.server.src.infra.redis_client import RedisConnection
 
 DEBUG_REDIS_RETENTION_SECONDS = 3600
 DEBUG_REDIS_RECORD_LIMIT = 20
+REDIS_LUA_REQUIRED_ERROR = "redis_lua_required"
 
 
 @dataclass(frozen=True)
@@ -521,7 +523,7 @@ class RedisPromptStore:
         if callable(getattr(client, "eval", None)):
             result = client.eval(
                 _ACCEPT_PROMPT_DECISION_LUA,
-                7,
+                8,
                 self._pending_key(),
                 self._decisions_key(),
                 self._resolved_key(),
@@ -529,6 +531,7 @@ class RedisPromptStore:
                 command_store._session_seen_key(session_id),
                 command_store._seq_key(session_id),
                 command_store._stream_key(session_id),
+                command_store._state_key(session_id),
                 storage_request_id,
                 decision_json,
                 resolved_json,
@@ -537,6 +540,7 @@ class RedisPromptStore:
                 str(session_id),
                 str(int(server_time_ms or 0)),
                 command_json,
+                normalized_request_id,
             )
             if not result:
                 return None
@@ -552,6 +556,7 @@ class RedisPromptStore:
                 "server_time_ms": int(server_time_ms or 0),
                 "payload": dict(command_payload),
             }
+        _ensure_non_lua_fallback_allowed(self._connection)
         if client.hget(self._pending_key(), storage_request_id) is None:
             return None
         if not bool(client.hsetnx(command_store._seen_key(), seen_key, "1")):
@@ -570,6 +575,18 @@ class RedisPromptStore:
         pipeline.hset(self._decisions_key(), storage_request_id, decision_json)
         pipeline.hset(self._resolved_key(), storage_request_id, resolved_json)
         pipeline.xadd(command_store._stream_key(session_id), fields)
+        pipeline.hset(
+            command_store._state_key(session_id),
+            str(seq),
+            command_store._command_state_payload(
+                session_id,
+                seq,
+                "accepted",
+                command_type=command_type,
+                request_id=normalized_request_id,
+                server_time_ms=server_time_ms,
+            ),
+        )
         results = pipeline.execute()
         self._delete_debug_record("pending", storage_request_id, None, session_id=session_id, refresh=False)
         self._upsert_debug_record("decisions", storage_request_id, decision_payload, session_id=session_id, refresh=False)
@@ -738,16 +755,18 @@ class RedisCommandStore:
         if callable(getattr(client, "eval", None)):
             result = client.eval(
                 _APPEND_COMMAND_LUA,
-                4,
+                5,
                 self._seen_key(),
                 self._session_seen_key(session_id),
                 self._seq_key(session_id),
                 self._stream_key(session_id),
+                self._state_key(session_id),
                 seen_key,
                 str(command_type),
                 str(session_id),
                 str(int(server_time_ms or 0)),
                 fields_payload,
+                normalized_request_id,
             )
             if not result:
                 return None
@@ -761,6 +780,7 @@ class RedisCommandStore:
                 "server_time_ms": int(server_time_ms or 0),
                 "payload": dict(payload),
             }
+        _ensure_non_lua_fallback_allowed(self._connection)
         if normalized_request_id and not bool(client.hsetnx(self._seen_key(), seen_key, "1")):
             return None
         if normalized_request_id:
@@ -774,6 +794,14 @@ class RedisCommandStore:
             "payload": fields_payload,
         }
         stream_id = client.xadd(self._stream_key(session_id), fields)
+        self._record_command_state(
+            session_id,
+            seq,
+            "accepted",
+            command_type=command_type,
+            request_id=normalized_request_id,
+            server_time_ms=server_time_ms,
+        )
         return {
             "stream_id": str(stream_id),
             "seq": seq,
@@ -830,6 +858,48 @@ class RedisCommandStore:
         if offset_seq > current:
             client.hset(offset_key, session_id, str(offset_seq))
 
+    def mark_command_state(
+        self,
+        session_id: str,
+        seq: int,
+        status: str,
+        *,
+        reason: str | None = None,
+        server_time_ms: int | None = None,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        command_seq = int(seq)
+        command_state = normalize_command_state(status)
+        previous = self.load_command_state(session_id, command_seq) or {}
+        payload: dict[str, Any] = {
+            "seq": command_seq,
+            "session_id": str(session_id),
+            "status": command_state.value,
+            "updated_at_ms": int(server_time_ms if server_time_ms is not None else time.time() * 1000),
+        }
+        for key in ("type", "request_id"):
+            if previous.get(key) is not None:
+                payload[key] = previous[key]
+        if reason:
+            payload["reason"] = str(reason)
+        for key, value in extra.items():
+            if value is not None:
+                payload[str(key)] = value
+        self._connection.client().hset(self._state_key(session_id), str(command_seq), _json_dump(payload))
+        return payload
+
+    def load_command_state(self, session_id: str, seq: int) -> dict[str, Any] | None:
+        raw = self._connection.client().hget(self._state_key(session_id), str(int(seq)))
+        return _json_load_dict(str(raw)) if raw is not None else None
+
+    def list_command_states(self, session_id: str) -> list[dict[str, Any]]:
+        states: list[dict[str, Any]] = []
+        for raw in self._connection.client().hgetall(self._state_key(session_id)).values():
+            parsed = _json_load_dict(str(raw))
+            if parsed is not None:
+                states.append(parsed)
+        return sorted(states, key=lambda item: _int_or_default(str(item.get("seq", 0)), 0))
+
     def delete_session_data(self, session_id: str) -> None:
         client = self._connection.client()
         for seen_key in list(client.hgetall(self._seen_key()).keys()):
@@ -837,7 +907,12 @@ class RedisCommandStore:
                 client.hdel(self._seen_key(), seen_key)
         for offset_key in list(client.hgetall(self._offset_index_key()).keys()):
             client.hdel(str(offset_key), session_id)
-        client.delete(self._stream_key(session_id), self._seq_key(session_id), self._session_seen_key(session_id))
+        client.delete(
+            self._stream_key(session_id),
+            self._seq_key(session_id),
+            self._session_seen_key(session_id),
+            self._state_key(session_id),
+        )
 
     def _stream_key(self, session_id: str) -> str:
         return self._connection.key("commands", session_id, "stream")
@@ -858,6 +933,53 @@ class RedisCommandStore:
 
     def _offset_index_key(self) -> str:
         return self._connection.key("commands", "offset_indexes")
+
+    def _state_key(self, session_id: str) -> str:
+        return self._connection.key("commands", session_id, "state")
+
+    def _record_command_state(
+        self,
+        session_id: str,
+        seq: int,
+        status: str,
+        *,
+        command_type: str,
+        request_id: str | None,
+        server_time_ms: int | None,
+    ) -> None:
+        command_state = normalize_command_state(status)
+        payload = self._command_state_payload(
+            session_id,
+            seq,
+            command_state,
+            command_type=command_type,
+            request_id=request_id,
+            server_time_ms=server_time_ms,
+        )
+        self._connection.client().hset(self._state_key(session_id), str(int(seq)), payload)
+
+    @staticmethod
+    def _command_state_payload(
+        session_id: str,
+        seq: int,
+        status: str | CommandState,
+        *,
+        command_type: str,
+        request_id: str | None,
+        server_time_ms: int | None,
+    ) -> str:
+        command_state = normalize_command_state(status)
+        payload: dict[str, Any] = {
+            "seq": int(seq),
+            "session_id": str(session_id),
+            "status": command_state.value,
+            "type": str(command_type),
+            "updated_at_ms": int(server_time_ms or 0),
+        }
+        normalized_request_id = str(request_id or "").strip()
+        if normalized_request_id:
+            payload["request_id"] = normalized_request_id
+        return _json_dump(payload)
 
     def _next_seq(self, session_id: str) -> int:
         client = self._connection.client()
@@ -2287,6 +2409,11 @@ def _json_load_dict(raw: str) -> dict[str, Any] | None:
     return None
 
 
+def _ensure_non_lua_fallback_allowed(connection: RedisConnection) -> None:
+    if bool(getattr(connection, "uses_default_client_factory", False)):
+        raise RuntimeError(REDIS_LUA_REQUIRED_ERROR)
+
+
 _APPEND_COMMAND_LUA = """
 local current_seq = tonumber(redis.call("GET", KEYS[3]) or "0") or 0
 local latest_stream_seq = 0
@@ -2325,6 +2452,19 @@ local stream_id = redis.call(
   ARGV[4],
   "payload",
   ARGV[5]
+)
+redis.call(
+  "HSET",
+  KEYS[5],
+  tostring(seq),
+  cjson.encode({
+    seq = seq,
+    session_id = ARGV[3],
+    status = "accepted",
+    type = ARGV[2],
+    request_id = ARGV[6],
+    updated_at_ms = tonumber(ARGV[4]) or 0
+  })
 )
 return {stream_id, tostring(seq)}
 """
@@ -2560,6 +2700,19 @@ local stream_id = redis.call(
   ARGV[7],
   "payload",
   ARGV[8]
+)
+redis.call(
+  "HSET",
+  KEYS[8],
+  tostring(seq),
+  cjson.encode({
+    seq = seq,
+    session_id = ARGV[6],
+    status = "accepted",
+    type = ARGV[5],
+    request_id = ARGV[9],
+    updated_at_ms = tonumber(ARGV[7]) or 0
+  })
 )
 return {stream_id, seq}
 """

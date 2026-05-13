@@ -1,109 +1,141 @@
 # Redis Runtime UI Playtest Lessons
 
 Status: ACTIVE
-Updated: 2026-05-12
+Updated: 2026-05-13
 
-## 1. Ownership
+This document keeps durable lessons only. Run-specific evidence belongs in protocol-gate artifacts, architecture audits, or bug reports.
 
-Redis timing was not the main instability class. Failures came from unclear ownership between engine modules, backend continuation checkpoints, and frontend projections.
+Core lesson: do not repair a broken runtime contract by piling symptom-specific patches around it. If a patch needs a read model, heartbeat, duplicated wakeup path, or test-only runtime branch to compensate for missing authoritative state, the contract is still broken. Fix the ownership boundary first.
 
-Current rule: engine modules own progress, Redis stores checkpoints, backend validates continuations, frontend renders projections.
+## 1. Authority Boundaries
 
-Module boundaries are not Redis boundaries. A module test verifies responsibility, input, output, and interface contracts without Redis, WebSocket, or `view_commit`. Redis belongs to runtime persistence/recovery tests; `view_commit` belongs to frontend projection/integration tests.
+Redis timing was not the main instability class. The repeated failures came from unclear ownership between engine modules, backend continuation checkpoints, prompt state, and frontend projections.
 
-User command boundaries are the default persistence boundaries. A button press such as movement or purchase should create a lightweight command lifecycle record (`processing -> success/refused/failed/waiting_input`), run internal validators/resolvers in memory, and publish a final authoritative state/view only when the command reaches an external boundary.
+Current ownership rule:
 
-Irreversible inputs are the exception, not an excuse for per-module commits. Dice rolls, ordered deck draws such as fortune/weather, and accepted reward outcomes must be persisted because replay must consume the same value. Turn pointers, validator failures, hidden-trick availability, movement substeps, and purchase substeps should stay inside the command runner until a terminal boundary. If replay needs a value, persist that value; do not persist every transition that happened to use it.
+- Engine modules own rule progress and legal state transitions.
+- Redis stores authoritative checkpoints, pending prompts, accepted commands, command lifecycle state, and recovery data.
+- Backend services validate continuations and run commands from stored boundaries.
+- Frontend renders server projections. It does not become an authority source.
 
-Frontend duplicate submissions are absorbed by idempotency, not by hoping the browser sends only once. The UI must single-flight by active prompt, player, and action; reconnect recovery must check pending command status and the latest `view_commit` before retrying; the backend must treat a repeated `request_id` as a dedupe hit or explicit stale/refused result.
+`view_commit` is a read model. It may be the frontend restore surface, but it must not be the server-side source of truth for accepting a decision or reconstructing a pending prompt.
 
-## 2. Prompt Lifecycle
+`module_trace` and source events are diagnostic or replay evidence. They are not authoritative frontend render state and must not substitute for the final cached `view_commit`.
 
-Every prompt must close through an explicit phase-progress event or a stored continuation result. Acknowledgement events alone are not enough for reconnect, replay, or delayed follow-up prompts.
+## 2. Prompt And Decision Lifecycle
 
-Covered prompt classes:
+Pending prompt state is the decision contract. A valid decision is accepted against the stored pending prompt or stored checkpoint continuation, not against a prompt reconstructed from UI projection.
 
-- draft/final character
-- trick choice and hidden trick follow-up
-- mark target
-- movement
-- purchase
-- LAP reward
-- simultaneous resupply
+Every interactive prompt must have a single owner:
 
-## 3. Resume Boundaries
-
-Resume must use the stored frame/module cursor:
-
-- trick follow-ups stay inside `TrickSequenceFrame`
-- fortune movement stays inside `FortuneResolveModule -> MapMoveModule -> ArrivalTileModule`
-- simultaneous resupply stays inside `SimultaneousResolutionFrame`
-- round-start draft/final-character prompts preserve the original decision order
+- request id
+- prompt instance id
+- player id
+- resume token
+- frame/module cursor
+- legal choices or resolver contract
 
 The backend must not infer resume position from card names, localized labels, request-id arithmetic, or frontend state.
 
-## 4. Frontend Recovery
+Duplicate submissions are handled by idempotency. The UI should single-flight by active prompt, player, and action; the backend must treat repeated `request_id` values as dedupe hits or explicit stale/refused results. Browser-equivalent clients do not resend the same decision only because time passed. Resend is allowed only after reconnect exposes the same active prompt and must be bounded and counted separately.
+
+Decision ACK is client feedback. It is not an authoritative game-state transition. If ACK delivery needs stream replay/debug/outbox persistence, those auxiliary writes must be pipelined as one publish unit and must not become multiple serialized Redis round trips under the per-session stream lock.
+
+## 3. Command And Runtime Boundaries
+
+Module boundaries are not Redis boundaries. A module test verifies responsibility, input, output, and interface contracts without Redis, WebSocket, or `view_commit`.
+
+User command boundaries are the default persistence boundaries. A button press such as movement or purchase should create a lightweight command lifecycle record, run internal validators/resolvers in memory, and publish authoritative state only when the command reaches an external boundary:
+
+- `success`
+- `refused`
+- `failed`
+- `waiting_input`
+- `completed`
+
+Irreversible inputs are the exception, not an excuse for per-module commits. Dice rolls, ordered deck draws, and accepted reward outcomes must be persisted because replay must consume the same value. Turn pointers, validator failures, movement substeps, purchase substeps, and similar internal progress should stay inside the command runner until a terminal boundary. If replay needs a value, persist that value; do not persist every transition that used it.
+
+Command-boundary staging must skip expensive external preparation. Non-terminal transitions must not read full source history, build authoritative `view_commit`, validate precommit view payloads, write Redis checkpoints, or write runtime status as a substitute progress log. Module-by-module progress belongs in `module_trace`.
+
+There must be one clear runtime wakeup owner per accepted command. A route-level wake task and a command-stream worker can coexist only if one is the primary path and the other is an explicitly bounded fallback. If both independently drive `process_command_once`, the system becomes hard to reason about under load.
+
+The Redis command-stream watcher must not impersonate the runtime executor. Its job is recovery observation and wake signaling. If it directly calls the runtime fallback, ownership is split again and every timing or duplicate-processing investigation has two possible executors.
+
+The command router must not create a hidden local executor when the session-loop manager is missing. A missing manager is a configuration failure or a degraded test fixture, not permission to call `RuntimeService.process_command_once()` directly. Skipping with a structured reason is better than reviving split ownership.
+
+A disabled recovery worker must not advance a durable command consumer offset. If it records `runtime_wakeup` progress while not actually handing the command to the runtime owner, the next active loop will skip a valid accepted command.
+
+A session-loop wakeup dedupe is safe only if the active drain owns the backlog until it is idle or blocked. If a drain stops at an artificial per-wakeup command budget, wakeups that arrived during that drain have already been deduped and cannot be relied on to restart it.
+
+Do not mistake single-server saturation for Redis contention. In the 2026-05-12 20-game single-server stress run, the failed backend timing gate was caused by `InitialRewardModule` engine transition wall time above 5000ms. Redis commit and view projection stayed small on the same events. That points to server process execution capacity and transition scheduling, not Redis isolation, as the next bottleneck surface.
+
+## 4. Frontend And Headless Protocol
+
+The headless RL adapter is a protocol tester, not an engine shortcut. It must follow the same REST session creation, WebSocket join/resume, prompt ledger, decision submission, decision ACK, command processing, and `view_commit` path that browser play uses.
 
 Frontend recovery must preserve the latest authenticated `view_state` and must not resurrect closed prompts after replay or reconnect.
 
 Stable selectors are part of the UI contract. Replacing a visual surface requires equivalent stable selectors before tests move.
 
-## 5. Required Evidence
-
-- server continuation mismatch tests
-- command wakeup resume tests
-- frontend prompt close/recovery tests
-- browser parity checks for trick follow-up and spectator evidence
-- manual playtest after automated suites pass
-
-## 6. Headless RL Protocol Lessons
-
-The headless RL adapter is a protocol tester, not an engine shortcut. It must follow the same REST session creation, WebSocket join/resume, prompt ledger, decision submission, decision acknowledgement, and `view_commit` path that browser play uses.
-
-Lesson from 2026-05-09: waiting for a server timeout while the same active prompt remains visible is a bug. A round has a bounded number of possible prompt sites: global prompts, other players' turns, and the current player's turn. If a single player appears to accumulate decisions alone, the test must treat it as protocol desynchronization until logs prove otherwise.
-
-Required rule:
-
-- Never classify repeated same-player decisions as "normal waiting" without checking `request_id`, `view_commit_seq_seen`, decision ACK, server `decision_received`, Redis command stream, and fallback records.
-- If the same active prompt is still visible and no ACK arrives, the headless client must not resend only because time passed. Browser play does not auto-click again after an ACK delay.
-- Resend is allowed only after reconnect exposes the same active prompt, because that is a real delivery-loss boundary. It must be bounded and separately counted as `unackedDecisionRetryCount`.
-- Simultaneous prompt decisions can arrive while the runtime is already processing another accepted command. `command_processing_already_active` is a deferral, not a terminal result. The wakeup task must retry the accepted command; otherwise the session can wait on a prompt whose decision is already accepted.
-- A decision accepted against the stored checkpoint continuation must not be rejected only because a replayed prompt envelope regenerates a different legal-choice list. The stored continuation is the authoritative contract; regenerated legal-choice drift is a diagnostic event and must be fixed from logs/tests without hiding the accepted command.
-- Runtime command rejection must be persisted and exposed through runtime status. If rejection is only visible in server logs while `/runtime-status` still reports `waiting_input`, the headless adapter will wait until idle timeout and misreport a hard protocol failure as slow play.
-- Protocol-gate live runs use the protocol compose stack on `127.0.0.1:9091`. Running the same command against `9090` validates the normal local backend and can hide whether the rebuilt protocol stack is actually under test.
-- Multi-game protocol-gate runs must use `npm run rl:protocol-gate:games`, not an ad hoc `for` loop piped through `tee`. `npm --prefix apps/web` and shell redirection resolve relative paths from different directories, so the runner owns all artifact paths and writes `summary.json` through `--summary-out`.
-- Multi-game protocol-gate evidence must be self-contained under each `game-N/` directory. The runner owns `raw/`, `summary/`, and `pointers/` subdirectories; a failed run must not depend on manually scraping Docker logs after the fact.
-- Long protocol-gate runs must not stream progress JSON into the agent conversation. Store child stdout/stderr in `raw/protocol_gate.log`, persist compact progress records to `raw/progress.ndjson`, print only `PROTOCOL_GATE_GAME_PROGRESS` one-liners, and read large logs only when `summary/failure_reason.json` or `pointers/failure_pointer.json` says they are needed.
-- Agent inspection starts from small files: `summary/gate_result.json`, `summary/run_status.json`, `summary/progress.json`, `summary/slowest_command.json`, and `summary/slowest_transition.json`. Raw logs are evidence stores. Search them by the pointer fields in `pointers/suspect_events.json` instead of loading whole logs into context.
-- A stale ACK caused by a recovered unacked resend is not the same as an unrecovered stale decision. The quality gate must distinguish the two.
-- The default headless policy must not blindly choose the first non-secondary legal choice for repeatable optional prompts. `burden_exchange` offers `yes` before `no`; repeatedly choosing `yes` turns a normal supply step into a maximal churn scenario and invalidates "fast familiar click" timing evidence.
-- `decision_timeout_fallback_seen`, rejected ACK, Redis fallback entry, or unmatched Redis command count is a failure for RL stability testing.
-- "One game completed" is not enough evidence. The report must include wall time, app duration, per-command timing, trace decision counts, server decision counts, Redis command counts, fallback counts, and per-seat client metrics.
-- Parallel protocol-gate timeout is two separate checks: no-progress timeout and hard wall-clock timeout. If commits/ACKs are still advancing and command-level gates pass, crossing the soft completion target is throughput evidence, not immediate proof of a stuck protocol. If progress stops, fail fast on idle/no-progress timeout.
-- For the normal RL stability gate, the 10-minute completion target is hard. The repeated-game runner must not add `--continue-while-progressing` by default; that flag is only for explicit endurance/debug runs and cannot produce pass evidence for the normal gate.
-- Backend command timing and browser-observed command latency are different SLAs. `runtime_command_process_timing <= 5000ms` only proves the command runner stayed within the backend boundary. A `prompt -> decision -> ack` path above 5000ms is still a protocol failure and must stop the run immediately.
-- `decision_route_timing.ack_publish_ms` can dominate user-visible latency even when engine transitions and Redis/view commits are bounded. Treat a slow ACK path as a frontend/backend protocol defect, not as successful learning data.
-- One-game duration is a guardrail. Human play is slow when players deliberate to win; the protocol path itself is not slow. If one familiar operator can click through the normal game flow within 10 minutes without strategic deliberation, a headless run that exceeds 10 minutes is presumed stuck or desynchronized until the logs prove otherwise.
-- A timeout worker must claim the pending prompt before executing fallback. A stale Redis pending snapshot is evidence to re-check state, not permission to append fallback after normal decision acceptance already removed the prompt.
-- A late-game timestamp must be split by command timing before blaming policy speed. In the 2026-05-09 headless run, `command_seq=78` spent 8461ms across 13 normal module transitions and opened `r2:t7:p4:hidden_trick_card:65`; `command_seq=79` rejected the accepted choice in 76ms, then runtime status kept reviving the checkpoint as `waiting_input` for 60359ms. That is not slow decision making. It is a fail-fast/status exposure bug plus a replay legal-choice drift bug.
-- Hidden trick resume is checkpoint-authoritative. If the stored prompt accepted choice `14` but replay regeneration now offers `12/17/20`, the backend must expose that drift and continue from the checkpoint-validated payload instead of rejecting and waiting. The follow-up task is to fix the engine/module mutation boundary that caused the regenerated hand to differ.
-- A time-based unacked resend can create a false stale decision. In `sess_fT6B5tyTvbhJUoncx5yjYD26`, `r1:t5:p1:active_flip:62` was accepted, then the command advanced through round cleanup and opened the next round prompt in 4375ms. The headless 5s unacked retry sent the old request again and the backend correctly rejected it as `stale_prompt_request`. That retry is not browser-equivalent and must stay disabled outside reconnect recovery.
-- Per-command duration must include internal transition cost. In `sess_fT6B5tyTvbhJUoncx5yjYD26`, `command_seq=95` took 10991ms across 15 transitions; per-module Redis commits alone accounted for roughly 5.4s. A long turn can be backend persistence overhead even when every prompt decision is immediate.
-- Do not confuse modularity with external commits. Modularity means `PurchaseValidator`, `MovementResolver`, `ArrivalResolver`, and similar units keep narrow contracts and can be tested with pure in/out state. It does not mean every internal step writes Redis, rebuilds frontend projection, or emits a `view_commit`.
-- Command-boundary staging must skip expensive external preparation. In the 2026-05-09 fix, internal non-terminal transitions stage only in-memory state. They must not read source history, build authoritative `view_commit`, validate precommit view payloads, or write Redis. Terminal boundaries still commit exactly once.
-- Command-boundary staging also applies to runtime status persistence. A non-terminal internal transition may update in-process status for the current runner, but it must not write runtime status to Redis as a substitute progress log. Command lifecycle status is recorded at command acceptance and terminal boundary; module-by-module status belongs in `module_trace`.
-- Nonblocking human prompts are runtime boundaries, not gateway publish boundaries. The decision gateway may create or reuse the pending prompt and raise `PromptRequired`, but it must not synchronously publish WebSocket events, mark delivery, or emit decision-requested records before the runtime has committed the terminal `waiting_input` boundary. Otherwise a prompt handoff can block inside the command runner and reintroduce multi-second latency even when Redis/view commits are already bounded.
-- A decision ACK is client feedback, not an authoritative game-state transition. If it still needs stream replay/debug/outbox persistence, those auxiliary Redis writes must be pipelined as one publish unit; never let ACK delivery become multiple serialized Redis round trips under the per-session stream lock.
-- A high `module_transition_count` is not itself a Redis bug. It means one accepted command advanced through several pure engine modules before the next external prompt. Treat it as suspicious only if it pairs with repeated Redis/view commits, repeated hydrate/prepare, or module timings that exceed the command SLA.
-- A repeated prompt signature is a state-machine bug until proven otherwise. If the same `active_module_id`, player, request type, round, and turn keep producing new `request_id` values, the module is not recording its continuation progress. Multi-prompt engine actions must either persist their substep/result in the action payload before raising `PromptRequired`, or split the work into separate actions/modules with explicit contracts.
-- A prompt must be owned by the module named in the active prompt signature. If `TrickChoiceModule` chooses/applies a trick and `TrickVisibilitySyncModule` asks which remaining trick stays hidden, the hidden-card prompt must suspend `TrickVisibilitySyncModule`, not replay `TrickChoiceModule`. A module that can raise `PromptRequired` must resume only its own responsibility and must not re-run earlier side effects.
-- The 2026-05-09 `FortuneResolveModule` loop was not caused by Redis/view commits. `resolve_fortune_forced_trade` asked for `trade_own_tile`, then suspended at `trade_other_tile`; replay restarted from the first target because the first target was not checkpointed. The fix class is structural: save the consumed first target in the action payload at the prompt boundary and add a headless repeated-prompt gate.
-- A zero-choice interactive prompt is a contract failure, not a frontend edge case. If a reward deck, candidate list, or target set is empty, the engine must resolve that branch as no-op/refused/partial success inside the current module. Backend decision routing must reject request types that require non-empty legal choices, and view projection must not expose a clickable surface with no legal choice.
+Long protocol-gate runs must keep the agent conversation small. Store detailed stdout/stderr and progress logs under the run artifact root, then inspect compact summaries and pointer files first.
 
 Minimum comparison after every headless live RL run:
 
 - trace `decision_sent` equals server `decision_received`
 - trace `decision_ack` equals Redis `decision_submitted`
-- rejected/stale/fallback/send-failure/client-error counts are zero, except recovered stale ACKs explicitly paired with bounded unacked resends
+- rejected/stale/fallback/send-failure/client-error counts are zero, except recovered stale ACKs explicitly paired with bounded reconnect recovery
 - Redis fallback list is empty
-- per-seat accepted decisions are plausible for the observed prompt counts; any seat-only buildup is investigated before continuing training
+- per-seat accepted decisions are plausible for the observed prompt counts
+- command timing and browser-observed prompt-to-ACK timing are reported separately
+
+## 5. Failure Classification
+
+Do not classify repeated same-player decisions as normal waiting without checking request id, `view_commit_seq_seen`, decision ACK, server `decision_received`, Redis command stream, and fallback records.
+
+A same active prompt that remains visible without ACK is protocol desynchronization until logs prove otherwise. A stale ACK caused by recovered reconnect retry is different from an unrecovered stale decision and must be classified separately.
+
+Runtime command rejection must be persisted and exposed through runtime status. If rejection is only visible in server logs while runtime status still reports `waiting_input`, headless clients will wait until idle timeout and misreport a status exposure bug as slow play.
+
+A repeated prompt signature is a state-machine bug until proven otherwise. If the same active module, player, request type, round, and turn keep producing new request ids, the module is not recording continuation progress.
+
+A zero-choice interactive prompt is a contract failure, not a frontend edge case. Empty candidate sets must resolve as no-op, refused, or partial success inside the engine/backend contract.
+
+## 6. 2026-05-12 Server Structure Lessons
+
+The latest server-structure diagnosis confirmed a sharper lesson: a read model must never repair or validate the write model.
+
+Observed structural faults:
+
+- Decision validation reads latest `view_commit` active prompt before accepting a decision.
+- Missing pending prompt can be recreated from `view_commit.view_state.prompt.active`.
+- Heartbeat can resend latest `view_commit`, giving heartbeat a repair role instead of a pure liveness role.
+- Runtime wakeup used to exist in both the decision route and `CommandStreamWakeupWorker`; the rebuild now routes accepted command execution through `SessionLoopManager`, with the worker acting only as a Redis recovery watcher.
+- Runtime status is split between in-process task state and Redis-backed recovery state.
+- Source events and `view_commit` are not fully independent; source projection feeds parts of view state.
+- Non-Lua Redis decision acceptance fallback can allocate command sequence outside the final append transaction.
+- Production runtime behavior used to depend on `PYTEST_CURRENT_TEST` for AI delay defaults; this was removed in the server runtime rebuild and replaced with explicit runtime configuration.
+
+Durable rules from this diagnosis:
+
+- Do not keep adding compensating paths around a broken server contract; remove the contract ambiguity.
+- Validate decisions against pending prompt state or checkpoint continuation, not against `view_commit`.
+- Do not recreate authoritative pending prompt state from a frontend projection.
+- Keep heartbeat as connection liveness. Snapshot or resume repair should be explicit and separately named.
+- Keep one primary command wakeup/executor path per session.
+- Runtime status exposed to clients must be recoverable from Redis, not only from in-process task memory.
+- Redis fallbacks must fail closed or preserve the same atomicity contract as the primary path.
+- Test speed knobs must be explicit configuration, not production branches on test-runner environment variables.
+
+## 7. Required Evidence Before Claiming Stability
+
+Required checks:
+
+- server continuation mismatch tests
+- command wakeup resume tests
+- frontend prompt close/recovery tests
+- browser parity checks for trick follow-up and spectator evidence
+- full-stack protocol gate using the same stack and ports under test
+- multi-game protocol-gate evidence stored under each `game-N/` artifact directory
+- summary files for wall time, app duration, per-command timing, transition timing, decision counts, ACK counts, Redis command counts, fallback counts, and per-seat client metrics
+
+One completed game is not sufficient evidence. Stability claims require repeated protocol-equivalent runs with zero unexplained stale, fallback, rejected ACK, unmatched Redis command, send failure, or client error counts.

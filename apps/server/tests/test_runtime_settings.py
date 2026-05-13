@@ -29,6 +29,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.archive_hot_retention_seconds, 3600)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
+        self.assertEqual(settings.command_wakeup_worker_runtime_processing_enabled, False)
+        self.assertEqual(settings.runtime_ai_decision_delay_ms, 1000)
         self.assertGreaterEqual(settings.runtime_engine_workers, 1)
         self.assertEqual(settings.admin_token, "")
         self.assertEqual(settings.debug_game_logs_enabled, False)
@@ -65,6 +67,8 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_ARCHIVE_HOT_RETENTION_SECONDS": "45",
                 "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "750",
                 "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS": "900",
+                "MRN_COMMAND_WAKEUP_WORKER_RUNTIME_PROCESSING_ENABLED": "1",
+                "MRN_RUNTIME_AI_DECISION_DELAY_MS": "0",
                 "MRN_RUNTIME_ENGINE_WORKERS": "2",
                 "MRN_ADMIN_TOKEN": "admin-secret",
                 "MRN_DEBUG_GAME_LOGS": "on",
@@ -100,6 +104,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.archive_hot_retention_seconds, 45)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 750)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 900)
+        self.assertEqual(settings.command_wakeup_worker_runtime_processing_enabled, True)
+        self.assertEqual(settings.runtime_ai_decision_delay_ms, 0)
         self.assertEqual(settings.runtime_engine_workers, 2)
         self.assertEqual(settings.admin_token, "admin-secret")
         self.assertEqual(settings.debug_game_logs_enabled, True)
@@ -136,6 +142,8 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "MRN_ARCHIVE_HOT_RETENTION_SECONDS": "-1",
                 "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS": "10",
                 "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS": "10",
+                "MRN_COMMAND_WAKEUP_WORKER_RUNTIME_PROCESSING_ENABLED": "maybe",
+                "MRN_RUNTIME_AI_DECISION_DELAY_MS": "-1",
                 "MRN_RUNTIME_ENGINE_WORKERS": "0",
                 "MRN_ADMIN_TOKEN": "",
                 "MRN_DEBUG_GAME_LOGS": "maybe",
@@ -171,6 +179,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(settings.archive_hot_retention_seconds, 3600)
         self.assertEqual(settings.prompt_timeout_worker_poll_interval_ms, 250)
         self.assertEqual(settings.command_wakeup_worker_poll_interval_ms, 250)
+        self.assertEqual(settings.command_wakeup_worker_runtime_processing_enabled, False)
+        self.assertEqual(settings.runtime_ai_decision_delay_ms, 1000)
         self.assertGreaterEqual(settings.runtime_engine_workers, 1)
         self.assertEqual(settings.admin_token, "")
         self.assertEqual(settings.debug_game_logs_enabled, False)
@@ -215,6 +225,8 @@ class _temporary_env:
             "MRN_ARCHIVE_HOT_RETENTION_SECONDS",
             "MRN_PROMPT_TIMEOUT_WORKER_POLL_INTERVAL_MS",
             "MRN_COMMAND_WAKEUP_WORKER_POLL_INTERVAL_MS",
+            "MRN_COMMAND_WAKEUP_WORKER_RUNTIME_PROCESSING_ENABLED",
+            "MRN_RUNTIME_AI_DECISION_DELAY_MS",
             "MRN_RUNTIME_ENGINE_WORKERS",
             "MRN_ADMIN_TOKEN",
             "MRN_DEBUG_GAME_LOGS",

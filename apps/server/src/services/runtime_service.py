@@ -43,7 +43,10 @@ from apps.server.src.services.decision_gateway import (
     build_decision_invocation_from_request,
     build_routed_decision_call,
 )
+from apps.server.src.services.command_execution_gate import CommandExecutionGate
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
+from apps.server.src.services.command_processing_guard import CommandProcessingGuardService
+from apps.server.src.services.command_recovery import CommandRecoveryService
 from apps.server.src.services.parameter_service import DEFAULT_EXTERNAL_AI_TIMEOUT_MS
 from apps.server.src.services.realtime_persistence import ViewCommitSequenceConflict
 
@@ -51,6 +54,7 @@ _VIEW_COMMIT_SCHEMA_VERSION = 1
 _PROMPT_BOUNDARY_PUBLISH_TIMEOUT_SECONDS = 5.0
 _PROMPT_BOUNDARY_PUBLISH_ATTEMPTS = 3
 _EVENT_STREAM_PUBLISH_TIMEOUT_SECONDS = 1.0
+_DEFAULT_RUNTIME_AI_DECISION_DELAY_MS = 1000
 
 
 def _duration_ms(started: float) -> int:
@@ -675,6 +679,7 @@ class RuntimeService:
         runtime_state_store=None,
         game_state_store=None,
         command_store=None,
+        runtime_ai_decision_delay_ms: int = _DEFAULT_RUNTIME_AI_DECISION_DELAY_MS,
         runtime_engine_workers: int | None = None,
         runtime_executor: concurrent.futures.Executor | None = None,
     ) -> None:
@@ -684,6 +689,9 @@ class RuntimeService:
         self._config_factory = config_factory or EngineConfigFactory()
         self._decision_client_factory = decision_client_factory or _ServerDecisionClientFactory()
         self._runtime_tasks: dict[str, asyncio.Task] = {}
+        self._command_execution_gate = CommandExecutionGate(
+            runtime_task_provider=lambda session_id: self._runtime_tasks.get(session_id),
+        )
         self._watchdogs: dict[str, asyncio.Task] = {}
         self._status: dict[str, dict] = {}
         self._last_activity_ms: dict[str, int] = {}
@@ -693,6 +701,17 @@ class RuntimeService:
         self._runtime_state_store = runtime_state_store
         self._game_state_store = game_state_store
         self._command_store = command_store
+        self._command_recovery = CommandRecoveryService(
+            command_store=command_store,
+            checkpoint_provider=lambda session_id: self.recovery_checkpoint(session_id),
+        )
+        self._command_processing_guard_service = CommandProcessingGuardService(
+            command_store=command_store,
+            command_recovery=self._command_recovery,
+            prompt_lifecycle_provider=lambda session_id, command: self._prompt_lifecycle_for_command(session_id, command),
+            now_ms=self._now_ms,
+        )
+        self._runtime_ai_decision_delay_ms = max(0, int(runtime_ai_decision_delay_ms))
         self._runtime_engine_workers = self._resolve_runtime_engine_workers(runtime_engine_workers)
         self._runtime_executor = runtime_executor or concurrent.futures.ThreadPoolExecutor(
             max_workers=self._runtime_engine_workers,
@@ -700,8 +719,6 @@ class RuntimeService:
         )
         self._worker_id = f"runtime_{uuid.uuid4().hex[:12]}"
         self._lease_ttl_ms = max(5000, self._watchdog_timeout_ms * 2)
-        self._active_command_sessions: set[str] = set()
-        self._command_processing_lock = threading.Lock()
         self._held_runtime_leases: set[str] = set()
         self._runtime_lease_tracking_lock = threading.Lock()
         self._initialize_recovery_state()
@@ -719,6 +736,11 @@ class RuntimeService:
             value = max(1, min(8, os.cpu_count() or 1))
         return max(1, int(value))
 
+    def _resolve_ai_decision_delay_ms(self, runtime: dict[str, Any] | None) -> int:
+        if isinstance(runtime, dict) and "ai_decision_delay_ms" in runtime:
+            return max(0, int(runtime.get("ai_decision_delay_ms") or 0))
+        return self._runtime_ai_decision_delay_ms
+
     async def _run_in_runtime_executor(self, func, /, *args, **kwargs):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -730,6 +752,10 @@ class RuntimeService:
         if callback is None:
             return
         self._session_completed_callbacks.append(callback)
+
+    @property
+    def command_recovery_service(self) -> CommandRecoveryService:
+        return self._command_recovery
 
     async def start_runtime(self, session_id: str, seed: int = 42, policy_mode: str | None = None) -> None:
         existing = self._runtime_tasks.get(session_id)
@@ -798,63 +824,11 @@ class RuntimeService:
         log_event("runtime_stop_requested", session_id=session_id, reason=reason)
 
     def has_unprocessed_runtime_commands(self, session_id: str, consumer_name: str = "runtime_wakeup") -> bool:
-        if self._command_store is None:
-            return False
-        load_offset = getattr(self._command_store, "load_consumer_offset", None)
-        list_commands = getattr(self._command_store, "list_commands", None)
-        if not callable(load_offset) or not callable(list_commands):
-            return False
-        last_seq = int(load_offset(consumer_name, session_id))
-        for command in list_commands(session_id):
-            if int(command.get("seq", 0) or 0) > last_seq:
-                return True
-        return False
+        return self._command_recovery.has_unprocessed_runtime_commands(session_id, consumer_name=consumer_name)
 
     @staticmethod
     def _checkpoint_waiting_prompt_request_ids(checkpoint: dict) -> set[str]:
-        request_ids: set[str] = set()
-        single_request_id = str(checkpoint.get("waiting_prompt_request_id") or "").strip()
-        if single_request_id:
-            request_ids.add(single_request_id)
-
-        active_prompt = checkpoint.get("runtime_active_prompt")
-        if isinstance(active_prompt, dict):
-            active_request_id = str(active_prompt.get("request_id") or "").strip()
-            if active_request_id:
-                request_ids.add(active_request_id)
-
-        batch = checkpoint.get("runtime_active_prompt_batch")
-        if not isinstance(batch, dict):
-            return request_ids
-        prompts_by_player_id = batch.get("prompts_by_player_id")
-        if not isinstance(prompts_by_player_id, dict):
-            return request_ids
-
-        missing_filter: set[int] | None = None
-        missing_player_ids = batch.get("missing_player_ids")
-        if isinstance(missing_player_ids, list):
-            missing_filter = set()
-            for raw_player_id in missing_player_ids:
-                try:
-                    missing_filter.add(int(raw_player_id))
-                except (TypeError, ValueError):
-                    continue
-
-        for raw_player_id, prompt in prompts_by_player_id.items():
-            if missing_filter is not None:
-                try:
-                    internal_player_id = int(raw_player_id)
-                except (TypeError, ValueError):
-                    continue
-                if internal_player_id not in missing_filter:
-                    continue
-            if isinstance(prompt, dict):
-                request_id = str(prompt.get("request_id") or "").strip()
-            else:
-                request_id = str(getattr(prompt, "request_id", "") or "").strip()
-            if request_id:
-                request_ids.add(request_id)
-        return request_ids
+        return CommandRecoveryService.checkpoint_waiting_prompt_request_ids(checkpoint)
 
     @staticmethod
     def _resume_module_identity_mismatch(checkpoint: dict, resume: RuntimeDecisionResume) -> bool:
@@ -912,52 +886,10 @@ class RuntimeService:
         return command_consumer_name, int(command_seq)
 
     def pending_resume_command(self, session_id: str, consumer_name: str = "runtime_wakeup") -> dict | None:
-        if self._command_store is None:
-            return None
-        list_commands = getattr(self._command_store, "list_commands", None)
-        if not callable(list_commands):
-            return None
-        load_offset = getattr(self._command_store, "load_consumer_offset", None)
-        last_consumed_seq = int(load_offset(consumer_name, session_id)) if callable(load_offset) else 0
-        recovery = self.recovery_checkpoint(session_id)
-        checkpoint = recovery.get("checkpoint") if isinstance(recovery, dict) else None
-        if not isinstance(checkpoint, dict):
-            return None
-        waiting_request_ids = self._checkpoint_waiting_prompt_request_ids(checkpoint)
-        if not waiting_request_ids:
-            return None
-        commands = sorted(list_commands(session_id), key=lambda command: int(command.get("seq", 0) or 0))
-        resolved_request_ids = {
-            self._command_payload_field(command, "request_id")
-            for command in commands
-            if str(command.get("type") or "").strip() == "decision_resolved"
-        }
-        for command in commands:
-            if str(command.get("type") or "").strip() != "decision_submitted":
-                continue
-            if int(command.get("seq", 0) or 0) <= last_consumed_seq:
-                continue
-            request_id = self._command_payload_field(command, "request_id")
-            if request_id not in waiting_request_ids:
-                continue
-            if request_id in resolved_request_ids and not self._command_is_timeout_fallback(command):
-                continue
-            if self._command_module_identity_mismatch(checkpoint, command):
-                continue
-            return dict(command)
-        return None
+        return self._command_recovery.pending_resume_command(session_id, consumer_name=consumer_name)
 
     def _command_for_seq(self, session_id: str, command_seq: int) -> dict | None:
-        if self._command_store is None:
-            return None
-        list_commands = getattr(self._command_store, "list_commands", None)
-        if not callable(list_commands):
-            return None
-        target_seq = int(command_seq)
-        for command in list_commands(session_id):
-            if int(command.get("seq", 0) or 0) == target_seq:
-                return dict(command)
-        return None
+        return self._command_recovery.command_for_seq(session_id, command_seq)
 
     def _matching_resume_command_for_seq(
         self,
@@ -966,60 +898,17 @@ class RuntimeService:
         *,
         include_resolved: bool = False,
     ) -> dict | None:
-        if self._command_store is None:
-            return None
-        list_commands = getattr(self._command_store, "list_commands", None)
-        if not callable(list_commands):
-            return None
-        recovery = self.recovery_checkpoint(session_id)
-        checkpoint = recovery.get("checkpoint") if isinstance(recovery, dict) else None
-        if not isinstance(checkpoint, dict):
-            return None
-        waiting_request_ids = self._checkpoint_waiting_prompt_request_ids(checkpoint)
-        if not waiting_request_ids:
-            return None
-        target_seq = int(command_seq)
-        commands = sorted(list_commands(session_id), key=lambda command: int(command.get("seq", 0) or 0))
-        resolved_request_ids = {
-            self._command_payload_field(command, "request_id")
-            for command in commands
-            if str(command.get("type") or "").strip() == "decision_resolved"
-        }
-        for command in commands:
-            if int(command.get("seq", 0) or 0) != target_seq:
-                continue
-            if str(command.get("type") or "").strip() != "decision_submitted":
-                return None
-            request_id = self._command_payload_field(command, "request_id")
-            if request_id not in waiting_request_ids:
-                return None
-            if not include_resolved and request_id in resolved_request_ids and not self._command_is_timeout_fallback(command):
-                return None
-            if self._command_module_identity_mismatch(checkpoint, command):
-                return None
-            return dict(command)
-        return None
+        return self._command_recovery.matching_resume_command_for_seq(
+            session_id,
+            command_seq,
+            include_resolved=include_resolved,
+        )
 
     def has_pending_resume_command(self, session_id: str, consumer_name: str = "runtime_wakeup") -> bool:
-        return self.pending_resume_command(session_id, consumer_name=consumer_name) is not None
+        return self._command_recovery.has_pending_resume_command(session_id, consumer_name=consumer_name)
 
     def _load_command_consumer_offset(self, session_id: str, consumer_name: str) -> int | None:
-        if self._command_store is None:
-            return None
-        load_offset = getattr(self._command_store, "load_consumer_offset", None)
-        if not callable(load_offset):
-            return None
-        try:
-            return int(load_offset(consumer_name, session_id))
-        except Exception as exc:
-            log_event(
-                "runtime_command_offset_load_failed",
-                session_id=session_id,
-                consumer_name=consumer_name,
-                exception_type=exc.__class__.__name__,
-                exception_repr=repr(exc),
-            )
-            return None
+        return self._command_recovery.load_command_consumer_offset(session_id, consumer_name)
 
     def _command_processing_guard(
         self,
@@ -1029,144 +918,21 @@ class RuntimeService:
         command_seq: int,
         stage: str,
     ) -> dict | None:
-        if self._command_store is None:
-            return None
-        target_seq = int(command_seq)
-        offset = self._load_command_consumer_offset(session_id, consumer_name)
-        if offset is not None and offset >= target_seq:
-            matching_waiting_command = self._matching_resume_command_for_seq(session_id, target_seq, include_resolved=True)
-            if matching_waiting_command is not None:
-                log_event(
-                    "runtime_command_offset_conflict_reprocessing",
-                    session_id=session_id,
-                    consumer_name=consumer_name,
-                    command_seq=target_seq,
-                    consumer_offset=offset,
-                    stage=stage,
-                    request_id=self._command_payload_field(matching_waiting_command, "request_id"),
-                )
-                return None
-            log_event(
-                "runtime_command_already_consumed",
-                session_id=session_id,
-                consumer_name=consumer_name,
-                command_seq=target_seq,
-                consumer_offset=offset,
-                stage=stage,
-            )
-            return {
-                "status": "already_processed",
-                "reason": "consumer_offset_already_advanced",
-                "processed_command_seq": target_seq,
-                "processed_command_consumer": consumer_name,
-                "consumer_offset": offset,
-            }
-        pending = self.pending_resume_command(session_id, consumer_name=consumer_name)
-        target_command = self._command_for_seq(session_id, target_seq)
-        target_command_type = str((target_command or {}).get("type") or "").strip()
-        if pending is None:
-            matching_waiting_command = self._matching_resume_command_for_seq(session_id, target_seq, include_resolved=True)
-            if matching_waiting_command is not None:
-                log_event(
-                    "runtime_command_checkpoint_waiting_reprocessing",
-                    session_id=session_id,
-                    consumer_name=consumer_name,
-                    command_seq=target_seq,
-                    consumer_offset=offset,
-                    stage=stage,
-                    request_id=self._command_payload_field(matching_waiting_command, "request_id"),
-                    request_type=self._command_payload_field(matching_waiting_command, "request_type"),
-                    module_id=self._command_payload_field(matching_waiting_command, "module_id"),
-                )
-                return None
-            if target_command is None or target_command_type != "decision_submitted":
-                return None
-            log_event(
-                "runtime_command_no_longer_pending",
-                session_id=session_id,
-                consumer_name=consumer_name,
-                command_seq=target_seq,
-                consumer_offset=offset,
-                stage=stage,
-            )
-            self._save_rejected_command_offset(consumer_name, session_id, target_seq)
-            return {
-                "status": "stale",
-                "reason": "command_no_longer_matches_waiting_prompt",
-                "processed_command_seq": target_seq,
-                "processed_command_consumer": consumer_name,
-                "consumer_offset": target_seq,
-            }
-        pending_seq = _optional_int(pending.get("seq")) or 0
-        if pending_seq != target_seq:
-            matching_waiting_command = self._matching_resume_command_for_seq(session_id, target_seq, include_resolved=True)
-            if matching_waiting_command is not None:
-                log_event(
-                    "runtime_command_checkpoint_waiting_reprocessing",
-                    session_id=session_id,
-                    consumer_name=consumer_name,
-                    command_seq=target_seq,
-                    consumer_offset=offset,
-                    stage=stage,
-                    request_id=self._command_payload_field(matching_waiting_command, "request_id"),
-                    request_type=self._command_payload_field(matching_waiting_command, "request_type"),
-                    module_id=self._command_payload_field(matching_waiting_command, "module_id"),
-                )
-                return None
-            if target_command is None or target_command_type != "decision_submitted":
-                return None
-            if target_seq > pending_seq:
-                log_event(
-                    "runtime_command_deferred_pending_precedes_target",
-                    session_id=session_id,
-                    consumer_name=consumer_name,
-                    command_seq=target_seq,
-                    pending_command_seq=pending_seq,
-                    consumer_offset=offset,
-                    stage=stage,
-                )
-                return {
-                    "status": "running_elsewhere",
-                    "reason": "pending_command_seq_precedes_target",
-                    "processed_command_seq": target_seq,
-                    "pending_command_seq": pending_seq,
-                    "processed_command_consumer": consumer_name,
-                    "consumer_offset": offset,
-                }
-            log_event(
-                "runtime_command_pending_changed",
-                session_id=session_id,
-                consumer_name=consumer_name,
-                command_seq=target_seq,
-                pending_command_seq=pending_seq,
-                consumer_offset=offset,
-                stage=stage,
-            )
-            self._save_rejected_command_offset(consumer_name, session_id, target_seq)
-            return {
-                "status": "stale",
-                "reason": "pending_command_seq_changed",
-                "processed_command_seq": target_seq,
-                "pending_command_seq": pending_seq,
-                "processed_command_consumer": consumer_name,
-                "consumer_offset": target_seq,
-            }
-        return None
+        return self._command_processing_guard_service.guard(
+            session_id=session_id,
+            consumer_name=consumer_name,
+            command_seq=command_seq,
+            stage=stage,
+        )
 
     def _begin_command_processing(self, session_id: str) -> bool:
-        with self._command_processing_lock:
-            if session_id in self._active_command_sessions:
-                return False
-            self._active_command_sessions.add(session_id)
-            return True
+        return self._command_execution_gate.begin(session_id)
 
     def _command_processing_active(self, session_id: str) -> bool:
-        with self._command_processing_lock:
-            return session_id in self._active_command_sessions
+        return self._command_execution_gate.active(session_id)
 
     def _end_command_processing(self, session_id: str) -> None:
-        with self._command_processing_lock:
-            self._active_command_sessions.discard(session_id)
+        self._command_execution_gate.end(session_id)
 
     def _runtime_task_processing_guard(
         self,
@@ -1176,22 +942,12 @@ class RuntimeService:
         consumer_name: str,
         stage: str,
     ) -> dict | None:
-        task = self._runtime_tasks.get(session_id)
-        if task is None or task.done():
-            return None
-        log_event(
-            "runtime_command_deferred_active_runtime_task",
+        return self._command_execution_gate.runtime_task_guard(
             session_id=session_id,
-            command_seq=int(command_seq),
+            command_seq=command_seq,
             consumer_name=consumer_name,
             stage=stage,
         )
-        return {
-            "status": "running_elsewhere",
-            "reason": "runtime_task_already_active",
-            "processed_command_seq": int(command_seq),
-            "processed_command_consumer": consumer_name,
-        }
 
     def runtime_status(self, session_id: str) -> dict:
         self._refresh_status(session_id)
@@ -1467,6 +1223,15 @@ class RuntimeService:
             if post_guard is not None:
                 return post_guard
             now_ms = self._now_ms()
+            self._mark_command_state(
+                session_id,
+                command_seq,
+                "processing",
+                reason="runtime_lease_acquired",
+                server_time_ms=now_ms,
+                consumer_name=consumer_name,
+                worker_id=self._worker_id,
+            )
             self._last_activity_ms[session_id] = now_ms
             self._status[session_id] = {"status": "running", "watchdog_state": "ok", "started_at_ms": now_ms}
             self._persist_runtime_state(session_id)
@@ -1797,13 +1562,7 @@ class RuntimeService:
             if seat.seat_type == SeatType.HUMAN
         ]
         if loop is not None and self._stream_service is not None:
-            ai_decision_delay_ms = int(
-                runtime.get(
-                    "ai_decision_delay_ms",
-                    0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
-                )
-                or 0
-            )
+            ai_decision_delay_ms = self._resolve_ai_decision_delay_ms(runtime)
             policy = _ServerDecisionPolicyBridge(
                 session_id=session_id,
                 session_seats=session.seats,
@@ -2191,39 +1950,19 @@ class RuntimeService:
 
     @staticmethod
     def _command_payload(command: dict) -> dict:
-        payload = command.get("payload")
-        return payload if isinstance(payload, dict) else {}
+        return CommandRecoveryService.command_payload(command)
 
     @staticmethod
     def _command_payload_field(command: dict, name: str) -> str:
-        payload = RuntimeService._command_payload(command)
-        decision = payload.get("decision")
-        decision = decision if isinstance(decision, dict) else {}
-        return str(payload.get(name) or decision.get(name) or "").strip()
+        return CommandRecoveryService.command_payload_field(command, name)
 
     @staticmethod
     def _command_is_timeout_fallback(command: dict) -> bool:
-        payload = RuntimeService._command_payload(command)
-        decision = payload.get("decision")
-        decision = decision if isinstance(decision, dict) else {}
-        source = str(payload.get("source") or "").strip()
-        provider = str(payload.get("provider") or decision.get("provider") or "").strip()
-        return source == "timeout_fallback" or provider == "timeout_fallback"
+        return CommandRecoveryService.command_is_timeout_fallback(command)
 
     @staticmethod
     def _command_module_identity_mismatch(checkpoint: dict, command: dict) -> bool:
-        field_pairs = (
-            ("frame_id", "active_frame_id"),
-            ("module_id", "active_module_id"),
-            ("module_type", "active_module_type"),
-            ("module_cursor", "active_module_cursor"),
-        )
-        for command_field, checkpoint_field in field_pairs:
-            command_value = RuntimeService._command_payload_field(command, command_field)
-            checkpoint_value = str(checkpoint.get(checkpoint_field) or "").strip()
-            if command_value and checkpoint_value and command_value != checkpoint_value:
-                return True
-        return False
+        return CommandRecoveryService.command_module_identity_mismatch(checkpoint, command)
 
     def _acquire_runtime_lease(self, session_id: str) -> bool:
         if self._runtime_lease_held_by_this_process(session_id):
@@ -2440,12 +2179,79 @@ class RuntimeService:
         if expected_module_type and resume.module_type and expected_module_type != resume.module_type:
             raise ValueError("module type mismatch")
 
-    def _save_rejected_command_offset(self, command_consumer_name: str | None, session_id: str, command_seq: int | None) -> None:
-        if not command_consumer_name or command_seq is None or self._command_store is None:
-            return
-        save_offset = getattr(self._command_store, "save_consumer_offset", None)
-        if callable(save_offset):
-            save_offset(command_consumer_name, session_id, int(command_seq))
+    def _mark_command_state(
+        self,
+        session_id: str,
+        command_seq: int | None,
+        status: str,
+        *,
+        reason: str | None = None,
+        server_time_ms: int | None = None,
+        **extra: Any,
+    ) -> None:
+        self._command_processing_guard_service.mark_command_state(
+            session_id,
+            command_seq,
+            status,
+            reason=reason,
+            server_time_ms=server_time_ms,
+            **extra,
+        )
+
+    def _save_rejected_command_offset(
+        self,
+        command_consumer_name: str | None,
+        session_id: str,
+        command_seq: int | None,
+        *,
+        reason: str = "rejected",
+        status: str = "rejected",
+    ) -> None:
+        self._command_processing_guard_service.save_rejected_command_offset(
+            command_consumer_name,
+            session_id,
+            command_seq,
+            reason=reason,
+            status=status,
+        )
+
+    def _stale_command_terminal_state(self, session_id: str, command: dict | None) -> str:
+        return self._command_processing_guard_service.stale_command_terminal_state(session_id, command)
+
+    def _stale_command_terminal_reason(
+        self,
+        session_id: str,
+        command: dict | None,
+        *,
+        default_reason: str,
+    ) -> str:
+        return self._command_processing_guard_service.stale_command_terminal_reason(
+            session_id,
+            command,
+            default_reason=default_reason,
+        )
+
+    def _prompt_lifecycle_for_command(self, session_id: str, command: dict | None) -> dict | None:
+        if command is None or self._prompt_service is None:
+            return None
+        request_id = self._command_payload_field(command, "request_id")
+        if not request_id:
+            return None
+        get_lifecycle = getattr(self._prompt_service, "get_prompt_lifecycle", None)
+        if not callable(get_lifecycle):
+            return None
+        try:
+            lifecycle = get_lifecycle(request_id, session_id=session_id)
+        except Exception as exc:
+            log_event(
+                "runtime_prompt_lifecycle_lookup_failed",
+                session_id=session_id,
+                request_id=request_id,
+                exception_type=exc.__class__.__name__,
+                exception_repr=repr(exc),
+            )
+            return None
+        return dict(lifecycle) if isinstance(lifecycle, dict) else None
 
     def _mark_runtime_command_rejected(
         self,
@@ -2535,13 +2341,7 @@ class RuntimeService:
                 if seat.seat_type == SeatType.HUMAN
             ]
             if loop is not None and self._stream_service is not None:
-                ai_decision_delay_ms = int(
-                    runtime.get(
-                        "ai_decision_delay_ms",
-                        0 if os.environ.get("PYTEST_CURRENT_TEST") else 1000,
-                    )
-                    or 0
-                )
+                ai_decision_delay_ms = self._resolve_ai_decision_delay_ms(runtime)
                 policy = _ServerDecisionPolicyBridge(
                     session_id=session_id,
                     session_seats=session.seats,
@@ -2620,7 +2420,12 @@ class RuntimeService:
                 try:
                     self._validate_decision_resume_against_checkpoint(state, decision_resume)
                 except ValueError as exc:
-                    self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
+                    self._save_rejected_command_offset(
+                        command_consumer_name,
+                        session_id,
+                        command_seq,
+                        reason=str(exc),
+                    )
                     return self._mark_runtime_command_rejected(
                         session_id,
                         reason=str(exc),
@@ -2644,7 +2449,12 @@ class RuntimeService:
             else:
                 step = engine.run_next_transition(state, decision_resume=decision_resume)
         except (RuntimeDecisionResumeMismatch, PromptFingerprintMismatch) as exc:
-            self._save_rejected_command_offset(command_consumer_name, session_id, command_seq)
+            self._save_rejected_command_offset(
+                command_consumer_name,
+                session_id,
+                command_seq,
+                reason=str(exc),
+            )
             return self._mark_runtime_command_rejected(
                 session_id,
                 reason=str(exc),
@@ -2960,6 +2770,17 @@ class RuntimeService:
                 runtime_event_server_time_ms=updated_at_ms,
                 expected_previous_commit_seq=base_commit_seq,
             )
+            if offset_consumer_name and offset_command_seq is not None:
+                self._mark_command_state(
+                    session_id,
+                    offset_command_seq,
+                    "committed",
+                    reason=str(step.get("status") or "transition_committed"),
+                    server_time_ms=updated_at_ms,
+                    consumer_name=offset_consumer_name,
+                    commit_seq=commit_seq,
+                    source_event_seq=source_event_seq,
+                )
             _mark_phase("redis_commit")
             if publish_external_side_effects:
                 self._emit_latest_view_commit_sync(loop, session_id)
@@ -5279,6 +5100,20 @@ class _LocalHumanDecisionClient:
         frame, module = self._active_frame_and_module(state)
         if frame is None or module is None:
             return
+        boundary_fields = {
+            "runner_kind": "module",
+            "frame_type": str(getattr(frame, "frame_type", "") or ""),
+            "frame_id": str(getattr(frame, "frame_id", "") or ""),
+            "module_id": str(getattr(module, "module_id", "") or ""),
+            "module_type": str(module.__class__.__name__ or ""),
+            "module_cursor": str(getattr(module, "cursor", "") or ""),
+            "idempotency_key": str(getattr(module, "idempotency_key", "") or ""),
+        }
+        envelope.update({key: value for key, value in boundary_fields.items() if value and key != "idempotency_key"})
+        existing_runtime_module = envelope.get("runtime_module")
+        if not isinstance(existing_runtime_module, dict):
+            existing_runtime_module = {}
+        envelope["runtime_module"] = {**boundary_fields, **existing_runtime_module}
         public_context = dict(envelope.get("public_context") or {})
         if not str(envelope.get("request_id") or "").strip():
             stable_request_id = getattr(self._gateway, "_stable_prompt_request_id", None)

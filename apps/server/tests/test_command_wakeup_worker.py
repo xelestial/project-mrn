@@ -13,7 +13,7 @@ from apps.server.src.services.session_service import SessionService
 
 
 class CommandStreamWakeupWorkerTests(unittest.TestCase):
-    def test_wakeup_worker_starts_recoverable_runtime_once_per_command(self) -> None:
+    def test_wakeup_worker_hands_recoverable_runtime_to_session_loop_manager(self) -> None:
         connection = RedisConnection(
             RedisConnectionSettings(url="redis://127.0.0.1:6379/10", key_prefix="mrn-wakeup", socket_timeout_ms=250),
             client_factory=_FakeRedis,
@@ -29,10 +29,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         )
         sessions.start_session(session.session_id, session.host_token)
         runtime = _RuntimeStub(status="recovery_required")
+        manager = _SessionLoopManagerStub(command_store=command_store)
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -48,15 +50,59 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(len(first), 1)
         self.assertEqual(first[0]["command_seq"], 1)
         self.assertEqual(second, [])
-        self.assertEqual(runtime.started, [(session.session_id, 99, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.started, [])
 
         restarted_worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         self.assertEqual(asyncio.run(restarted_worker.run_once()), [])
+
+    def test_wakeup_worker_does_not_consume_command_without_session_loop_manager(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-missing-manager",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = RedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 98},
+        )
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(status="waiting_input")
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            poll_interval_ms=50,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {"request_id": "req_missing_manager", "choice_id": "roll"},
+            request_id="req_missing_manager",
+        )
+
+        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(wakeups, [])
+        self.assertEqual(runtime.processed, [])
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
 
     def test_cli_parser_supports_health_mode(self) -> None:
         args = build_parser().parse_args(["--health", "--once", "--max-iterations", "3"])
@@ -104,10 +150,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
         sessions.start_session(session.session_id, session.host_token)
         runtime = _RuntimeStub(status="waiting_input")
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -121,7 +169,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["runtime_status"], "waiting_input")
-        self.assertEqual(runtime.started, [(session.session_id, 13, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.started, [])
 
     def test_wakeup_worker_prefers_command_processing_hook_before_offset(self) -> None:
         connection = RedisConnection(
@@ -139,10 +191,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         )
         sessions.start_session(session.session_id, session.host_token)
         runtime = _RuntimeProcessStub(status="waiting_input")
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -155,7 +209,100 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
 
         self.assertEqual(len(wakeups), 1)
-        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 21, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
+
+    def test_wakeup_worker_hands_pending_command_to_session_loop_manager(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-session-loop-manager",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = RedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 24},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(status="waiting_input")
+        manager = _SessionLoopManagerStub()
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            session_loop_manager=manager,
+            poll_interval_ms=50,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {"request_id": "req_manager_handoff", "choice_id": "roll"},
+            request_id="req_manager_handoff",
+        )
+
+        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(len(wakeups), 1)
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
+
+    def test_wakeup_worker_can_disable_runtime_processing(self) -> None:
+        connection = RedisConnection(
+            RedisConnectionSettings(
+                url="redis://127.0.0.1:6379/10",
+                key_prefix="mrn-wakeup-runtime-disabled",
+                socket_timeout_ms=250,
+            ),
+            client_factory=_FakeRedis,
+        )
+        command_store = RedisCommandStore(connection)
+        sessions = SessionService(restart_recovery_policy="keep")
+        session = sessions.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 25},
+        )
+        sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        sessions.start_session(session.session_id, session.host_token)
+        runtime = _RuntimeProcessStub(status="waiting_input")
+        manager = _SessionLoopManagerStub()
+        worker = CommandStreamWakeupWorker(
+            command_store=command_store,
+            session_service=sessions,
+            runtime_service=runtime,
+            session_loop_manager=manager,
+            poll_interval_ms=50,
+            runtime_processing_enabled=False,
+        )
+        command_store.append_command(
+            session.session_id,
+            "decision_submitted",
+            {"request_id": "req_disabled", "choice_id": "roll"},
+            request_id="req_disabled",
+        )
+
+        wakeups = asyncio.run(worker.run_once(session_id=session.session_id))
+
+        self.assertEqual(wakeups, [])
+        self.assertEqual(manager.wakes, [])
+        self.assertEqual(runtime.processed, [])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
 
     def test_wakeup_worker_skips_command_tail_when_offset_is_current(self) -> None:
@@ -178,10 +325,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         )
         sessions.start_session(session.session_id, session.host_token)
         runtime = _RuntimeProcessStub(status="waiting_input")
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         for seq in range(1, 41):
@@ -286,10 +435,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
             active_module_type="DiceRollModule",
             active_module_cursor="await_turn_prompt",
         )
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -312,7 +463,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["command_seq"], 1)
         self.assertTrue(wakeups[0]["reprocessed_consumed"])
-        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 77, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
 
     def test_wakeup_worker_reprocesses_consumed_waiting_command_only_once(self) -> None:
         connection = RedisConnection(
@@ -343,10 +498,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
             active_module_type="DiceRollModule",
             active_module_cursor="await_turn_prompt",
         )
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -370,7 +527,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(len(first), 1)
         self.assertTrue(first[0]["reprocessed_consumed"])
         self.assertEqual(second, [])
-        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 76, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
 
     def test_wakeup_worker_does_not_reprocess_consumed_command_for_stale_module(self) -> None:
         connection = RedisConnection(
@@ -400,10 +561,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
             active_module_type="DiceRollModule",
             active_module_cursor="await_turn_prompt",
         )
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -469,10 +632,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
                 },
             },
         )
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -495,7 +660,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["command_seq"], 1)
         self.assertTrue(wakeups[0]["reprocessed_consumed"])
-        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 79, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
 
     def test_wakeup_worker_skips_non_missing_batch_command_and_processes_missing_one(self) -> None:
         connection = RedisConnection(
@@ -548,10 +717,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
                 },
             },
         )
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -585,7 +756,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["command_seq"], 2)
-        self.assertEqual(runtime.processed, [(session.session_id, 2, "runtime_wakeup", 80, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 2}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
 
     def test_wakeup_worker_keeps_resume_command_queued_while_runtime_is_running(self) -> None:
@@ -609,10 +784,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
         sessions.start_session(session.session_id, session.host_token)
         runtime = _RuntimeProcessStub(status="running")
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -632,6 +809,7 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(first, [])
         self.assertEqual(runtime.processed, [])
+        self.assertEqual(manager.wakes, [])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 0)
 
         runtime.set_status("waiting_input")
@@ -640,7 +818,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(len(second), 1)
         self.assertEqual(second[0]["command_seq"], 1)
-        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 62, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
 
     def test_wakeup_worker_processes_running_status_when_checkpoint_waits_for_same_prompt(self) -> None:
         connection = RedisConnection(
@@ -670,10 +852,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
             active_module_type="MapMoveModule",
             active_module_cursor="move:await_choice",
         )
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -694,7 +878,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["runtime_status"], "running")
-        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 64, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
 
     def test_wakeup_worker_skips_waiting_input_commands_for_non_active_prompt(self) -> None:
         connection = RedisConnection(
@@ -717,10 +905,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         sessions.join_session(session.session_id, 1, session.join_tokens[1], "P1")
         sessions.start_session(session.session_id, session.host_token)
         runtime = _RuntimeProcessStub(status="waiting_input", waiting_request_id="req_active")
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -740,7 +930,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["command_seq"], 2)
-        self.assertEqual(runtime.processed, [(session.session_id, 2, "runtime_wakeup", 55, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 2}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
 
     def test_wakeup_worker_restart_preserves_stale_submitted_command_until_recovery_resolves_it(self) -> None:
@@ -795,10 +989,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
             {"request_id": "req_active", "choice_id": "roll"},
             request_id="req_active",
         )
+        manager = _SessionLoopManagerStub()
         restarted_worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
 
@@ -806,7 +1002,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["command_seq"], 3)
-        self.assertEqual(runtime.processed, [(session.session_id, 3, "runtime_wakeup", 58, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 3}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 2)
 
     def test_wakeup_worker_skips_matching_request_with_stale_module_cursor(self) -> None:
@@ -941,10 +1141,12 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
         )
         backend_sessions.start_session(session.session_id, session.host_token)
         runtime = _RuntimeProcessStub(status="waiting_input")
+        manager = _SessionLoopManagerStub()
         worker = CommandStreamWakeupWorker(
             command_store=command_store,
             session_service=worker_sessions,
             runtime_service=runtime,
+            session_loop_manager=manager,
             poll_interval_ms=50,
         )
         command_store.append_command(
@@ -958,7 +1160,11 @@ class CommandStreamWakeupWorkerTests(unittest.TestCase):
 
         self.assertEqual(len(wakeups), 1)
         self.assertEqual(wakeups[0]["session_id"], session.session_id)
-        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 37, None)])
+        self.assertEqual(
+            manager.wakes,
+            [(session.session_id, {"session_id": session.session_id, "command_seq": 1}, "command_wakeup_worker")],
+        )
+        self.assertEqual(runtime.processed, [])
 
     def test_cli_parser_supports_once_mode(self) -> None:
         args = build_parser().parse_args(["--once", "--session-id", "sess_1", "--max-iterations", "2"])
@@ -1038,6 +1244,25 @@ class _RuntimeProcessStub:
         self.processed.append((session_id, command_seq, consumer_name, seed, policy_mode))
         self._status = self._status_after_process
         return {"status": "committed"}
+
+
+class _SessionLoopManagerStub:
+    def __init__(self, *, command_store: RedisCommandStore | None = None, consumer_name: str = "runtime_wakeup") -> None:
+        self.wakes: list[tuple[str, dict, str]] = []
+        self._command_store = command_store
+        self._consumer_name = consumer_name
+
+    def wake(
+        self,
+        *,
+        session_id: str,
+        command_ref: dict,
+        trigger: str,
+    ) -> dict:
+        self.wakes.append((session_id, command_ref, trigger))
+        if self._command_store is not None:
+            self._command_store.save_consumer_offset(self._consumer_name, session_id, int(command_ref.get("command_seq") or 0))
+        return {"status": "scheduled", "command_seq": command_ref.get("command_seq")}
 
 
 class _CountingRedisCommandStore(RedisCommandStore):

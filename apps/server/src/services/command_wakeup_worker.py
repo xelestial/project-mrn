@@ -4,6 +4,8 @@ import asyncio
 import time
 from typing import Awaitable, Callable
 
+from apps.server.src.infra.structured_log import log_event
+
 
 _RECENT_COMMAND_SCAN_LIMIT = 32
 _DEFAULT_CONSUMED_COMMAND_RESCAN_INTERVAL_MS = 2000
@@ -16,15 +18,18 @@ class CommandStreamWakeupWorker:
         command_store,
         session_service,
         runtime_service,
+        session_loop_manager=None,
         poll_interval_ms: int = 250,
         consumer_name: str = "runtime_wakeup",
         sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
         consumed_command_rescan_interval_ms: int = _DEFAULT_CONSUMED_COMMAND_RESCAN_INTERVAL_MS,
         monotonic_ms: Callable[[], int] | None = None,
+        runtime_processing_enabled: bool = True,
     ) -> None:
         self._command_store = command_store
         self._session_service = session_service
         self._runtime_service = runtime_service
+        self._session_loop_manager = session_loop_manager
         self._poll_interval_ms = max(50, int(poll_interval_ms))
         self._consumer_name = str(consumer_name or "runtime_wakeup")
         self._sleeper = sleeper
@@ -33,6 +38,7 @@ class CommandStreamWakeupWorker:
         self._last_processed_seq: dict[str, int] = {}
         self._last_consumed_command_scan_ms: dict[str, int] = {}
         self._reprocessed_consumed_commands: set[tuple[str, int, str]] = set()
+        self.runtime_processing_enabled = bool(runtime_processing_enabled)
 
     async def run_once(self, *, session_id: str | None = None) -> list[dict]:
         self._refresh_sessions()
@@ -47,6 +53,8 @@ class CommandStreamWakeupWorker:
                 continue
 
             status = self._runtime_service.runtime_status(current_session_id)
+            if not self.runtime_processing_enabled:
+                continue
             if latest_seq is not None and latest_seq <= last_seq:
                 if not self._should_scan_consumed_resume_commands(current_session_id, status):
                     continue
@@ -82,7 +90,7 @@ class CommandStreamWakeupWorker:
                         continue
                     processed = await self._process_or_start_runtime(current_session_id, seq)
                     if not processed:
-                        self._save_offset(current_session_id, seq)
+                        break
                     last_seq = seq
                     wakeups.append(
                         {
@@ -120,7 +128,11 @@ class CommandStreamWakeupWorker:
             reprocess_key = (session_id, seq, request_id)
             if reprocess_key in self._reprocessed_consumed_commands:
                 continue
-            await self._process_or_start_runtime(session_id, seq)
+            if not self.runtime_processing_enabled:
+                continue
+            processed = await self._process_or_start_runtime(session_id, seq)
+            if not processed:
+                return None
             self._reprocessed_consumed_commands.add(reprocess_key)
             return {
                 "session_id": session_id,
@@ -205,30 +217,22 @@ class CommandStreamWakeupWorker:
         if callable(refresh):
             refresh()
 
-    async def _start_runtime(self, session_id: str) -> None:
-        session = self._session_service.get_session(session_id)
-        runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
-        await self._runtime_service.start_runtime(
-            session_id=session_id,
-            seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
-            policy_mode=runtime_cfg.get("policy_mode"),
-        )
-
     async def _process_or_start_runtime(self, session_id: str, seq: int) -> bool:
         self._refresh_sessions()
-        if callable(getattr(self._runtime_service, "process_command_once", None)):
-            session = self._session_service.get_session(session_id)
-            runtime_cfg = dict(session.resolved_parameters.get("runtime", {}))
-            await self._runtime_service.process_command_once(
+        if self._session_loop_manager is not None:
+            self._session_loop_manager.wake(
                 session_id=session_id,
-                command_seq=int(seq),
-                consumer_name=self._consumer_name,
-                seed=int(runtime_cfg.get("seed", session.config.get("seed", 42))),
-                policy_mode=runtime_cfg.get("policy_mode"),
+                command_ref={"session_id": session_id, "command_seq": int(seq)},
+                trigger="command_wakeup_worker",
             )
             self._last_processed_seq[session_id] = int(seq)
             return True
-        await self._start_runtime(session_id)
+        log_event(
+            "command_wakeup_worker_session_loop_manager_missing",
+            session_id=session_id,
+            command_seq=int(seq),
+            consumer_name=self._consumer_name,
+        )
         return False
 
     def _load_offset(self, session_id: str) -> int:

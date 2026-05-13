@@ -31,12 +31,17 @@ class RedisConnection:
         client_factory: Callable[[], RedisClientProtocol] | None = None,
     ) -> None:
         self._settings = settings
+        self._uses_default_client_factory = client_factory is None
         self._client_factory = client_factory or self._build_default_client
         self._client: RedisClientProtocol | None = None
 
     @property
     def settings(self) -> RedisConnectionSettings:
         return self._settings
+
+    @property
+    def uses_default_client_factory(self) -> bool:
+        return self._uses_default_client_factory
 
     def client(self) -> RedisClientProtocol:
         if self._client is None:

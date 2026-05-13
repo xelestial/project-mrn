@@ -2649,7 +2649,7 @@ class RuntimeServiceTests(unittest.TestCase):
             "checkpoint": {"waiting_prompt_request_id": "current_request"},
             "current_state": {},
         }
-        runtime._active_command_sessions.add(session.session_id)
+        self.assertTrue(runtime._begin_command_processing(session.session_id))
 
         try:
             with patch.object(runtime, "_run_engine_transition_loop_sync", side_effect=AssertionError("must not run")):
@@ -2662,7 +2662,7 @@ class RuntimeServiceTests(unittest.TestCase):
                     )
                 )
         finally:
-            runtime._active_command_sessions.discard(session.session_id)
+            runtime._end_command_processing(session.session_id)
 
         self.assertEqual(result["status"], "running_elsewhere")
         self.assertEqual(result["reason"], "command_processing_already_active")
@@ -5832,7 +5832,14 @@ class RuntimeServiceTests(unittest.TestCase):
 
             prompt = raised.exception.prompt
             self.assertEqual(prompt["prompt_instance_id"], 5)
-            self.assertEqual(prompt["request_id"], "sess_bridge_prompt_seq_test:r2:t3:p1:movement:5")
+            self.assertEqual(
+                prompt["request_id"],
+                (
+                    "sess_bridge_prompt_seq_test:prompt:frame:turn%3A1%3Ap0:"
+                    "module:mod%3Aturn%3A1%3Ap0%3Atest_prompt:cursor:test%3Aawait_choice:"
+                    "p1:movement:5"
+                ),
+            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -8773,7 +8780,14 @@ class RuntimeServiceTests(unittest.TestCase):
                 )
 
             prompt = raised.exception.prompt
-            self.assertEqual(prompt["request_id"], "sess_sparse_prompt_id_test:r0:t0:p1:movement:0")
+            self.assertEqual(
+                prompt["request_id"],
+                (
+                    "sess_sparse_prompt_id_test:prompt:frame:turn%3A1%3Ap0:"
+                    "module:mod%3Aturn%3A1%3Ap0%3Atest_prompt:cursor:test%3Aawait_choice:"
+                    "p1:movement:0"
+                ),
+            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
