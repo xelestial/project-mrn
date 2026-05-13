@@ -28,6 +28,9 @@ from apps.server.src.domain.prompt_sequence import (
     PromptInstanceSequencer,
     clear_prompt_boundary_state,
     prepare_prompt_boundary_envelope,
+    prompt_instance_id_from_resume,
+    prompt_resume_matches_next_instance,
+    prompt_sequence_after_resume,
     record_prompt_boundary_state,
     runtime_prompt_sequence_seed,
 )
@@ -4312,13 +4315,12 @@ class _ServerDecisionPolicyBridge:
         return True
 
     def _decision_resume_matches_next_prompt_instance(self, resume: RuntimeDecisionResume) -> bool:
-        parsed_instance_id = self._prompt_instance_id_from_resume(resume)
-        if parsed_instance_id <= 0 or self._human_client is None:
+        if self._human_client is None:
             return True
-        current_prompt_seq = int(self._human_client.prompt_seq)
-        if current_prompt_seq <= 0:
-            return True
-        return current_prompt_seq + 1 == parsed_instance_id
+        return prompt_resume_matches_next_instance(
+            current_prompt_sequence=self._human_client.prompt_seq,
+            resume_prompt_instance_id=prompt_instance_id_from_resume(resume),
+        )
 
     def _consume_decision_resume(self, call):
         resume = self._decision_resume
@@ -4442,16 +4444,11 @@ class _ServerDecisionPolicyBridge:
     def _advance_prompt_sequence_after_decision_resume(self, resume: RuntimeDecisionResume) -> None:
         if self._human_client is None:
             return
-        parsed_instance_id = self._prompt_instance_id_from_resume(resume)
-        next_instance_id = max(self._human_client.prompt_seq + 1, parsed_instance_id)
+        next_instance_id = prompt_sequence_after_resume(
+            current_prompt_sequence=self._human_client.prompt_seq,
+            resume_prompt_instance_id=prompt_instance_id_from_resume(resume),
+        )
         self._human_client.set_prompt_seq(next_instance_id)
-
-    @staticmethod
-    def _prompt_instance_id_from_resume(resume: RuntimeDecisionResume) -> int:
-        explicit = int(getattr(resume, "prompt_instance_id", 0) or 0)
-        if explicit > 0:
-            return explicit
-        return 0
 
     def __getattr__(self, name: str):
         target = self._router.attribute_target(name)

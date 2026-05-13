@@ -49,6 +49,32 @@ def prepare_prompt_boundary_envelope(
     return envelope
 
 
+def prompt_resume_matches_next_instance(
+    *,
+    current_prompt_sequence: int,
+    resume_prompt_instance_id: int,
+) -> bool:
+    parsed_instance_id = _positive_int(resume_prompt_instance_id)
+    if parsed_instance_id <= 0:
+        return True
+    current_sequence = _positive_int(current_prompt_sequence)
+    if current_sequence <= 0:
+        return True
+    return current_sequence + 1 == parsed_instance_id
+
+
+def prompt_instance_id_from_resume(resume: object) -> int:
+    return _positive_int(getattr(resume, "prompt_instance_id", 0))
+
+
+def prompt_sequence_after_resume(
+    *,
+    current_prompt_sequence: int,
+    resume_prompt_instance_id: int,
+) -> int:
+    return max(_positive_int(current_prompt_sequence) + 1, _positive_int(resume_prompt_instance_id))
+
+
 def record_prompt_boundary_state(state: object, prompt: dict) -> None:
     prompt_instance_id = _positive_int(prompt.get("prompt_instance_id"))
     state.prompt_sequence = max(_positive_int(getattr(state, "prompt_sequence", 0)), prompt_instance_id)
@@ -150,6 +176,9 @@ __all__ = [
     "PromptInstanceSequencer",
     "clear_prompt_boundary_state",
     "prepare_prompt_boundary_envelope",
+    "prompt_instance_id_from_resume",
+    "prompt_resume_matches_next_instance",
+    "prompt_sequence_after_resume",
     "record_prompt_boundary_state",
     "runtime_prompt_sequence_seed",
 ]

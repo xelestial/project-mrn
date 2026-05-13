@@ -7,6 +7,9 @@ from apps.server.src.domain.prompt_sequence import (
     PromptInstanceSequencer,
     clear_prompt_boundary_state,
     prepare_prompt_boundary_envelope,
+    prompt_instance_id_from_resume,
+    prompt_resume_matches_next_instance,
+    prompt_sequence_after_resume,
     record_prompt_boundary_state,
     runtime_prompt_sequence_seed,
 )
@@ -30,6 +33,30 @@ class PromptSequenceTests(unittest.TestCase):
 
         self.assertEqual(sequencer.current, 0)
         self.assertEqual(sequencer.allocate_next(), 1)
+
+    def test_prompt_resume_matches_when_instance_is_unknown_or_sequence_unseeded(self) -> None:
+        self.assertTrue(prompt_resume_matches_next_instance(current_prompt_sequence=4, resume_prompt_instance_id=0))
+        self.assertTrue(prompt_resume_matches_next_instance(current_prompt_sequence=0, resume_prompt_instance_id=7))
+
+    def test_prompt_resume_matches_only_next_seeded_instance(self) -> None:
+        self.assertTrue(prompt_resume_matches_next_instance(current_prompt_sequence=4, resume_prompt_instance_id=5))
+        self.assertFalse(prompt_resume_matches_next_instance(current_prompt_sequence=4, resume_prompt_instance_id=6))
+
+    def test_prompt_sequence_after_resume_advances_by_current_or_explicit_resume_instance(self) -> None:
+        self.assertEqual(prompt_sequence_after_resume(current_prompt_sequence=4, resume_prompt_instance_id=0), 5)
+        self.assertEqual(prompt_sequence_after_resume(current_prompt_sequence=4, resume_prompt_instance_id=7), 7)
+
+    def test_prompt_instance_id_from_resume_uses_explicit_field_only(self) -> None:
+        explicit_resume = SimpleNamespace(
+            request_id="opaque",
+            prompt_instance_id=9,
+        )
+        legacy_shape_resume = SimpleNamespace(
+            request_id="sess_1:r3:t9:p1:trick_tile_target:60",
+        )
+
+        self.assertEqual(prompt_instance_id_from_resume(explicit_resume), 9)
+        self.assertEqual(prompt_instance_id_from_resume(legacy_shape_resume), 0)
 
     def test_prepare_prompt_boundary_envelope_adds_instance_without_mutating_prompt(self) -> None:
         prompt = {"request_type": "movement", "public_context": {"source": "prompt"}}

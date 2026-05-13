@@ -7011,12 +7011,12 @@ class RuntimeServiceTests(unittest.TestCase):
         assert resume is not None
         self.assertEqual(resume.request_id, "req_opaque_prompt")
         self.assertEqual(resume.prompt_instance_id, 60)
-        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+        from apps.server.src.domain.prompt_sequence import prompt_instance_id_from_resume
 
-        self.assertEqual(_ServerDecisionPolicyBridge._prompt_instance_id_from_resume(resume), 60)
+        self.assertEqual(prompt_instance_id_from_resume(resume), 60)
 
     def test_prompt_instance_from_resume_does_not_parse_legacy_request_id(self) -> None:
-        from apps.server.src.services.runtime_service import _ServerDecisionPolicyBridge
+        from apps.server.src.domain.prompt_sequence import prompt_instance_id_from_resume
 
         resume = RuntimeDecisionResume(
             request_id="sess_1:r3:t9:p1:trick_tile_target:60",
@@ -7031,7 +7031,7 @@ class RuntimeServiceTests(unittest.TestCase):
             module_cursor="await_action_prompt",
         )
 
-        self.assertEqual(_ServerDecisionPolicyBridge._prompt_instance_id_from_resume(resume), 0)
+        self.assertEqual(prompt_instance_id_from_resume(resume), 0)
 
     def test_continuation_debug_fields_include_explicit_decision_resume_prompt_instance_id(self) -> None:
         from apps.server.src.services.runtime_service import _runtime_continuation_debug_fields

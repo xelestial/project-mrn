@@ -47,6 +47,12 @@ in the active plans, status index, tests, or canonical contract documents.
   Module continuation attachment remains in the local runtime client until a
   future prompt-boundary owner can receive the active module/frame context
   directly.
+- Decision-resume prompt sequence matching and post-resume advancement now use
+  `domain.prompt_sequence` helpers. `_ServerDecisionPolicyBridge` still stores
+  and seeds the compatibility prompt sequence through the human client, but the
+  "unknown instance matches", "unseeded sequence matches", and
+  `max(current + 1, resume_instance)` rules are no longer bridge-local
+  arithmetic.
 - Active batch prompt enrichment now requires explicit `batch_id` plus
   submitted player identity when exact request-id equality does not match.
   Runtime no longer derives batch identity or player position from the legacy
