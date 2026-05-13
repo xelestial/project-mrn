@@ -1458,6 +1458,41 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(prompt_store.get_pending("shared-redis-pending:p0", session_id="s-redis-a"))
         self.assertIsNotNone(prompt_store.get_pending("shared-redis-pending:p0", session_id="s-redis-b"))
 
+    def test_prompt_service_accepts_public_request_id_with_redis_prompt_store(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        command_store = RedisCommandStore(self.connection)
+        service = PromptService(prompt_store=prompt_store, command_store=command_store)
+        pending = service.create_prompt(
+            "s-redis-public-request",
+            {
+                "request_id": "s-redis-public-request:r2:t3:p1:movement:6",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 6,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        accepted = service.submit_decision(
+            {
+                "session_id": "s-redis-public-request",
+                "request_id": public_request_id,
+                "player_id": 1,
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertIsNone(prompt_store.get_pending(pending.request_id, session_id=pending.session_id))
+        self.assertEqual(prompt_store.get_resolved(pending.request_id, session_id=pending.session_id)["reason"], "accepted")
+        decision = prompt_store.get_decision(pending.request_id, session_id=pending.session_id)
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision["request_id"], pending.request_id)
+        self.assertEqual(decision["public_request_id"], public_request_id)
+
     def test_command_store_recovers_seq_after_seq_key_eviction(self) -> None:
         command_store = RedisCommandStore(self.connection)
 

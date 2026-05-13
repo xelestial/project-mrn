@@ -161,12 +161,21 @@ class PromptService:
             request_id = str(payload.get("request_id", "")).strip()
             if not request_id:
                 return {"status": "rejected", "reason": "missing_request_id"}
+            decision_session_id = str(payload.get("session_id") or "").strip()
+            resolved_request_id = self._resolve_submitted_request_id(
+                request_id,
+                session_id=decision_session_id or None,
+            )
+            if resolved_request_id != request_id:
+                payload = dict(payload)
+                payload["request_id"] = resolved_request_id
+                payload.setdefault("submitted_request_id", request_id)
+                request_id = resolved_request_id
             choice_id = str(payload.get("choice_id", "")).strip()
             if not choice_id:
                 self._record_lifecycle(request_id=request_id, state="rejected", decision=payload, reason="missing_choice_id")
                 return {"status": "rejected", "reason": "missing_choice_id"}
 
-            decision_session_id = str(payload.get("session_id") or "").strip()
             pending = self._get_pending(request_id, session_id=decision_session_id or None)
             storage_key = _scoped_request_key(pending.session_id, pending.request_id) if pending is not None else _scoped_request_key(decision_session_id, request_id)
             if pending is None:
@@ -1082,6 +1091,50 @@ class PromptService:
         if key is not None:
             self._lifecycle.pop(key, None)
 
+    def _resolve_submitted_request_id(self, request_id: str, session_id: str | None = None) -> str:
+        normalized_request_id = str(request_id or "").strip()
+        if not normalized_request_id:
+            return ""
+        if self._get_pending(normalized_request_id, session_id=session_id) is not None:
+            return normalized_request_id
+        pending_alias = self._resolve_pending_request_alias(normalized_request_id, session_id=session_id)
+        if pending_alias:
+            return pending_alias
+        lifecycle_alias = self._resolve_lifecycle_request_alias(normalized_request_id, session_id=session_id)
+        if lifecycle_alias:
+            return lifecycle_alias
+        return normalized_request_id
+
+    def _resolve_pending_request_alias(self, request_id: str, session_id: str | None = None) -> str:
+        matches: set[str] = set()
+        for pending in self._iter_pending_values():
+            if session_id is not None and pending.session_id != str(session_id):
+                continue
+            if _payload_request_alias_matches(pending.payload, request_id):
+                matches.add(pending.request_id)
+        return next(iter(matches)) if len(matches) == 1 else ""
+
+    def _resolve_lifecycle_request_alias(self, request_id: str, session_id: str | None = None) -> str:
+        matches: set[str] = set()
+        for lifecycle in self._iter_lifecycle_values(session_id=session_id):
+            prompt_payload = lifecycle.get("prompt")
+            decision_payload = lifecycle.get("decision")
+            if isinstance(prompt_payload, dict) and _payload_request_alias_matches(prompt_payload, request_id):
+                matches.add(str(lifecycle.get("request_id") or "").strip())
+            if isinstance(decision_payload, dict) and _payload_request_alias_matches(decision_payload, request_id):
+                matches.add(str(lifecycle.get("request_id") or "").strip())
+        matches.discard("")
+        return next(iter(matches)) if len(matches) == 1 else ""
+
+    def _iter_lifecycle_values(self, session_id: str | None = None) -> list[dict[str, Any]]:
+        if self._prompt_store is not None and callable(getattr(self._prompt_store, "list_lifecycle", None)):
+            return [dict(item) for item in self._prompt_store.list_lifecycle(session_id=session_id)]
+        values = [dict(item) for item in self._lifecycle.values()]
+        if session_id is not None:
+            normalized_session_id = str(session_id)
+            values = [item for item in values if str(item.get("session_id") or "") == normalized_session_id]
+        return values
+
     def _pending_key(
         self,
         request_id: str,
@@ -1260,6 +1313,16 @@ def _copy_prompt_protocol_identity(source: dict, target: dict) -> None:
         value = source.get(field)
         if str(value or "").strip():
             target.setdefault(field, value)
+
+
+def _payload_request_alias_matches(payload: dict, request_id: str) -> bool:
+    normalized_request_id = str(request_id or "").strip()
+    if not normalized_request_id:
+        return False
+    for field in ("legacy_request_id", "public_request_id"):
+        if str(payload.get(field) or "").strip() == normalized_request_id:
+            return True
+    return False
 
 
 def _int_or_none(value: object) -> int | None:

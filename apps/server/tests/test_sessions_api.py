@@ -903,7 +903,7 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ack.payload["provider"], "ai")
         self.assertEqual(ack.payload["request_id"], "ai_req_1")
 
-    def test_external_ai_decision_callback_accepts_public_player_identity(self) -> None:
+    def test_external_ai_decision_callback_accepts_public_player_and_request_identity(self) -> None:
         from apps.server.src import state
 
         state.runtime_settings = RuntimeSettings(admin_token="admin-secret")
@@ -912,7 +912,7 @@ class SessionsApiTests(unittest.TestCase):
         session_id = session_data["session_id"]
         seat = session_data["seats"][0]
         public_player_id = seat["public_player_id"]
-        state.prompt_service.create_prompt(
+        pending = state.prompt_service.create_prompt(
             session_id,
             {
                 "request_id": "ai_req_public_1",
@@ -923,11 +923,12 @@ class SessionsApiTests(unittest.TestCase):
                 "legal_choices": [{"choice_id": "roll"}],
             },
         )
+        public_request_id = str(pending.payload["public_request_id"])
 
         accepted = self.client.post(
             f"/api/v1/sessions/{session_id}/external-ai/decisions",
             json={
-                "request_id": "ai_req_public_1",
+                "request_id": public_request_id,
                 "public_player_id": public_player_id,
                 "choice_id": "roll",
             },
@@ -940,11 +941,16 @@ class SessionsApiTests(unittest.TestCase):
         snapshot = asyncio.run(state.stream_service.snapshot(session_id))
         ack = next(message for message in snapshot if message.type == "decision_ack")
         self.assertEqual(ack.payload["provider"], "ai")
-        self.assertEqual(ack.payload["request_id"], "ai_req_public_1")
+        self.assertEqual(ack.payload["request_id"], public_request_id)
         self.assertEqual(ack.payload["player_id"], 1)
         self.assertEqual(ack.payload["public_player_id"], seat["public_player_id"])
         self.assertEqual(ack.payload["seat_id"], seat["seat_id"])
         self.assertEqual(ack.payload["viewer_id"], seat["viewer_id"])
+        decision = state.prompt_service.wait_for_decision("ai_req_public_1", timeout_ms=0, session_id=session_id)
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision["request_id"], "ai_req_public_1")
+        self.assertEqual(decision["public_request_id"], public_request_id)
 
     def test_start_response_includes_parameter_manifest(self) -> None:
         from apps.server.src import state

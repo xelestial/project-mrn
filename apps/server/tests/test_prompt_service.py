@@ -155,6 +155,44 @@ class PromptServiceTests(unittest.TestCase):
             pending.payload["public_prompt_instance_id"],
         )
 
+    def test_submit_decision_accepts_public_request_id_alias(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:6",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 6,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        result = self.service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": public_request_id,
+                "player_id": 1,
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        self.assertIsNone(self.service.get_pending_prompt(pending.request_id, session_id="s1"))
+        self.assertIsNone(self.service.get_pending_prompt(public_request_id, session_id="s1"))
+        decision = self.service.wait_for_decision(pending.request_id, timeout_ms=0, session_id="s1")
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision["request_id"], pending.request_id)
+        self.assertEqual(decision["public_request_id"], public_request_id)
+        lifecycle = self.service.get_prompt_lifecycle(pending.request_id, session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], pending.request_id)
+        self.assertEqual(lifecycle["decision"]["request_id"], pending.request_id)
+        self.assertEqual(lifecycle["decision"]["public_request_id"], public_request_id)
+
     def test_simultaneous_batch_decisions_wait_for_collector_completion(self) -> None:
         collector = BatchCollectorStub(
             [
