@@ -248,7 +248,11 @@ class PromptService:
                         )
                         return {"status": "rejected", "reason": mismatch}
 
+                provider = str(payload.get("provider") or pending.payload.get("provider") or "human").strip().lower()
+                if provider not in {"human", "ai"}:
+                    provider = "human"
                 decision_payload = dict(payload)
+                decision_payload["provider"] = provider
                 if expected_fingerprint:
                     decision_payload["prompt_fingerprint"] = expected_fingerprint
                     decision_payload["prompt_fingerprint_version"] = PROMPT_FINGERPRINT_VERSION
@@ -257,6 +261,7 @@ class PromptService:
                     "player_id": player_id,
                     "request_type": str(pending.payload.get("request_type") or ""),
                     "choice_id": choice_id,
+                    "provider": provider,
                     "decision": decision_payload,
                     "submitted_at_ms": now,
                 }

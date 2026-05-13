@@ -185,6 +185,13 @@ FRONTEND_BACKEND_ROUTE_CATALOG: tuple[BackendFrontendRoute, ...] = (
         role="Inject protected prompt diagnostics for admin-only debugging.",
         expected="Returns created debug prompt metadata or typed admin errors.",
     ),
+    BackendFrontendRoute(
+        key="external_ai.decisions",
+        method="POST",
+        path="/api/v1/sessions/{session_id}/external-ai/decisions",
+        role="Accept protected external AI decisions into the durable command path.",
+        expected="Returns the decision acceptance status and wakes the session loop after accepted commands.",
+    ),
 )
 
 

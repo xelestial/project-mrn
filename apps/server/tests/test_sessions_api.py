@@ -886,6 +886,56 @@ class SessionsApiTests(unittest.TestCase):
         )
         self.assertEqual(accepted.status_code, 200)
 
+    def test_external_ai_decision_callback_accepts_prompt_and_wakes_runtime(self) -> None:
+        from apps.server.src import state
+
+        class _RecordingCommandRouter:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def wake_after_accept(self, *, command_ref: dict, session_id: str, trigger: str) -> dict:
+                self.calls.append(
+                    {
+                        "command_ref": dict(command_ref),
+                        "session_id": session_id,
+                        "trigger": trigger,
+                    }
+                )
+                return {"status": "scheduled", "command_seq": command_ref.get("command_seq")}
+
+        router = _RecordingCommandRouter()
+        state.runtime_settings = RuntimeSettings(admin_token="admin-secret")
+        state.command_router = router  # type: ignore[assignment]
+        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        session_id = created.json()["data"]["session_id"]
+        state.prompt_service.create_prompt(
+            session_id,
+            {
+                "request_id": "ai_req_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "provider": "ai",
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        accepted = self.client.post(
+            f"/api/v1/sessions/{session_id}/external-ai/decisions",
+            json={"request_id": "ai_req_1", "player_id": 1, "choice_id": "roll"},
+            headers={"X-Admin-Token": "admin-secret"},
+        )
+
+        self.assertEqual(accepted.status_code, 200)
+        data = accepted.json()["data"]
+        self.assertEqual(data["status"], "accepted")
+        self.assertEqual(router.calls[0]["session_id"], session_id)
+        self.assertEqual(router.calls[0]["trigger"], "accepted_decision")
+        snapshot = asyncio.run(state.stream_service.snapshot(session_id))
+        ack = next(message for message in snapshot if message.type == "decision_ack")
+        self.assertEqual(ack.payload["provider"], "ai")
+        self.assertEqual(ack.payload["request_id"], "ai_req_1")
+
     def test_start_response_includes_parameter_manifest(self) -> None:
         from apps.server.src import state
 

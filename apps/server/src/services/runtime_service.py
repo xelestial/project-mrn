@@ -86,6 +86,7 @@ class RuntimeDecisionResume:
     module_type: str
     module_cursor: str
     batch_id: str = ""
+    provider: str = "human"
 
 
 class RuntimeDecisionResumeMismatch(ValueError):
@@ -1916,6 +1917,9 @@ class RuntimeService:
             choice_payload = payload.get("choice_payload")
             if not isinstance(choice_payload, dict):
                 choice_payload = decision.get("choice_payload")
+            provider = str(payload.get("provider") or decision.get("provider") or "human").strip().lower()
+            if provider not in {"human", "ai"}:
+                provider = "human"
             return RuntimeDecisionResume(
                 request_id=_field("request_id"),
                 player_id=int(payload.get("player_id") or decision.get("player_id") or 0),
@@ -1928,6 +1932,7 @@ class RuntimeService:
                 module_type=_field("module_type"),
                 module_cursor=_field("module_cursor"),
                 batch_id=_field("batch_id"),
+                provider=provider,
             )
         return None
 
@@ -4095,7 +4100,7 @@ class _ServerDecisionPolicyBridge:
             request_type=str(resume.request_type),
             resolution="accepted",
             choice_id=str(resume.choice_id),
-            provider="human",
+            provider=resume.provider if resume.provider in {"human", "ai"} else "human",
             public_context=dict(request.public_context),
         )
         return parsed
@@ -4405,13 +4410,17 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
 
     def resolve(self, call):
         ai_callable = getattr(self.policy, call.invocation.method_name)
-        envelope = self._build_envelope(call)
         parser = getattr(call, "choice_parser", None)
         retry_count = max(0, int(self._config.get("retry_count", 1) or 0))
         max_attempt_count = max(1, int(self._config.get("max_attempt_count", 3) or 1))
         effective_attempt_count = min(retry_count + 1, max_attempt_count)
-        backoff_ms = max(0, int(self._config.get("backoff_ms", 250) or 0))
-        fallback_mode = str(self._config.get("fallback_mode", "local_ai") or "local_ai").strip().lower()
+        request = call.request
+        public_context = dict(request.public_context)
+        public_context.setdefault("participant_client", ParticipantClientType.EXTERNAL_AI.value)
+        public_context.setdefault("participant_seat", self._seat)
+        public_context.setdefault("participant_transport", self._transport_name)
+        if self._config:
+            public_context.setdefault("participant_config", dict(self._config))
         diagnostics: dict[str, object] = {
             "external_ai_transport_mode": "http",
             "external_ai_resolution_status": "pending",
@@ -4424,93 +4433,24 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             "external_ai_policy_class": "-",
             "external_ai_decision_style": "-",
         }
+        public_context.update(diagnostics)
+        player_id = int(request.player_id if request.player_id is not None else -1) + 1
+        timeout_ms = int(self._config.get("timeout_ms", DEFAULT_EXTERNAL_AI_TIMEOUT_MS) or DEFAULT_EXTERNAL_AI_TIMEOUT_MS)
 
-        def _resolve_via_sender(public_context: dict[str, object]):
-            last_error: Exception | None = None
-            for attempt in range(effective_attempt_count):
-                try:
-                    public_context["external_ai_attempt_count"] = attempt + 1
-                    health = self._check_worker_health()
-                    if isinstance(health, dict):
-                        ready_state = _external_ai_ready_state_value(health)
-                        if ready_state is not None:
-                            public_context["external_ai_ready_state"] = ready_state
-                        if bool(self._config.get("require_ready", False)) and health.get("ready") is not True:
-                            raise RuntimeError("external_ai_worker_not_ready")
-                        _validate_external_ai_transport_support(health, envelope.transport)
-                        _validate_external_ai_request_type_support(health, envelope.request_type)
-                        worker_id = str(health.get("worker_id") or "").strip()
-                        if worker_id:
-                            public_context["external_ai_worker_id"] = worker_id
-                        worker_profile = str(health.get("worker_profile") or "").strip()
-                        if worker_profile:
-                            public_context["external_ai_worker_profile"] = worker_profile
-                        policy_mode = str(health.get("policy_mode") or "").strip()
-                        if policy_mode:
-                            public_context["external_ai_policy_mode"] = policy_mode
-                        worker_adapter = str(health.get("worker_adapter") or "").strip()
-                        if worker_adapter:
-                            public_context["external_ai_worker_adapter"] = worker_adapter
-                        policy_class = str(health.get("policy_class") or "").strip()
-                        if policy_class:
-                            public_context["external_ai_policy_class"] = policy_class
-                        decision_style = str(health.get("decision_style") or "").strip()
-                        if decision_style:
-                            public_context["external_ai_decision_style"] = decision_style
-                    response = self._sender(envelope) if self._sender is not None else _default_external_ai_http_sender(envelope)
-                    if not isinstance(response, dict):
-                        raise ValueError("external_ai_response_not_object")
-                    ready_state = _external_ai_ready_state_value(response)
-                    if ready_state is not None:
-                        public_context["external_ai_ready_state"] = ready_state
-                    _validate_external_ai_response_payload(response, envelope.participant_config)
-                    _validate_external_ai_transport_support(response, envelope.transport)
-                    _validate_external_ai_request_type_support(response, envelope.request_type)
-                    _validate_external_ai_identity(response, envelope.participant_config)
-                    worker_id = str(response.get("worker_id") or "").strip()
-                    if worker_id:
-                        public_context["external_ai_worker_id"] = worker_id
-                    worker_profile = str(response.get("worker_profile") or "").strip()
-                    if worker_profile:
-                        public_context["external_ai_worker_profile"] = worker_profile
-                    policy_mode = str(response.get("policy_mode") or "").strip()
-                    if policy_mode:
-                        public_context["external_ai_policy_mode"] = policy_mode
-                    worker_adapter = str(response.get("worker_adapter") or "").strip()
-                    if worker_adapter:
-                        public_context["external_ai_worker_adapter"] = worker_adapter
-                    policy_class = str(response.get("policy_class") or "").strip()
-                    if policy_class:
-                        public_context["external_ai_policy_class"] = policy_class
-                    decision_style = str(response.get("decision_style") or "").strip()
-                    if decision_style:
-                        public_context["external_ai_decision_style"] = decision_style
-                    choice_id = response.get("choice_id")
-                    if not isinstance(choice_id, str) or not choice_id.strip():
-                        raise ValueError("external_ai_missing_choice_id")
-                    public_context["external_ai_resolution_status"] = "resolved_by_worker"
-                    if callable(parser):
-                        return parser(choice_id.strip(), call.invocation.args, call.invocation.kwargs, call.invocation.state, call.invocation.player)
-                    return choice_id.strip()
-                except Exception as exc:
-                    last_error = exc
-                    public_context["external_ai_failure_code"] = _classify_external_ai_error(exc)
-                    public_context["external_ai_failure_detail"] = str(exc)
-                    public_context["external_ai_resolution_status"] = "worker_failed"
-                    if attempt < effective_attempt_count - 1 and backoff_ms > 0:
-                        time.sleep(backoff_ms / 1000.0)
-                        continue
-            if fallback_mode == "local_ai":
-                public_context["external_ai_fallback_mode"] = "local_ai"
-                public_context["external_ai_resolution_status"] = "resolved_by_local_fallback"
-                return ai_callable(*call.invocation.args, **call.invocation.kwargs)
-            raise last_error or RuntimeError("external_ai_transport_failed")
+        def _parse_decision(response: dict[str, object]):
+            choice_id = str(response.get("choice_id") or "").strip()
+            if callable(parser):
+                return parser(choice_id, call.invocation.args, call.invocation.kwargs, call.invocation.state, call.invocation.player)
+            return choice_id
 
-        return self._publish(
-            call,
-            resolver=_resolve_via_sender,
-            public_context_patch=diagnostics,
-            pass_public_context=True,
+        return self._gateway.resolve_external_ai_prompt(
+            request_type=request.request_type,
+            player_id=player_id,
+            public_context=public_context,
+            legal_choices=[dict(choice) for choice in getattr(call, "legal_choices", [])],
+            timeout_ms=timeout_ms,
+            parser=_parse_decision,
+            fallback_fn=lambda: ai_callable(*call.invocation.args, **call.invocation.kwargs),
         )
 
     def _check_worker_health(self) -> dict[str, object] | None:

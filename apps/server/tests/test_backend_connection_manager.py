@@ -153,6 +153,12 @@ EXPECTED_FRONTEND_BACKEND_ROUTES = {
         "Inject protected prompt diagnostics for admin-only debugging.",
         "Returns created debug prompt metadata or typed admin errors.",
     ),
+    "external_ai.decisions": (
+        "POST",
+        "/api/v1/sessions/{session_id}/external-ai/decisions",
+        "Accept protected external AI decisions into the durable command path.",
+        "Returns the decision acceptance status and wakes the session loop after accepted commands.",
+    ),
 }
 
 

@@ -534,11 +534,11 @@ commit signal
 
 작업:
 
-- [ ] external AI callback handler가 `CommandInbox.accept()`를 사용하게 한다.
+- [x] external AI callback handler가 `CommandInbox.accept()`를 사용하게 한다.
 - [x] prompt timeout worker가 default decision command를 같은 방식으로 accept하게 한다.
-- [ ] AI provider 호출은 session loop 밖에서 수행한다.
-- [ ] session loop는 AI를 기다리지 않고 pending prompt boundary에서 멈춘다.
-- [ ] AI 결과는 다른 decision과 동일하게 command로 들어온다.
+- [x] HTTP external AI provider 호출은 session loop 밖에서 수행한다.
+- [x] HTTP external AI transport는 AI를 기다리지 않고 pending prompt boundary에서 멈춘다.
+- [x] HTTP external AI 결과는 다른 decision과 동일하게 command로 들어온다.
 
 수정 후보:
 
@@ -550,8 +550,8 @@ commit signal
 검증:
 
 - [x] human과 timeout decision은 같은 `decision_submitted` command append 경로를 사용한다.
-- [ ] AI decision의 persisted command shape가 human/timeout과 동일하다.
-- [ ] AI endpoint 지연이 session loop lease를 장시간 점유하지 않는다.
+- [x] HTTP external AI decision의 persisted command shape가 human/timeout과 동일하다.
+- [x] HTTP external AI endpoint 지연이 session loop lease를 장시간 점유하지 않는다.
 
 2026-05-12 구현 상태:
 
@@ -561,6 +561,15 @@ commit signal
 - 근거: `apps/server/src/external_ai_app.py`의 `/decide`는 게임 서버가 AI 결과를 받는 callback이 아니라 외부 AI worker 프로세스가 요청을 받아 choice를 반환하는 endpoint다. 게임 서버 쪽 `_HttpExternalAiTransport.resolve()`는 이 worker를 호출한 뒤 같은 runtime call stack 안에서 `DecisionGateway.resolve_ai_decision()`으로 결정 이벤트를 publish한다.
 - 채택하지 않은 수정: `_HttpExternalAiTransport.resolve()`나 worker response 처리 직후 `CommandInbox.accept()`를 끼워 넣지 않았다. 그렇게 하면 현재 동기 결정 publish는 그대로 남고 command stream에도 같은 결정이 추가되어, 하나의 AI 선택에 대해 두 authoritative path가 생긴다.
 - 판단: 이 상태에서 AI 결과만 `CommandInbox`에 append하면 runtime이 prompt boundary에서 멈추는 구조가 없어서 "동기 AI 실행 + command 재입력" 이중 경로가 된다. AI까지 수렴하려면 Phase 3 `SessionLoop`가 먼저 pending AI prompt boundary에서 멈추고, 외부 worker 결과가 나중에 같은 decision command로 재진입해야 한다.
+
+2026-05-13 구현 상태:
+
+- 완료: HTTP external AI transport는 더 이상 session loop call stack 안에서 worker sender/healthchecker를 호출하지 않는다. 대신 `DecisionGateway.resolve_external_ai_prompt()`로 provider=`ai` pending prompt를 생성하고 `PromptRequired` boundary에서 멈춘다.
+- 완료: 외부 AI 결과 수신용 callback route `POST /api/v1/sessions/{session_id}/external-ai/decisions`를 추가했다. 이 route는 `PromptService.submit_decision()`을 호출하고, 내부적으로 `CommandInbox.accept_prompt_decision()`을 통해 human decision과 같은 `decision_submitted` command shape를 append한다.
+- 완료: callback accept 이후에는 `CommandRouter.wake_after_accept()`로 session loop를 깨운다. wakeup은 local 실행 신호일 뿐이며 durable authority는 Redis command inbox에 남는다.
+- 완료: AI provider metadata는 pending prompt, submitted decision payload, persisted command payload, decision resume, stream decision ack에 provider=`ai`로 보존된다.
+- 완료: 기존 runtime-service HTTP transport 테스트 중 "session loop가 worker를 직접 호출하고 실패 시 local AI로 fallback한다"를 계약으로 삼던 테스트는 제거했다. 이 동작은 새 구조에서 금지 대상이다. worker 자체 API와 healthcheck/auth helper 검증은 별도 테스트로 유지한다.
+- 범위 제한: `_LocalAiDecisionClient`와 `_LoopbackExternalAiTransport`는 이번 변경 범위가 아니다. 이들은 local/loopback test profile의 동기 AI 경로로 남아 있으며, HTTP external AI 운영 경로만 command-boundary 재진입으로 수렴했다.
 
 ### Phase 8 - prompt identity 재정의
 

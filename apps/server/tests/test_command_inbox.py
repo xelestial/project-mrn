@@ -117,6 +117,37 @@ class CommandInboxTests(unittest.TestCase):
         self.assertEqual(accepted["command_seq"], command_store.commands[0]["seq"])
         self.assertEqual(command_store.commands[0]["type"], "decision_submitted")
 
+    def test_prompt_service_preserves_external_ai_provider_in_decision_command(self) -> None:
+        command_store = _CommandStore()
+        service = PromptService(command_store=command_store)
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_ai",
+                "request_type": "movement",
+                "player_id": 2,
+                "provider": "ai",
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        accepted = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "r_ai",
+                "player_id": 2,
+                "choice_id": "roll",
+                "provider": "ai",
+            }
+        )
+
+        payload = command_store.commands[0]["payload"]
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertEqual(payload["provider"], "ai")
+        self.assertEqual(payload["decision"]["provider"], "ai")
+        self.assertEqual(payload["request_type"], "movement")
+
     def test_prompt_service_does_not_accept_when_command_append_fails(self) -> None:
         service = PromptService(command_store=_FailingCommandStore())
         service.create_prompt(

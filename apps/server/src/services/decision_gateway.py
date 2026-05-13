@@ -1792,6 +1792,7 @@ def build_decision_ack_payload(
     player_id: int,
     reason: str | None = None,
     provider: DecisionProvider = "human",
+    command_seq: int | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "request_id": request_id,
@@ -1801,6 +1802,8 @@ def build_decision_ack_payload(
     }
     if reason:
         payload["reason"] = reason
+    if command_seq is not None:
+        payload["command_seq"] = command_seq
     return payload
 
 
@@ -2231,6 +2234,7 @@ class DecisionGateway:
         public_context: dict[str, Any],
         prompt_payload: dict[str, Any],
         response: dict[str, Any],
+        provider: DecisionProvider = "human",
     ) -> None:
         if not prompt_fingerprint_mismatch(prompt_payload, response):
             return
@@ -2240,7 +2244,7 @@ class DecisionGateway:
             request_type=request_type,
             resolution="prompt_fingerprint_mismatch",
             choice_id=str(response.get("choice_id", "")),
-            provider="human",
+            provider=provider,
             public_context=public_context,
         )
         raise PromptFingerprintMismatch(request_id=request_id)
@@ -2280,6 +2284,107 @@ class DecisionGateway:
             public_context=public_context,
         )
         return parsed
+
+    def resolve_external_ai_prompt(
+        self,
+        *,
+        request_type: str,
+        player_id: int,
+        public_context: dict[str, Any],
+        legal_choices: list[dict[str, Any]],
+        timeout_ms: int,
+        parser: Callable[[dict[str, Any]], Any],
+        fallback_fn: Callable[[], Any],
+    ) -> Any:
+        request_id = self._stable_ai_request_id(
+            request_type=request_type,
+            player_id=player_id,
+            public_context=public_context,
+        )
+        prompt_payload = ensure_prompt_fingerprint(
+            {
+                "request_id": request_id,
+                "request_type": request_type,
+                "player_id": player_id,
+                "provider": "ai",
+                "timeout_ms": max(1, int(timeout_ms or DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)),
+                "fallback_policy": "ai",
+                "public_context": dict(public_context),
+                "legal_choices": [dict(choice) for choice in legal_choices],
+            }
+        )
+
+        replayed_response = self._prompt_service.wait_for_decision(
+            request_id=request_id,
+            timeout_ms=0,
+            session_id=self._session_id,
+        )
+        if replayed_response is not None:
+            self._require_matching_prompt_fingerprint(
+                request_id=request_id,
+                player_id=player_id,
+                request_type=request_type,
+                public_context=public_context,
+                prompt_payload=prompt_payload,
+                response=replayed_response,
+                provider="ai",
+            )
+            try:
+                parsed = parser(replayed_response)
+            except Exception:
+                self._publish_decision_resolved(
+                    request_id=request_id,
+                    player_id=player_id,
+                    request_type=request_type,
+                    resolution="parser_error_fallback",
+                    choice_id=str(replayed_response.get("choice_id", "")),
+                    provider="ai",
+                    public_context=public_context,
+                )
+                return fallback_fn()
+            self._publish_decision_resolved(
+                request_id=request_id,
+                player_id=int(replayed_response.get("player_id", player_id)),
+                request_type=request_type,
+                resolution="accepted",
+                choice_id=str(replayed_response.get("choice_id", "")),
+                provider="ai",
+                public_context=public_context,
+            )
+            return parsed
+
+        should_publish_requested = True
+        try:
+            self._prompt_service.create_prompt(session_id=self._session_id, prompt=prompt_payload)
+        except ValueError as exc:
+            prompt_error = str(exc)
+            if prompt_error == "prompt_fingerprint_mismatch":
+                raise PromptFingerprintMismatch(request_id=request_id) from exc
+            if prompt_error == "duplicate_pending_request_id":
+                pending = self._prompt_service.get_pending_prompt(request_id, session_id=self._session_id)
+                if pending is None:
+                    raise
+                pending_payload = dict(pending.payload)
+                if prompt_fingerprint_mismatch(pending_payload, prompt_payload):
+                    raise PromptFingerprintMismatch(request_id=request_id) from exc
+                prompt_payload = pending_payload
+                should_publish_requested = False
+            elif prompt_error == "duplicate_recent_request_id":
+                should_publish_requested = False
+            else:
+                raise
+
+        if should_publish_requested:
+            self._publish_decision_requested(
+                request_id=request_id,
+                player_id=player_id,
+                request_type=request_type,
+                fallback_policy="ai",
+                provider="ai",
+                public_context=public_context,
+            )
+        self._touch_activity(self._session_id)
+        raise PromptRequired(prompt_payload)
 
     def resolve_ai_decision(
         self,

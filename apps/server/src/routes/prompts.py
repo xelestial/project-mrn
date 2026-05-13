@@ -6,9 +6,11 @@ from pydantic import BaseModel
 from apps.server.src.core.admin_auth import require_admin
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.infra.structured_log import log_event
+from apps.server.src.services.decision_gateway import build_decision_ack_payload
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService
 from apps.server.src.services.stream_service import StreamService
+from apps.server.src.routes.stream import _wake_runtime_after_accepted_decision
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["prompts"])
 
@@ -20,6 +22,14 @@ class DebugPromptRequest(BaseModel):
     timeout_ms: int = 30000
     choices: list[dict] = []
     public_context: dict | None = None
+
+
+class ExternalAiDecisionRequest(BaseModel):
+    request_id: str
+    player_id: int
+    choice_id: str
+    prompt_fingerprint: str | None = None
+    choice_payload: dict | None = None
 
 
 def _sessions() -> SessionService:
@@ -38,6 +48,12 @@ def _stream() -> StreamService:
     from apps.server.src.state import stream_service
 
     return stream_service
+
+
+def _command_router():
+    from apps.server.src.state import command_router
+
+    return command_router
 
 
 def _ok(data: dict) -> dict:
@@ -121,6 +137,63 @@ async def create_debug_prompt(
             "request_id": pending.request_id,
             "seq": msg.seq,
             "status": "prompt_sent",
+            "http_status": status.HTTP_200_OK,
+        }
+    )
+
+
+@router.post("/{session_id}/external-ai/decisions", dependencies=[Depends(require_admin)])
+async def submit_external_ai_decision(
+    session_id: str,
+    payload: ExternalAiDecisionRequest,
+    sessions: SessionService = Depends(_sessions),
+    prompts: PromptService = Depends(_prompts),
+    stream: StreamService = Depends(_stream),
+    command_router=Depends(_command_router),
+) -> dict:
+    try:
+        sessions.get_session(session_id)
+    except SessionNotFoundError:
+        return {
+            "ok": False,
+            "data": None,
+            "error": build_error_payload(code="SESSION_NOT_FOUND", message="Session not found.", retryable=False),
+        }
+
+    decision_payload = payload.model_dump(exclude_none=True)
+    decision_payload["session_id"] = session_id
+    decision_payload["provider"] = "ai"
+    decision_state = prompts.submit_decision(decision_payload)
+    ack_payload = build_decision_ack_payload(
+        request_id=payload.request_id,
+        status=str(decision_state.get("status") or ""),
+        player_id=payload.player_id,
+        reason=decision_state.get("reason"),
+        provider="ai",
+        command_seq=decision_state.get("command_seq"),
+    )
+    await stream.publish_decision_ack(session_id, ack_payload)
+    if decision_state.get("status") == "accepted":
+        await _wake_runtime_after_accepted_decision(
+            decision_state=decision_state,
+            session_id=session_id,
+            command_router=command_router,
+        )
+    log_event(
+        "external_ai_decision_callback",
+        session_id=session_id,
+        request_id=payload.request_id,
+        player_id=payload.player_id,
+        status=decision_state.get("status"),
+        reason=decision_state.get("reason"),
+        command_seq=decision_state.get("command_seq"),
+    )
+    return _ok(
+        {
+            "request_id": payload.request_id,
+            "status": decision_state.get("status"),
+            "reason": decision_state.get("reason"),
+            "command_seq": decision_state.get("command_seq"),
             "http_status": status.HTTP_200_OK,
         }
     )

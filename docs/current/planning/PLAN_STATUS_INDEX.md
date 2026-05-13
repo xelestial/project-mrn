@@ -81,9 +81,13 @@ Read and maintain these:
   human prompt retry or AI decision events; `_LocalHumanDecisionClient` no
   longer uses engine `HumanHttpPolicy._prompt_seq` as its private prompt
   sequence source; prompt replay probing is now nonblocking on the live
-  prompt-creation path; `RuntimeService.process_command_once()` remains only as
-  a compatibility wrapper over that executor. Remaining high-risk work is the
-  external AI command-boundary redesign, not router/session-loop ownership.
+  prompt-creation path; HTTP external AI now stops at a provider=`ai` pending
+  prompt boundary and callback decisions re-enter through
+  `PromptService`/`CommandInbox` before `CommandRouter` wakeup;
+  `RuntimeService.process_command_once()` remains only as a compatibility
+  wrapper over that executor. Remaining high-risk work is remote external AI
+  operation/deployment evidence and any future local/loopback AI policy
+  convergence, not router/session-loop ownership.
 
 ## Closed Enough
 
@@ -141,11 +145,13 @@ Those themes should reopen only if a concrete regression or rollout need appears
    `docs/current/frontend/ACTIVE_UI_UX_FUTURE_WORK_CANONICAL.md` and
    `docs/current/frontend/AUDIT_MRN_FRONTEND_GAME_DESIGN_REVIEW_2026-04-30.md`
    as current frontend planning inputs.
-4. External AI endpoint operation. Local real HTTP worker behavior is verified
-   through the priority-scored worker runbook smoke and runtime-service
-   localhost transport tests. A remote non-local external AI endpoint still
-   needs its actual base URL and credential/config values before it can be
-   called deployment evidence.
+4. External AI endpoint operation. Local worker behavior is verified through
+   the worker API tests and priority-scored worker runbook smoke. The game
+   server HTTP external-AI path no longer calls the worker directly inside the
+   session loop; it now waits on a provider=`ai` prompt and accepts the later
+   callback through the same decision command path as human decisions. A remote
+   non-local external AI endpoint still needs its actual base URL and
+   credential/config values before it can be called deployment evidence.
 
 ## Rule For New Work
 

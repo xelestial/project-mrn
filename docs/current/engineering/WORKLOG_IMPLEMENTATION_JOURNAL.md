@@ -207,6 +207,28 @@ authority, router/worker are wake paths, and `SessionLoopManager` owns one
 process-local drain task per session. External AI command-boundary unification
 remains open.
 
+## 2026-05-13 HTTP External AI Command Boundary
+
+- HTTP external AI transport no longer invokes the worker sender/healthchecker
+  inside the session loop. It materializes a provider=`ai` pending prompt and
+  stops at `PromptRequired`.
+- Added an external AI decision callback route. Accepted callbacks go through
+  `PromptService.submit_decision()` and `CommandInbox.accept_prompt_decision()`,
+  then wake the session loop through `CommandRouter.wake_after_accept()`.
+- Preserved provider=`ai` through pending prompt payload, submitted decision
+  payload, persisted `decision_submitted` command, runtime decision resume, and
+  stream ACK.
+- Removed obsolete runtime-service tests that asserted the old forbidden
+  behavior: direct in-loop HTTP worker calls, retry loops, and local AI fallback
+  from the HTTP transport path. Worker API and helper validation remain covered
+  outside the session-loop transport contract.
+
+Responsibility result: HTTP external AI provider execution moved out of the
+session loop. Decision acceptance remains in `PromptService`/`CommandInbox`.
+Wake remains in `CommandRouter`. Redis command inbox remains the durable
+authority. Local and loopback AI transports intentionally remain outside this
+checkpoint.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
