@@ -228,6 +228,26 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
         self.assertEqual(lifecycle_by_public["decision"]["public_request_id"], public_request_id)
 
+    def test_get_pending_prompt_resolves_public_request_id_alias(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:9",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 9,
+                "timeout_ms": 30000,
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        by_public = self.service.get_pending_prompt(public_request_id, session_id="s1")
+
+        self.assertIsNotNone(by_public)
+        assert by_public is not None
+        self.assertEqual(by_public.request_id, pending.request_id)
+        self.assertEqual(by_public.payload["public_request_id"], public_request_id)
+
     def test_mark_prompt_delivered_resolves_public_request_id_alias(self) -> None:
         pending = self.service.create_prompt(
             "s1",

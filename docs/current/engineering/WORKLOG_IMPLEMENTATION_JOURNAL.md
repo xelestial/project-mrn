@@ -34,6 +34,9 @@ in the active plans, status index, tests, or canonical contract documents.
 - `PromptService.get_prompt_lifecycle()` now accepts the same public request
   alias and returns the legacy-key lifecycle record, which keeps debug/status
   reads usable before the canonical prompt key migration.
+- `PromptService.get_pending_prompt()` now accepts public request aliases for
+  active pending prompts. It resolves only against active pending records, so
+  completed prompts do not reappear as pending through lifecycle metadata.
 - `PromptService.mark_prompt_delivered()` and
   `record_external_decision_result()` now resolve submitted public request
   aliases before lifecycle writes, so delivered/external-result states update

@@ -116,7 +116,12 @@ class PromptService:
 
     def get_pending_prompt(self, request_id: str, session_id: str | None = None) -> PendingPrompt | None:
         with self._lock:
-            pending = self._get_pending(request_id, session_id=session_id)
+            normalized_request_id = str(request_id).strip()
+            pending = self._get_pending(normalized_request_id, session_id=session_id)
+            if pending is None:
+                alias = self._resolve_pending_request_alias(normalized_request_id, session_id=session_id)
+                if alias:
+                    pending = self._get_pending(alias, session_id=session_id)
             if pending is None:
                 return None
             return PendingPrompt(
