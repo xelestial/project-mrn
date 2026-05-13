@@ -28,6 +28,7 @@ apps/web/vite.config.d.ts
 .venv/
 .venv311/
 apps/web/test-results/
+.playwright-mcp/
 
 # OS/editor local files
 .DS_Store
