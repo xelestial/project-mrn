@@ -255,6 +255,75 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(selectActivePrompt([complete])?.continuation.moduleCursor).toBe("movement:await_choice");
   });
 
+  it("preserves every serial prompt request type from the runtime decision contract", () => {
+    const promptCases = [
+      {
+        request_type: "trick_to_use",
+        frame_id: "trick:3:p2:1",
+        module_id: "mod:trick:choice",
+        module_type: "TrickChoiceModule",
+        module_cursor: "trick:await_choice",
+      },
+      {
+        request_type: "specific_trick_reward",
+        frame_id: "trick:3:p2:2",
+        module_id: "mod:trick:reward",
+        module_type: "TrickDeferredFollowupsModule",
+        module_cursor: "trick_reward:await_choice",
+      },
+      {
+        request_type: "lap_reward",
+        frame_id: "action:3:p2:lap",
+        module_id: "mod:lap_reward",
+        module_type: "LapRewardModule",
+        module_cursor: "lap_reward:await_choice",
+      },
+      {
+        request_type: "purchase_tile",
+        frame_id: "action:3:p2:purchase",
+        module_id: "mod:purchase",
+        module_type: "PurchaseDecisionModule",
+        module_cursor: "purchase:await_choice",
+      },
+      {
+        request_type: "coin_placement",
+        frame_id: "action:3:p2:coin",
+        module_id: "mod:coin",
+        module_type: "ScoreTokenPlacementPromptModule",
+        module_cursor: "coin_placement:await_choice",
+      },
+    ];
+
+    for (const promptCase of promptCases) {
+      const prompt = selectActivePrompt([
+        viewCommit(10, {
+          prompt: {
+            active: {
+              request_id: `req_${promptCase.request_type}`,
+              request_type: promptCase.request_type,
+              player_id: 2,
+              runner_kind: "module",
+              resume_token: `resume_${promptCase.request_type}`,
+              frame_id: promptCase.frame_id,
+              module_id: promptCase.module_id,
+              module_type: promptCase.module_type,
+              module_cursor: promptCase.module_cursor,
+              choices: [{ choice_id: "continue", title: "Continue" }],
+            },
+          },
+        }),
+      ]);
+
+      expect(prompt?.requestType).toBe(promptCase.request_type);
+      expect(prompt?.continuation).toMatchObject({
+        frameId: promptCase.frame_id,
+        moduleId: promptCase.module_id,
+        moduleType: promptCase.module_type,
+        moduleCursor: promptCase.module_cursor,
+      });
+    }
+  });
+
   it("keeps serial prompts inside resupply frames even without batch continuation fields", () => {
     const messages = [
       viewCommit(3, {
