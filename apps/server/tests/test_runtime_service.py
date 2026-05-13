@@ -3307,6 +3307,50 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(player["viewer"]["turn_order_index"], 1)
         self.assertEqual(player["viewer"]["player_label"], "P1")
 
+    def test_authoritative_view_commit_enriches_viewer_with_session_protocol_identity(self) -> None:
+        session = self.session_service.create_session(
+            [
+                {"seat": 1, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"max_players": 2},
+        )
+        seat = session.seats[0]
+
+        commits = self.runtime_service._build_authoritative_view_commits(
+            session_id=session.session_id,
+            state=type("State", (), {})(),
+            checkpoint_payload={
+                "players": [{"player_id": 0}],
+                "rounds_completed": 1,
+                "turn_index": 5,
+                "marker_owner_id": 0,
+                "current_round_order": [0],
+            },
+            runtime_checkpoint={
+                "round_index": 2,
+                "turn_index": 5,
+            },
+            module_debug_fields={},
+            step={"status": "running"},
+            commit_seq=9,
+            source_event_seq=42,
+            source_messages=[],
+            server_time_ms=123456,
+        )
+
+        viewer = commits["player:1"]["viewer"]
+        self.assertEqual(viewer["player_id"], 1)
+        self.assertEqual(viewer["legacy_player_id"], 1)
+        self.assertEqual(viewer["seat_index"], 1)
+        self.assertEqual(viewer["turn_order_index"], 1)
+        self.assertEqual(viewer["player_label"], "P1")
+        self.assertEqual(viewer["public_player_id"], seat.public_player_id)
+        self.assertEqual(viewer["seat_id"], seat.seat_id)
+        self.assertEqual(viewer["viewer_id"], seat.viewer_id)
+        self.assertIsInstance(viewer["public_player_id"], str)
+        self.assertNotEqual(viewer["public_player_id"], str(viewer["player_id"]))
+
     def test_authoritative_view_commit_projects_game_end_beat(self) -> None:
         state = type("State", (), {})()
 

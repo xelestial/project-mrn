@@ -22,7 +22,7 @@ from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
-from apps.server.src.domain.protocol_identity import display_identity_fields
+from apps.server.src.domain.protocol_identity import display_identity_fields, seat_protocol_fields
 from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
 from apps.server.src.domain.prompt_sequence import runtime_prompt_sequence_seed
 from apps.server.src.domain.runtime_semantic_guard import validate_checkpoint_payload
@@ -2952,7 +2952,7 @@ class RuntimeService:
                         "role": "seat",
                         "player_id": external_player_id,
                         "seat": external_player_id,
-                        **display_identity_fields(external_player_id, legacy_player_id=external_player_id),
+                        **self._view_commit_viewer_identity_fields(session_id, external_player_id),
                     },
                 )
             )
@@ -2995,6 +2995,17 @@ class RuntimeService:
                 "server_time_ms": server_time_ms,
             }
         return commits
+
+    def _view_commit_viewer_identity_fields(self, session_id: str, external_player_id: int) -> dict[str, Any]:
+        fallback = display_identity_fields(external_player_id, legacy_player_id=external_player_id)
+        try:
+            session = self._session_service.get_session(session_id)
+        except Exception:
+            return fallback
+        for seat in getattr(session, "seats", []) or []:
+            if self._int_or_none(getattr(seat, "seat", None)) == external_player_id:
+                return {**fallback, **seat_protocol_fields(seat)}
+        return fallback
 
     def _build_authoritative_view_state(
         self,

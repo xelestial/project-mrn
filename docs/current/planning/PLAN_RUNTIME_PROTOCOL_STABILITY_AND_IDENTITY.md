@@ -80,7 +80,7 @@ Checklist:
 - [x] Add tests that prove:
   - public player identity is UUID-like and not the numeric seat/player value
   - session persistence preserves the new IDs
-  - view commits carry turn label metadata
+  - view commits carry turn label metadata and additive public viewer identity
   - source stream messages carry event IDs
 
 Current Phase 0 evidence, 2026-05-13:
@@ -91,7 +91,7 @@ Current Phase 0 evidence, 2026-05-13:
 | Additive session identity | `apps/server/tests/test_session_service.py` covers join payloads, public session payloads, auth context, and store-backed reload preserving `public_player_id`, `seat_id`, and `viewer_id`. `test_new_protocol_identity_fields_never_serialize_numeric_player_ids` locks the rule that newly added public identity fields remain string IDs and do not collapse back to numeric `player_id` values. |
 | Legacy numeric compatibility | `player_id`, `seat`, `seat_index`, `turn_order_index`, and `legacy_player_id` remain in the join/auth/viewer payloads while public UUID-like IDs are additive. |
 | `view_commit` round/turn metadata | `apps/server/src/services/runtime_service.py` builds authoritative commits with `round_index`, `turn_index`, and `turn_label` at both payload and `runtime` levels; frontend contract fields are in `apps/web/src/core/contracts/stream.ts`. |
-| Viewer display metadata | `display_identity_fields()` populates seat display fields; `apps/server/tests/test_visibility_projection.py` proves auth-derived viewer identity is preserved without changing visibility checks. |
+| Viewer display and public identity metadata | `display_identity_fields()` preserves numeric display compatibility, while `RuntimeService._view_commit_viewer_identity_fields()` enriches player `view_commit.viewer` payloads from `SessionService` with `public_player_id`, `seat_id`, and `viewer_id`. `apps/server/tests/test_runtime_service.py::test_authoritative_view_commit_enriches_viewer_with_session_protocol_identity` proves the string IDs are present without removing numeric bridge fields, and `apps/server/tests/test_visibility_projection.py` proves auth-derived viewer identity is preserved without changing visibility checks. |
 | Source event IDs | `apps/server/tests/test_stream_service.py::test_publish_adds_source_event_id` proves non-commit `event` and `prompt` messages get `evt_*` IDs while `view_commit` remains the commit boundary. |
 | Redis debug retention | `apps/server/tests/test_redis_realtime_services.py::test_stream_event_index_maps_event_id_to_source_sequence`, `test_stream_store_persists_compact_view_commit_pointer_only`, and `test_game_state_debug_snapshot_uses_one_hour_ttl` cover event index TTL, compact view-commit pointer persistence, and 3600-second debug snapshot TTL. |
 
@@ -172,6 +172,8 @@ Keep a strict adapter boundary. Engine modules can use `engine_player_index`, bu
 
 Residual status, 2026-05-14: the additive public identity fields are now guarded by
 `apps/server/tests/test_session_service.py::test_new_protocol_identity_fields_never_serialize_numeric_player_ids`.
+Player `view_commit.viewer` payloads are also enriched from session identity by
+`apps/server/tests/test_runtime_service.py::test_authoritative_view_commit_enriches_viewer_with_session_protocol_identity`.
 This does not close the full protocol `player_id` migration: numeric `player_id`, `seat`, and
 `legacy_player_id` remain intentional compatibility aliases until the frontend and decision submit path
 move to the string public identity contract.
