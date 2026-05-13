@@ -169,6 +169,9 @@ class BatchCollector:
                 "completed_at_ms": server_time_ms,
                 "source": "batch_collector",
             }
+            public_responses = _responses_by_public_player_id(command_payload["responses_by_player_id"])
+            if public_responses:
+                command_payload["responses_by_public_player_id"] = public_responses
             command = self._command_store.append_command(
                 session_id,
                 "batch_complete",
@@ -228,6 +231,17 @@ def _int_list(items: object) -> list[int]:
     return result
 
 
+def _responses_by_public_player_id(responses_by_player_id: dict[str, Any]) -> dict[str, Any]:
+    responses: dict[str, Any] = {}
+    for response in responses_by_player_id.values():
+        if not isinstance(response, dict):
+            continue
+        public_player_id = str(response.get("public_player_id") or "").strip()
+        if public_player_id:
+            responses[public_player_id] = response
+    return responses
+
+
 _RECORD_BATCH_RESPONSE_LUA = """
 local inserted = redis.call("HSETNX", KEYS[1], ARGV[1], ARGV[2])
 local expected = cjson.decode(ARGV[3])
@@ -268,14 +282,23 @@ if current_seq < latest_stream_seq then
 end
 local command_payload = cjson.decode(ARGV[8])
 local responses = {}
+local public_responses = {}
 for i = 1, #expected do
   local player_id = tostring(expected[i])
   local raw_response = redis.call("HGET", KEYS[1], player_id)
   if raw_response then
-    responses[player_id] = cjson.decode(raw_response)
+    local response = cjson.decode(raw_response)
+    responses[player_id] = response
+    local public_player_id = response["public_player_id"]
+    if public_player_id ~= nil and tostring(public_player_id) ~= "" then
+      public_responses[tostring(public_player_id)] = response
+    end
   end
 end
 command_payload["responses_by_player_id"] = responses
+if next(public_responses) ~= nil then
+  command_payload["responses_by_public_player_id"] = public_responses
+end
 command_payload["completed_at_ms"] = tonumber(ARGV[7]) or 0
 local command_payload_json = cjson.encode(command_payload)
 local seq = redis.call("INCR", KEYS[5])

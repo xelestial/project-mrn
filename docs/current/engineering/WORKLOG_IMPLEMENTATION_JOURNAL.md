@@ -39,6 +39,10 @@ in the active plans, status index, tests, or canonical contract documents.
   decision commands, simultaneous batch collector responses, and timeout
   fallback responses. Numeric `player_id` remains the compatibility routing
   alias.
+- `BatchCollector` completion commands now expose
+  `responses_by_public_player_id` as an additive companion derived from
+  collected response payloads. Numeric `responses_by_player_id` remains the
+  canonical resume map for compatibility.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Compatibility storage and replay still keep
   the legacy request id key until the canonical opaque prompt-key migration is
@@ -48,6 +52,7 @@ Verification:
 
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_public_request_id_with_redis_prompt_store -q`

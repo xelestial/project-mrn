@@ -24,7 +24,7 @@ class BatchCollectorTests(unittest.TestCase):
             session_id="s1",
             batch_id="batch_1",
             player_id=1,
-            response={"choice_id": "a"},
+            response={"choice_id": "a", "public_player_id": "ply_1"},
             expected_player_ids=[1, 2],
             server_time_ms=100,
         )
@@ -32,7 +32,7 @@ class BatchCollectorTests(unittest.TestCase):
             session_id="s1",
             batch_id="batch_1",
             player_id=2,
-            response={"choice_id": "b"},
+            response={"choice_id": "b", "public_player_id": "ply_2"},
             expected_player_ids=[1, 2],
             server_time_ms=101,
         )
@@ -55,6 +55,8 @@ class BatchCollectorTests(unittest.TestCase):
         self.assertEqual(commands[0]["type"], "batch_complete")
         self.assertEqual(commands[0]["payload"]["responses_by_player_id"]["1"]["choice_id"], "a")
         self.assertEqual(commands[0]["payload"]["responses_by_player_id"]["2"]["choice_id"], "b")
+        self.assertEqual(commands[0]["payload"]["responses_by_public_player_id"]["ply_1"]["choice_id"], "a")
+        self.assertEqual(commands[0]["payload"]["responses_by_public_player_id"]["ply_2"]["choice_id"], "b")
         self.assertEqual(self.command_store.load_command_state("s1", 1)["status"], "accepted")
 
     def test_timeout_and_human_race_closes_batch_once(self) -> None:
