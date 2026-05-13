@@ -590,7 +590,10 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     )
                     continue
                 project_started = time.perf_counter()
-                filtered = await stream_service.project_message_for_viewer(message, viewer)
+                if getattr(stream_service, "outbox_mode", "dual") == "read":
+                    filtered = message
+                else:
+                    filtered = await stream_service.project_message_for_viewer(message, viewer)
                 project_ms = int((time.perf_counter() - project_started) * 1000)
                 if is_view_commit:
                     log_event(

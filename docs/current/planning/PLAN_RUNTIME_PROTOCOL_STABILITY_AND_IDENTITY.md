@@ -706,10 +706,10 @@ The React selector path continues to ignore raw prompt/event payloads for active
 Phase 3 completion note: `MRN_STREAM_OUTBOX_MODE=read` now binds viewer identity to each
 WebSocket subscriber queue and projects messages before queue insertion. Private prompts and
 targeted `decision_ack` messages are therefore filtered before they become readable by a
-non-target subscriber queue. `dual` remains the default and keeps the old raw queue plus
-send-time projection path for parity checks. `off` keeps legacy delivery and disables Redis
-viewer-outbox debug/index writes. This is not yet a full durable Redis outbox read path; the
-live protocol gate and eventual removal of legacy send-time projection remain later phases.
+non-target subscriber queue. The server default moved to `read` after Phase 4, Phase 5,
+and Phase 6 evidence passed. `dual` remains as rollback/parity mode and keeps the old raw
+queue plus send-time projection path. `off` keeps legacy delivery and disables Redis
+viewer-outbox debug/index writes.
 
 ### Phase 4. Full-Stack Protocol Gate
 
@@ -754,9 +754,25 @@ Phase 4 seed-matrix evidence, 2026-05-14:
 ### Phase 5. Flip WebSocket Read Path To Outbox
 
 - [x] Add `MRN_STREAM_OUTBOX_MODE=off|dual|read`.
-- [x] Keep `dual` as default until parity is proven.
+- [x] Keep `dual` as default until parity is proven, then flip the server default to `read`.
 - [x] Switch live gate to `read`.
-- [ ] Remove legacy send-time projection only after repeated stability is demonstrated across the seed matrix.
+- [x] Remove legacy send-time projection from the `read` subscriber sender only after repeated stability is demonstrated across the seed matrix.
+
+Phase 5 repeated read-mode evidence, 2026-05-14:
+
+- Accepted run root: `tmp/rl/full-stack-protocol/phase5-repeat-read-20260514`
+- Command shape: `games=5`, `concurrency=5`, `seed-base=2026051420`, four seats plus one spectator per game,
+  forced reconnect points `after_start,after_first_prompt,after_first_decision,round_boundary`,
+  raw prompt fallback disabled.
+- Result: all five games completed successfully. Durations ranged from `87730ms` to `260381ms`, and final
+  commit heads ranged from `70` to `191`.
+- Recovery/privacy: every game reported `forcedReconnectCount=20`, `reconnectRecoveryCount=20`,
+  `reconnectRecoveryPendingCount=0`, and zero spectator prompt or decision-ack leaks.
+- Protocol failures: every game reported zero identity violations, non-monotonic commits, semantic commit
+  regressions, unrecovered stale acks, runtime recovery requirements, client error messages, and failure messages.
+- Code follow-up: the server default is now `MRN_STREAM_OUTBOX_MODE=read`, while `dual` and `off` remain
+  explicit rollback modes. In `read` mode, the WebSocket sender delivers the preprojected subscriber queue
+  message instead of reprojecting at send time; `dual` and `off` keep send-time projection.
 
 ### Phase 6. Browser-Based Profile Validation
 
@@ -782,8 +798,9 @@ Phase 6 browser-profile evidence, 2026-05-14:
 Use additive compatibility until all gates pass.
 
 - `MRN_STREAM_OUTBOX_MODE=off`: legacy path only, without Redis viewer-outbox debug/index writes.
-- `MRN_STREAM_OUTBOX_MODE=dual`: write old stream and viewer outbox; send from legacy path.
-- `MRN_STREAM_OUTBOX_MODE=read`: project into viewer-aware WebSocket queues before delivery.
+- `MRN_STREAM_OUTBOX_MODE=dual`: write old stream and viewer outbox; send from legacy path with send-time projection.
+- `MRN_STREAM_OUTBOX_MODE=read`: current server default; project into viewer-aware WebSocket queues before delivery
+  and send the queued message without a second projection pass.
 
 Rollback means switching the environment flag back to `off` or `dual`. Do not delete source events or prompt lifecycle records during rollback.
 
@@ -809,7 +826,8 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_prompt_service.py`, `apps/server/tests/test_prompt_module_continuation.py`, and `apps/server/tests/test_stream_api.py` verify prompt lifecycle states, active prompt persistence, resume tokens, required commit sequence handling, reconnect/resume repair, and target-scoped prompt delivery.
 - `apps/server/tests/test_stream_service.py`, `apps/server/tests/test_visibility_projection.py`, and `apps/server/tests/test_stream_api.py::test_spectator_does_not_receive_prompt_or_decision_ack_for_seat` verify private prompt and `decision_ack` projection boundaries.
 - `apps/server/tests/test_redis_state_inspector.py::test_inspector_flags_runtime_failure_without_losing_debug_context` verifies failed runtime diagnostics include non-empty exception class and representation.
-- Phase 4 and Phase 6 live evidence in this document verifies read-mode reconnect recovery, spectator privacy, monotonic commits, client error absence, and a real browser spectator/profile path against the live stack.
+- Phase 4, Phase 5, and Phase 6 live evidence in this document verifies read-mode reconnect recovery, spectator privacy, monotonic commits, client error absence, repeated seed-matrix stability, and a real browser spectator/profile path against the live stack.
+- `apps/server/tests/test_runtime_settings.py` verifies `read` is the server runtime default and `apps/server/tests/test_stream_api.py::test_read_outbox_mode_sender_uses_preprojected_subscriber_queue` verifies the `read` WebSocket sender does not call send-time projection for subscriber-queue delivery.
 
 Redis debug acceptance evidence, 2026-05-14:
 

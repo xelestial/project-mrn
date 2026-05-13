@@ -1156,6 +1156,56 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(len(prompts), 1)
         self.assertEqual(prompts[0].get("payload", {}).get("request_id"), "r_read_outbox_prompt")
 
+    def test_read_outbox_mode_sender_uses_preprojected_subscriber_queue(self) -> None:
+        _reset_state(max_buffer=256, heartbeat_interval_ms=250, outbox_mode="read")
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 211, "visibility": "public"})
+        join_token = session.join_tokens[1]
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=join_token)
+        session_token = joined["session_token"]
+        original_project = state.stream_service.project_message_for_viewer
+        project_calls: list[str] = []
+
+        async def _fail_if_sender_projects(message: dict, viewer: object) -> dict | None:
+            project_calls.append(str(message.get("type") or ""))
+            raise AssertionError("read-mode subscriber sender must not project at send time")
+
+        state.stream_service.project_message_for_viewer = _fail_if_sender_projects  # type: ignore[method-assign]
+        try:
+            path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+            with self.client.websocket_connect(path) as seat_ws:
+                asyncio.run(
+                    state.stream_service.publish(
+                        session.session_id,
+                        "prompt",
+                        module_prompt(
+                            {
+                                "request_id": "r_read_queue_prompt",
+                                "request_type": "movement",
+                                "player_id": 1,
+                                "timeout_ms": 5000,
+                                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                            },
+                            module_type="MapMoveModule",
+                            frame_id="turn:test:p0",
+                        ),
+                    )
+                )
+
+                prompt = None
+                for _ in range(6):
+                    msg = seat_ws.receive_json()
+                    if msg.get("type") == "prompt":
+                        prompt = msg
+                        break
+        finally:
+            state.stream_service.project_message_for_viewer = original_project  # type: ignore[method-assign]
+
+        self.assertIsNotNone(prompt)
+        self.assertEqual(prompt.get("payload", {}).get("request_id"), "r_read_queue_prompt")
+        self.assertEqual(project_calls, [])
+
     def test_seat_decision_retry_returns_stale_after_first_accept(self) -> None:
         from apps.server.src import state
 

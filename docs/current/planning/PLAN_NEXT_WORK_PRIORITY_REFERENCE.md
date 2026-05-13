@@ -52,9 +52,10 @@ Current goal:
 - keep the Phase 6 browser-profile gate as the UI/runtime guard: the accepted
   run proves real browser rendering for per-player policy profiles, spectator
   privacy, reconnect recovery, and turn history against the live read-mode stack
-- do not remove the legacy send-time projection fallback after only one browser
-  run; require repeated read-mode stability across the headless seed matrix and
-  browser-profile gate first
+- repeated read-mode stability across the headless seed matrix and browser-profile
+  gate has passed; the server default is now `MRN_STREAM_OUTBOX_MODE=read`
+- add semantic regression tests before any further changes to rule flow, prompt
+  lifecycle, or stream projection boundaries
 
 ### 2. Redis-Authoritative State And Visibility Projection
 

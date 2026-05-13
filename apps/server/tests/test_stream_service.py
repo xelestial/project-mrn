@@ -153,7 +153,7 @@ class StreamServiceTests(unittest.TestCase):
         self.assertNotIn("project_replay_view_state", source)
 
     def test_publish_increments_seq(self) -> None:
-        service = StreamService()
+        service = StreamService(outbox_mode="dual")
 
         async def _run() -> None:
             one = await service.publish("s1", "event", {"a": 1})
@@ -166,7 +166,7 @@ class StreamServiceTests(unittest.TestCase):
         asyncio.run(_run())
 
     def test_session_scoped_reads_do_not_wait_on_global_stream_lock(self) -> None:
-        service = StreamService()
+        service = StreamService(outbox_mode="dual")
 
         async def _run() -> None:
             await service.publish("fast", "event", {"event_type": "turn_start"})

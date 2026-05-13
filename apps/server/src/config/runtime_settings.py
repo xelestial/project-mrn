@@ -50,7 +50,7 @@ def _env_choice(name: str, default: str, allowed: set[str]) -> str:
 class RuntimeSettings:
     stream_heartbeat_interval_ms: int = 5000
     stream_sender_poll_timeout_ms: int = 1000
-    stream_outbox_mode: str = "dual"
+    stream_outbox_mode: str = "read"
     runtime_watchdog_timeout_ms: int = 45000
     log_level: str = "INFO"
     log_file_path: str = ""
@@ -89,7 +89,7 @@ def load_runtime_settings() -> RuntimeSettings:
     return RuntimeSettings(
         stream_heartbeat_interval_ms=_env_int("MRN_STREAM_HEARTBEAT_INTERVAL_MS", 5000, 250),
         stream_sender_poll_timeout_ms=_env_int("MRN_STREAM_SENDER_POLL_TIMEOUT_MS", 1000, 50),
-        stream_outbox_mode=_env_choice("MRN_STREAM_OUTBOX_MODE", "dual", {"off", "dual", "read"}),
+        stream_outbox_mode=_env_choice("MRN_STREAM_OUTBOX_MODE", "read", {"off", "dual", "read"}),
         runtime_watchdog_timeout_ms=_env_int("MRN_RUNTIME_WATCHDOG_TIMEOUT_MS", 45000, 5000),
         log_level=_env_str("MRN_LOG_LEVEL", "INFO").upper(),
         log_file_path=_env_str("MRN_LOG_FILE_PATH", ""),
