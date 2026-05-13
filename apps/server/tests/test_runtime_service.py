@@ -3913,6 +3913,71 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(gateway.calls[0]["public_context"]["external_ai_attempt_count"], 0)
         self.assertEqual([choice["choice_id"] for choice in gateway.calls[0]["legal_choices"]], ["yes", "no"])
 
+    def test_http_external_transport_attaches_module_continuation_metadata(self) -> None:
+        from apps.server.src.services.decision_gateway import PromptRequired
+        from apps.server.src.services.runtime_service import _HttpExternalAiTransport
+
+        class _FakeAiPolicy:
+            def choose_purchase_tile(self, state, player, pos, cell, cost, *, source="landing"):  # noqa: ANN001
+                del state, player, pos, cell, cost, source
+                return False
+
+        class _FakeGateway:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def _stable_ai_request_id(self, **kwargs):  # noqa: ANN003
+                self.calls.append({"stable_ai_request_id": kwargs})
+                return "sess_http_module:ai_purchase_tile:p1"
+
+            def resolve_external_ai_prompt(self, **kwargs):  # noqa: ANN003
+                self.calls.append(kwargs)
+                prompt = {
+                    "request_id": kwargs["request_id"],
+                    "request_type": kwargs["request_type"],
+                    "player_id": kwargs["player_id"],
+                    "public_context": kwargs["public_context"],
+                    "legal_choices": kwargs["legal_choices"],
+                    "provider": "ai",
+                }
+                prompt.update(kwargs["prompt_metadata"])
+                raise PromptRequired(prompt)
+
+        gateway = _FakeGateway()
+        transport = _HttpExternalAiTransport(
+            session_id="sess_http_module",
+            ai_fallback=_FakeAiPolicy(),
+            gateway=gateway,  # type: ignore[arg-type]
+            seat=1,
+            config={"transport": "http", "endpoint": "http://bot-worker.local/decide"},
+            sender=lambda _envelope: {"choice_id": "yes"},
+        )
+        state = self._module_state(
+            frame_id="turn:2:p0",
+            module_id="mod:turn:2:p0:purchase",
+            module_type="PurchaseDecisionModule",
+            module_cursor="purchase:await_choice",
+        )
+        player = type("Player", (), {"player_id": 0, "cash": 5, "position": 9, "shards": 1})()
+        call = build_routed_decision_call(
+            build_decision_invocation("choose_purchase_tile", (state, player, 9, "T2", 4), {"source": "landing"}),
+            fallback_policy="ai",
+        )
+
+        with self.assertRaises(PromptRequired) as raised:
+            transport.resolve(call)
+
+        prompt = raised.exception.prompt
+        self.assertEqual(prompt["request_id"], "sess_http_module:ai_purchase_tile:p1")
+        self.assertEqual(prompt["runner_kind"], "module")
+        self.assertEqual(prompt["resume_token"], state.runtime_active_prompt.resume_token)
+        self.assertEqual(prompt["frame_id"], "turn:2:p0")
+        self.assertEqual(prompt["module_id"], "mod:turn:2:p0:purchase")
+        self.assertEqual(prompt["module_type"], "PurchaseDecisionModule")
+        self.assertEqual(prompt["module_cursor"], "purchase:await_choice")
+        self.assertEqual(prompt["runtime_module"]["module_type"], "PurchaseDecisionModule")
+        self.assertEqual(gateway.calls[-1]["prompt_metadata"]["resume_token"], state.runtime_active_prompt.resume_token)
+
     def test_auth_headers_merge_custom_header_and_scheme(self) -> None:
         from apps.server.src.services.runtime_service import _merge_external_ai_auth_headers
 

@@ -88,8 +88,8 @@ Read and maintain these:
   `BatchCollector` instead of appending per-player decision commands, and
   completed batches re-enter `SessionLoop` as one `batch_complete` command;
   `RuntimeService.process_command_once()` remains only as a compatibility
-  wrapper over that executor. Remaining high-risk work is remote external AI
-  operation/deployment evidence and any future local/loopback AI policy
+  wrapper over that executor. Remaining high-risk work is out-of-process
+  external AI full-stack evidence and any future local/loopback AI policy
   convergence, not router/session-loop ownership.
 
 ## Closed Enough

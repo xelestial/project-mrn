@@ -19,9 +19,10 @@ in the active plans, status index, tests, or canonical contract documents.
   same deterministic `request_id`; it does not create a new per-process/random
   request id and supersede the original prompt.
 - AI decision events now use a deterministic protocol id derived from request
-  type, player id, and public context fingerprint. This only removes local
-  random identity from the current in-process AI event path; it does not replace
-  the still-open external AI worker/callback redesign.
+  type, player id, and public context fingerprint. At the time of this cleanup
+  it did not replace the external AI worker/callback redesign; the HTTP
+  external AI path was later moved to a pending prompt plus callback command
+  boundary, while local/loopback AI remains a separate test-profile concern.
 - Responsibility moved: request identity is no longer owned by a
   `DecisionGateway` in-memory counter. Prompt identity is owned by protocol
   boundary data, and duplicate pending prompts remain owned by the existing

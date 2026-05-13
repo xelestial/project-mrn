@@ -209,8 +209,9 @@ Outcome:
 Conclusion:
 
 - local real HTTP external AI endpoint behavior is verified
-- a remote non-local external AI endpoint still requires its actual base URL and
-  credential/config values before it can be called evidence
+- deployment-grade external AI evidence still requires an out-of-process worker
+  endpoint wired through a real server stack; credentials are required only when
+  that endpoint enables auth
 
 ## 5. Final Manual Playtest Closure
 

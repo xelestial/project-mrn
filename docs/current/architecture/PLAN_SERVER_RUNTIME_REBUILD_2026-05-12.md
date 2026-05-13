@@ -356,7 +356,7 @@ commit signal
 - 완료: stale decision command는 prompt lifecycle을 근거로 `superseded` 또는 `expired` terminal state를 기록한다.
 - 완료: duplicate request id는 기존 command를 재처리하지 않고 `None`을 반환하며, 이 실패는 session command seq를 소비하지 않는 테스트로 고정했다.
 - 완료: command seq는 session별로 독립적인 monotonic counter라는 테스트를 추가했다.
-- 남은 작업: 실제 session loop 분리와 inbox drain API는 Phase 2/3/7 경계에서 이어서 구현해야 한다.
+- 당시 남은 작업(이후 완료): 실제 session loop 분리와 inbox drain API는 Phase 2/3/7 경계에서 이어서 구현해야 했다.
 
 ### Phase 2 - Router를 wake signal 전용으로 축소
 
@@ -438,7 +438,7 @@ commit signal
 - 검증: 5개 서버와 1개 Redis 조건에서 `tmp/rl/full-stack-protocol/server-rebuild-5server-1redis-yieldfix-20260512` protocol gate가 통과했다.
 - 병목 증거: 1개 서버에 20개 게임을 동시에 붙인 조건은 `tmp/rl/full-stack-protocol/server-rebuild-1server-20game-yieldfix-20260512`에서 backend timing gate로 실패했다. 실패 원인은 Redis commit이나 ACK 누락이 아니라 `InitialRewardModule` engine transition wall time이다. 해당 run의 `runtime_transition_phase_timing` 125건 중 3건이 5000ms를 넘었고, 모두 `InitialRewardModule`이었다. 최대값은 `total_ms=6386`, `engine_transition_ms=6238`, `redis_commit_ms=53`, `view_commit_build_ms=11`이다.
 - 판단: 이 결과는 command loss 결함은 수정됐지만 단일 Python server process에 20개 live session transition을 몰아넣으면 engine 실행 wall time이 gate 기준을 넘는다는 capacity/bottleneck 증거다. 5서버/1Redis는 통과하고 1서버/20게임만 실패했으므로 현 단계의 병목은 Redis 분리보다 서버 실행자 수와 engine transition scheduling에 더 가깝다.
-- 남은 작업: Phase 7의 external AI command-boundary 통합은 아직 남아 있다. remote owner/pubsub wake signal은 현재 필수 설계가 아니므로 열린 작업에서 제외한다.
+- 당시 남은 작업(이후 완료): Phase 7의 HTTP external AI command-boundary 통합은 아직 남아 있었다. remote owner/pubsub wake signal은 현재 필수 설계가 아니므로 열린 작업에서 제외한다.
 
 ### Phase 4 - decision route에서 view_commit 의존 제거
 
@@ -565,10 +565,10 @@ commit signal
 
 - 완료: `PromptService.record_timeout_fallback_decision()`은 timeout fallback decision을 `CommandInbox.append_decision_command()`로 기록하고, 성공 시 accepted command reference를 반환한다.
 - 완료: `PromptTimeoutWorker`는 timeout fallback command가 accepted된 뒤 `CommandRouter.wake_after_accept()`를 호출한다. 따라서 human decision과 timeout fallback 모두 durable command append 이후 wakeup된다.
-- 의도적 미완료: external AI는 아직 동일 경계로 수렴하지 않는다. 현재 서버에는 AI callback handler가 없고, `apps/server/src/services/runtime_service.py`의 `_LocalAiDecisionClient`, `_LoopbackExternalAiTransport`, `_HttpExternalAiTransport`가 runtime 실행 중 `DecisionGateway.resolve_ai_decision()`으로 동기 resolve/publish한다.
-- 근거: `apps/server/src/external_ai_app.py`의 `/decide`는 게임 서버가 AI 결과를 받는 callback이 아니라 외부 AI worker 프로세스가 요청을 받아 choice를 반환하는 endpoint다. 게임 서버 쪽 `_HttpExternalAiTransport.resolve()`는 이 worker를 호출한 뒤 같은 runtime call stack 안에서 `DecisionGateway.resolve_ai_decision()`으로 결정 이벤트를 publish한다.
-- 채택하지 않은 수정: `_HttpExternalAiTransport.resolve()`나 worker response 처리 직후 `CommandInbox.accept()`를 끼워 넣지 않았다. 그렇게 하면 현재 동기 결정 publish는 그대로 남고 command stream에도 같은 결정이 추가되어, 하나의 AI 선택에 대해 두 authoritative path가 생긴다.
-- 판단: 이 상태에서 AI 결과만 `CommandInbox`에 append하면 runtime이 prompt boundary에서 멈추는 구조가 없어서 "동기 AI 실행 + command 재입력" 이중 경로가 된다. AI까지 수렴하려면 Phase 3 `SessionLoop`가 먼저 pending AI prompt boundary에서 멈추고, 외부 worker 결과가 나중에 같은 decision command로 재진입해야 한다.
+- 2026-05-12 당시 의도적 미완료: external AI는 아직 동일 경계로 수렴하지 않았다. 당시 서버에는 AI callback handler가 없고, `apps/server/src/services/runtime_service.py`의 `_LocalAiDecisionClient`, `_LoopbackExternalAiTransport`, `_HttpExternalAiTransport`가 runtime 실행 중 `DecisionGateway.resolve_ai_decision()`으로 동기 resolve/publish했다.
+- 2026-05-12 당시 근거: `apps/server/src/external_ai_app.py`의 `/decide`는 게임 서버가 AI 결과를 받는 callback이 아니라 외부 AI worker 프로세스가 요청을 받아 choice를 반환하는 endpoint였다. 게임 서버 쪽 `_HttpExternalAiTransport.resolve()`는 이 worker를 호출한 뒤 같은 runtime call stack 안에서 `DecisionGateway.resolve_ai_decision()`으로 결정 이벤트를 publish했다.
+- 2026-05-12 당시 채택하지 않은 수정: `_HttpExternalAiTransport.resolve()`나 worker response 처리 직후 `CommandInbox.accept()`를 끼워 넣지 않았다. 그렇게 하면 당시 동기 결정 publish는 그대로 남고 command stream에도 같은 결정이 추가되어, 하나의 AI 선택에 대해 두 authoritative path가 생겼다.
+- 2026-05-12 당시 판단: 이 상태에서 AI 결과만 `CommandInbox`에 append하면 runtime이 prompt boundary에서 멈추는 구조가 없어서 "동기 AI 실행 + command 재입력" 이중 경로가 된다. AI까지 수렴하려면 Phase 3 `SessionLoop`가 먼저 pending AI prompt boundary에서 멈추고, 외부 worker 결과가 나중에 같은 decision command로 재진입해야 했다.
 
 2026-05-13 구현 상태:
 
@@ -613,7 +613,7 @@ commit signal
 - 완료: boundary id는 `frame_id`, `module_id`, `module_cursor`, optional `batch_id`, `player_id`, `request_type`, `prompt_instance_id`를 포함한다. 따라서 같은 round/turn/player/request_type이라도 module boundary가 다르면 충돌하지 않는다.
 - 완료: boundary 없는 prompt는 기존 `session:rX:tY:pZ:type:N` 형식을 유지한다. 이것이 old id shape adapter다.
 - 완료: `DecisionGateway`의 process-local request id retry fallback을 제거했다. blocking human prompt가 같은 deterministic `request_id`의 pending prompt를 다시 만나면 새 id를 만들지 않고 기존 prompt payload를 publish/wait 대상으로 재사용한다.
-- 완료: `DecisionGateway.resolve_ai_decision()`은 process-local counter/random id를 쓰지 않고 request type, player id, public context fingerprint로 stable protocol id를 만든다. 이 값은 AI 이벤트 상관관계용 id이며 외부 AI callback 분리 자체는 Phase 7의 남은 작업이다.
+- 완료: `DecisionGateway.resolve_ai_decision()`은 process-local counter/random id를 쓰지 않고 request type, player id, public context fingerprint로 stable protocol id를 만든다. 이 값은 AI 이벤트 상관관계용 id이다. 당시 외부 AI callback 분리는 Phase 7의 남은 작업이었고, HTTP external AI path는 2026-05-13에 provider=`ai` pending prompt와 callback command boundary로 분리됐다.
 - 완료: runtime recovery prompt sequence seed 계산은 `apps/server/src/domain/prompt_sequence.py`로 이동했다.
 - 완료: 서버 `_LocalHumanDecisionClient`는 더 이상 engine `HumanHttpPolicy._prompt_seq` private field를 prompt sequence source로 읽거나 쓰지 않는다. 서버 adapter가 checkpoint seed에서 이어받은 `_prompt_seq`를 자체 보유한다.
 - 남음: process-local prompt sequence source 자체는 아직 완전히 제거하지 않았다. 이를 제거하려면 session loop 또는 prompt boundary service가 prompt boundary 생성을 완전히 소유해야 한다. engine 독립 실행용 `HumanHttpPolicy._prompt_seq`도 이 단계에서는 유지한다.

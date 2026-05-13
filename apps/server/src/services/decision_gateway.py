@@ -2288,40 +2288,45 @@ class DecisionGateway:
     def resolve_external_ai_prompt(
         self,
         *,
+        request_id: str | None = None,
         request_type: str,
         player_id: int,
         public_context: dict[str, Any],
         legal_choices: list[dict[str, Any]],
         timeout_ms: int,
+        prompt_metadata: dict[str, Any] | None = None,
         parser: Callable[[dict[str, Any]], Any],
         fallback_fn: Callable[[], Any],
     ) -> Any:
-        request_id = self._stable_ai_request_id(
+        resolved_request_id = str(request_id or "").strip() or self._stable_ai_request_id(
             request_type=request_type,
             player_id=player_id,
             public_context=public_context,
         )
-        prompt_payload = ensure_prompt_fingerprint(
-            {
-                "request_id": request_id,
-                "request_type": request_type,
-                "player_id": player_id,
-                "provider": "ai",
-                "timeout_ms": max(1, int(timeout_ms or DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)),
-                "fallback_policy": "ai",
-                "public_context": dict(public_context),
-                "legal_choices": [dict(choice) for choice in legal_choices],
-            }
-        )
+        prompt_payload = {
+            "request_id": resolved_request_id,
+            "request_type": request_type,
+            "player_id": player_id,
+            "provider": "ai",
+            "timeout_ms": max(1, int(timeout_ms or DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)),
+            "fallback_policy": "ai",
+            "public_context": dict(public_context),
+            "legal_choices": [dict(choice) for choice in legal_choices],
+        }
+        for key, value in dict(prompt_metadata or {}).items():
+            if key in {"request_id", "request_type", "player_id", "provider", "timeout_ms", "fallback_policy", "public_context", "legal_choices"}:
+                continue
+            prompt_payload[key] = value
+        prompt_payload = ensure_prompt_fingerprint(prompt_payload)
 
         replayed_response = self._prompt_service.wait_for_decision(
-            request_id=request_id,
+            request_id=resolved_request_id,
             timeout_ms=0,
             session_id=self._session_id,
         )
         if replayed_response is not None:
             self._require_matching_prompt_fingerprint(
-                request_id=request_id,
+                request_id=resolved_request_id,
                 player_id=player_id,
                 request_type=request_type,
                 public_context=public_context,
@@ -2333,7 +2338,7 @@ class DecisionGateway:
                 parsed = parser(replayed_response)
             except Exception:
                 self._publish_decision_resolved(
-                    request_id=request_id,
+                    request_id=resolved_request_id,
                     player_id=player_id,
                     request_type=request_type,
                     resolution="parser_error_fallback",
@@ -2343,7 +2348,7 @@ class DecisionGateway:
                 )
                 return fallback_fn()
             self._publish_decision_resolved(
-                request_id=request_id,
+                request_id=resolved_request_id,
                 player_id=int(replayed_response.get("player_id", player_id)),
                 request_type=request_type,
                 resolution="accepted",
@@ -2359,14 +2364,14 @@ class DecisionGateway:
         except ValueError as exc:
             prompt_error = str(exc)
             if prompt_error == "prompt_fingerprint_mismatch":
-                raise PromptFingerprintMismatch(request_id=request_id) from exc
+                raise PromptFingerprintMismatch(request_id=resolved_request_id) from exc
             if prompt_error == "duplicate_pending_request_id":
-                pending = self._prompt_service.get_pending_prompt(request_id, session_id=self._session_id)
+                pending = self._prompt_service.get_pending_prompt(resolved_request_id, session_id=self._session_id)
                 if pending is None:
                     raise
                 pending_payload = dict(pending.payload)
                 if prompt_fingerprint_mismatch(pending_payload, prompt_payload):
-                    raise PromptFingerprintMismatch(request_id=request_id) from exc
+                    raise PromptFingerprintMismatch(request_id=resolved_request_id) from exc
                 prompt_payload = pending_payload
                 should_publish_requested = False
             elif prompt_error == "duplicate_recent_request_id":
@@ -2376,7 +2381,7 @@ class DecisionGateway:
 
         if should_publish_requested:
             self._publish_decision_requested(
-                request_id=request_id,
+                request_id=resolved_request_id,
                 player_id=player_id,
                 request_type=request_type,
                 fallback_policy="ai",
