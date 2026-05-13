@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` when splitting implementation across workers, or `superpowers:executing-plans` when applying this plan sequentially. Track each checklist item in this document as it is completed.
 
 Status: ACTIVE STABILIZATION TRACK
-Updated: 2026-05-13
+Updated: 2026-05-14
 Owner: Engine runtime / WebSocket protocol  
 Scope: Runtime identity, sequence contracts, viewer outbox, prompt lifecycle, `view_commit` recovery, Redis debug state, full-stack protocol gates
 
@@ -760,9 +760,22 @@ Phase 4 seed-matrix evidence, 2026-05-14:
 
 ### Phase 6. Browser-Based Profile Validation
 
-- [ ] Apply per-player policy profiles to a real browser session.
-- [ ] Verify that visible UI matches the same identity, prompt lifecycle, turn history, and recovery behavior as the headless gate.
-- [ ] Fix UI-only bugs after the protocol gate is green.
+- [x] Apply per-player policy profiles to a real browser session.
+- [x] Verify that visible UI matches the same identity, prompt lifecycle, turn history, and recovery behavior as the headless gate.
+- [x] Fix UI-only bugs after the protocol gate is green. No UI-only defect was reproduced in the accepted Phase 6 run; the only fixes were test-harness setup corrections for browser server URL storage and opening the History tab before asserting turn-history DOM.
+
+Phase 6 browser-profile evidence, 2026-05-14:
+
+- Existing browser regression checks:
+  - `cd apps/web && npm run e2e:human-runtime`: 18 passed.
+  - `cd apps/web && npm run e2e:parity`: 7 passed.
+- Live run root: `tmp/rl/full-stack-protocol/phase6-browser-profile-20260514-003211`
+- Command: `MRN_API_BASE_URL=http://127.0.0.1:9091 MRN_WEB_BASE_URL=http://127.0.0.1:9000 MRN_LIVE_PROFILE_SEED=2026051401 MRN_LIVE_PROFILE_BOUNDED=1 MRN_LIVE_PROFILE_TIMEOUT_MS=300000 MRN_LIVE_PROFILE_IDLE_MS=60000 npm run e2e:live-profile-browser`
+- Session: `sess_T5uwfrJQWYfer74vMCzP8IcC`
+- Policies: `baseline:P1`, `cash-focus:P2`, `shard-focus:P3`, `conservative:P4`
+- Result: `ok=true`, `commit_seq=23`, `duration_ms=5646`, `failures=[]`
+- Browser evidence: board visible, active character strip visible, four player cards visible, turn history visible with four events, private prompt overlay hidden, console errors 0, page errors 0.
+- Client evidence: every seat reached completed runtime view commits, sent at least one policy decision, forced one reconnect, recovered reconnect with `reconnectRecoveryPendingCount=0`, and reported zero identity violations, non-monotonic commits, semantic commit regressions, spectator prompt leaks, spectator decision-ack leaks, decision send failures, stale ack leaks, and client errors.
 
 ## Release And Rollback
 

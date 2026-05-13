@@ -1,7 +1,7 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-05-13
+Updated: 2026-05-14
 Owner: Engine runtime
 
 ## Purpose
@@ -49,8 +49,12 @@ Current goal:
 - keep the Phase 4 live protocol gate as the active regression guard: one-game
   and five-game read-mode gates now emit `protocol_evidence`; any future failed
   seed must be promoted into a regression fixture with its saved artifacts
-- move next to Phase 6 browser-based profile validation before removing the
-  legacy send-time projection fallback
+- keep the Phase 6 browser-profile gate as the UI/runtime guard: the accepted
+  run proves real browser rendering for per-player policy profiles, spectator
+  privacy, reconnect recovery, and turn history against the live read-mode stack
+- do not remove the legacy send-time projection fallback after only one browser
+  run; require repeated read-mode stability across the headless seed matrix and
+  browser-profile gate first
 
 ### 2. Redis-Authoritative State And Visibility Projection
 
@@ -72,6 +76,8 @@ Current goal:
 - preserve production-like Redis restart-smoke evidence when backend/runtime
   boundary work changes process roles, recovery, prompt continuation, or stream
   projection
+- close remaining Redis debug acceptance gaps only when they improve
+  inspectability without turning debug snapshots into unbounded logs
 
 ### 3. Frontend Readability Follow-Up
 
