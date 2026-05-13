@@ -367,7 +367,7 @@ commit signal
 - [x] `CommandRouter` 추가
 - [x] route 입력 타입을 "accepted command reference"로 제한한다.
 - [x] local queue push는 wake signal로만 사용한다.
-- [ ] remote owner 또는 owner unknown이면 Redis signal/poll recovery로 깨운다.
+- [x] remote owner 또는 owner unknown이면 Redis poll recovery로 깨운다.
 - [x] route 실패가 command loss가 되지 않도록 기존 command stream recovery worker를 유지한다.
 
 수정 후보:
@@ -389,8 +389,8 @@ commit signal
 - 완료: 같은 session/command seq wakeup은 process-local task map으로 dedupe한다. 처리 중인 runtime이 있으면 `running_elsewhere` 결과에 대해 제한 시간 안에서 재시도한다.
 - 완료: `CommandStreamWakeupWorker`가 Redis inbox에서 pending command를 발견하면 runtime을 직접 실행하지 않고 `SessionLoopManager`로 handoff할 수 있다.
 - 완료: 이 handoff 경로는 current process memory queue 없이 Redis command store와 consumer offset만 본다.
-- 유지: 별도 remote owner/pubsub signal은 아직 없다. 다중 프로세스 복구는 polling worker가 source of truth인 Redis inbox를 다시 읽는 방식으로 보장한다.
-- 남은 작업: remote owner/pubsub signal을 붙일지는 Phase 9 worker 축소 때 결정한다. 지금 필수성은 낮다.
+- 선택: 별도 remote owner/pubsub signal은 채택하지 않았다. 다중 프로세스 복구는 polling worker가 source of truth인 Redis inbox를 다시 읽는 방식으로 보장한다.
+- 검증: `apps/server/tests/test_command_wakeup_worker.py`의 cross-process/wakeup handoff 테스트와 `apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_command_wakeup_restart_resumes_queued_purchase_prompt_from_redis`가 process-local memory queue 없이 Redis command store와 consumer offset만으로 pending command를 회복하는 계약을 고정한다.
 
 ### Phase 3 - SessionLoop single writer 도입
 
@@ -400,11 +400,11 @@ commit signal
 
 - [x] `SessionLoop` 구현
 - [x] `SessionLoopManager` 구현
-- [ ] 세션 시작 시 loop start 또는 lazy wake start 정책 결정
+- [x] 세션 시작 시 loop start 또는 lazy wake start 정책 결정
 - [x] loop가 Redis lease를 획득한 뒤에만 engine을 실행하게 한다.
 - [x] loop가 command inbox를 seq 순서로 drain한다.
 - [x] engine 결과 commit과 command terminal state update를 같은 경계에서 수행한다.
-- [ ] idle timeout 시 lease를 반납하고 loop를 종료한다.
+- [x] bounded drain 완료 시 lease를 반납하고 loop task를 종료한다.
 - [x] restart 시 in-progress session의 pending command를 찾아 loop를 재시작한다.
 
 수정 후보:
@@ -419,7 +419,7 @@ commit signal
 
 - [x] 같은 session에 대해 두 loop가 동시에 commit하지 않는다.
 - [x] lease lost 상태에서는 commit하지 않는다.
-- [ ] process restart 후 pending accepted command가 사라지지 않는다.
+- [x] process restart 후 pending accepted command가 사라지지 않는다.
 
 2026-05-12 구현 상태:
 
@@ -432,10 +432,13 @@ commit signal
 - 완료: restart/poll recovery는 기존 `CommandStreamWakeupWorker`가 pending command를 발견한 뒤 manager를 깨우는 형태로 수렴시켰다.
 - 완료: `CommandStreamWakeupWorker`가 runtime 처리를 비활성화한 경우에는 pending command를 소비한 것처럼 `runtime_wakeup` offset을 전진시키지 않는다. 비활성 worker가 offset만 저장하면 나중에 manager가 같은 accepted command를 보지 못하므로 command loss가 된다.
 - 완료: `SessionLoopManager`는 한 drain이 `yielded`로 끝나도 task를 종료하지 않는다. `max_commands_per_wakeup` 예산을 소진한 동안 들어온 중복 wakeup은 dedupe되므로, yielded를 terminal로 보면 뒤에 남은 durable command가 다음 poll까지 처리되지 않거나 조건에 따라 멈춘다. manager는 이제 `yielded`를 같은 task 안에서 즉시 재-drain한다.
+- 완료: loop start 정책은 lazy wake start로 결정했다. session start는 long-lived loop를 만들지 않고, durable accepted command가 생긴 뒤 `CommandRouter` 또는 `CommandStreamWakeupWorker`가 `SessionLoopManager`를 깨운다.
+- 완료: SessionLoop는 idle daemon이 아니라 bounded drain task다. `SessionCommandExecutor`는 command마다 Redis lease를 얻고 `finally`에서 lease renewer stop, lease release, process-local processing flag release를 수행한다. manager task는 Redis inbox가 idle이면 종료되고 task map에서 제거된다.
+- 완료: process restart 후 pending accepted command 보존은 Redis inbox와 wakeup worker polling으로 처리한다. 단위 테스트는 `test_command_wakeup_restart_resumes_queued_purchase_prompt_from_redis`가, 실서버 smoke는 `tmp/rl/full-stack-protocol/server-rebuild-1game-prompt-probe-fix-20260513` 및 restart/duplicate smoke가 검증했다.
 - 검증: 5개 서버와 1개 Redis 조건에서 `tmp/rl/full-stack-protocol/server-rebuild-5server-1redis-yieldfix-20260512` protocol gate가 통과했다.
 - 병목 증거: 1개 서버에 20개 게임을 동시에 붙인 조건은 `tmp/rl/full-stack-protocol/server-rebuild-1server-20game-yieldfix-20260512`에서 backend timing gate로 실패했다. 실패 원인은 Redis commit이나 ACK 누락이 아니라 `InitialRewardModule` engine transition wall time이다. 해당 run의 `runtime_transition_phase_timing` 125건 중 3건이 5000ms를 넘었고, 모두 `InitialRewardModule`이었다. 최대값은 `total_ms=6386`, `engine_transition_ms=6238`, `redis_commit_ms=53`, `view_commit_build_ms=11`이다.
 - 판단: 이 결과는 command loss 결함은 수정됐지만 단일 Python server process에 20개 live session transition을 몰아넣으면 engine 실행 wall time이 gate 기준을 넘는다는 capacity/bottleneck 증거다. 5서버/1Redis는 통과하고 1서버/20게임만 실패했으므로 현 단계의 병목은 Redis 분리보다 서버 실행자 수와 engine transition scheduling에 더 가깝다.
-- 남은 작업: remote owner/pubsub wake signal과 process restart smoke 검증은 아직 남아 있다.
+- 남은 작업: Phase 7의 external AI command-boundary 통합은 아직 남아 있다. remote owner/pubsub wake signal은 현재 필수 설계가 아니므로 열린 작업에서 제외한다.
 
 ### Phase 4 - decision route에서 view_commit 의존 제거
 

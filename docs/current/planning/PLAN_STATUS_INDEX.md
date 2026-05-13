@@ -66,8 +66,8 @@ Read and maintain these:
   `docs/current/engineering/EVIDENCE_FINAL_MANUAL_PLAYTEST_2026-05-04.md`
 - Current server runtime rebuild:
   `docs/current/architecture/PLAN_SERVER_RUNTIME_REBUILD_2026-05-12.md`
-  Current Phase 9 work has removed direct runtime execution fallback from
-  wakeup paths and split route-level command recovery queries into
+  Current server-runtime rebuild work has removed direct runtime execution
+  fallback from wakeup paths and split route-level command recovery queries into
   `CommandRecoveryService`; command precondition and stale terminal handling now
   live in `CommandProcessingGuardService`; in-process active command/task gating
   lives in `CommandExecutionGate`; command-boundary deferred commit finalization
@@ -80,8 +80,10 @@ Read and maintain these:
   `DecisionGateway` no longer owns process-local/random request id fallback for
   human prompt retry or AI decision events; `_LocalHumanDecisionClient` no
   longer uses engine `HumanHttpPolicy._prompt_seq` as its private prompt
-  sequence source; `RuntimeService.process_command_once()` remains only as a
-  compatibility wrapper over that executor.
+  sequence source; prompt replay probing is now nonblocking on the live
+  prompt-creation path; `RuntimeService.process_command_once()` remains only as
+  a compatibility wrapper over that executor. Remaining high-risk work is the
+  external AI command-boundary redesign, not router/session-loop ownership.
 
 ## Closed Enough
 

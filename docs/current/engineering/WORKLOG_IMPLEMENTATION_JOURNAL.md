@@ -188,6 +188,25 @@ materialization. The remaining 20-game/1-server failure belongs to single-server
 runtime scheduling/capacity, not prompt identity, Redis commit, view projection,
 ACK delivery, or command inbox dedupe.
 
+## 2026-05-13 Session Loop Recovery Status Closure
+
+- Closed stale Phase 2/3 checklist items in the active server-runtime rebuild
+  plan against existing implementation evidence.
+- The selected wake policy is lazy wake start: session start does not create a
+  long-lived loop; accepted durable commands wake `SessionLoopManager` through
+  `CommandRouter` or `CommandStreamWakeupWorker`.
+- The loop is a bounded drain task, not an idle daemon. Lease ownership is scoped
+  to each command execution and released in `SessionCommandExecutor.finally`;
+  the manager task exits once the Redis inbox is idle.
+- Restart recovery is covered by Redis command inbox plus worker polling, not
+  by process-local queue state or a separate remote-owner pub/sub signal.
+
+Responsibility result: no runtime responsibility moved in this checkpoint. The
+plan now matches the already implemented ownership: Redis inbox is durable
+authority, router/worker are wake paths, and `SessionLoopManager` owns one
+process-local drain task per session. External AI command-boundary unification
+remains open.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
