@@ -100,7 +100,7 @@ Residual Phase 0 boundaries:
 
 - `stable_prompt_request_id()` intentionally keeps legacy semantic request IDs as the canonical storage/resume key until module-boundary resume parsing is removed. Prompt payloads, lifecycle records, decisions, and `decision_requested` events now expose additive opaque companions: `legacy_request_id`, `public_request_id`, and `public_prompt_instance_id`.
 - Decision submission accepts `public_request_id` as a protocol alias at the `PromptService` boundary, then normalizes back to the legacy request key before pending lookup, lifecycle writes, decision storage, and command append. This is an adapter step, not a canonical storage-key migration.
-- Module decision commands now carry explicit `prompt_instance_id`, and runtime resume sequence matching consumes that field before falling back to legacy request-id parsing. This removes one semantic `request_id` dependency but does not yet remove batch-id parsing.
+- Module decision commands now carry explicit `prompt_instance_id`, and runtime resume sequence matching consumes that field before falling back to legacy request-id parsing. Batch-complete resume materialization now preserves `responses_by_public_player_id` companions for diagnostics and future migration, but engine state application still uses numeric `responses_by_player_id`. This removes one semantic `request_id` dependency but does not yet remove batch-id parsing or numeric batch response application.
 - Runtime prompt sequence seeding now consumes explicit `prompt_instance_id` from the current decision resume and previous checkpoint debug fields before falling back to legacy request-id parsing. This keeps opaque prompt request IDs from resetting or over-advancing the module prompt sequence during recovery.
 - Active batch prompt enrichment now prefers explicit `batch_id` plus submitted `player_id` to find the active continuation, so an opaque submitted `request_id` can still receive resume/module metadata. Legacy `batch:*:pN` parsing remains as fallback.
 - `prompt_instance_id` remains numeric as the compatibility lifecycle key. `public_prompt_instance_id` is the opaque protocol companion.
@@ -875,6 +875,9 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_batch_collector.py::BatchCollectorTests::test_records_remaining_and_emits_single_batch_complete_command`
   verifies that the emitted `batch_complete` command keeps numeric `responses_by_player_id` and adds
   `responses_by_public_player_id` when collected responses include public player identity.
+- `apps/server/tests/test_runtime_service.py::test_decision_resume_from_batch_complete_command_uses_collected_response`
+  verifies that runtime resume materialization preserves that public response companion while keeping numeric
+  batch response application as the engine bridge.
 - `apps/server/tests/test_runtime_service.py::test_fanout_event_payload_adds_public_identity_for_direct_player`
   verifies that runtime fanout events with direct `player_id` include public identity fields while preserving
   the numeric compatibility alias.

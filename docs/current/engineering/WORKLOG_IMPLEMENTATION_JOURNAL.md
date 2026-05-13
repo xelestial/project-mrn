@@ -43,6 +43,9 @@ in the active plans, status index, tests, or canonical contract documents.
   `responses_by_public_player_id` as an additive companion derived from
   collected response payloads. Numeric `responses_by_player_id` remains the
   canonical resume map for compatibility.
+- `RuntimeDecisionResume` now preserves `responses_by_public_player_id` from
+  `batch_complete` payloads, but `_apply_collected_batch_responses_to_state()`
+  still applies collected responses through the numeric engine bridge.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Compatibility storage and replay still keep
   the legacy request id key until the canonical opaque prompt-key migration is

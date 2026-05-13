@@ -7073,6 +7073,7 @@ class RuntimeServiceTests(unittest.TestCase):
                                 "1": {
                                     "request_id": "batch:simul:resupply:1:p0",
                                     "player_id": 1,
+                                    "public_player_id": "ply_1",
                                     "request_type": "burden_exchange",
                                     "choice_id": "yes",
                                     "decision": {"choice_payload": {"accepted": True}},
@@ -7086,6 +7087,7 @@ class RuntimeServiceTests(unittest.TestCase):
                                 "2": {
                                     "request_id": "batch:simul:resupply:1:p1",
                                     "player_id": 2,
+                                    "public_player_id": "ply_2",
                                     "request_type": "burden_exchange",
                                     "choice_id": "no",
                                     "provider": "ai",
@@ -7097,6 +7099,10 @@ class RuntimeServiceTests(unittest.TestCase):
                                     "module_cursor": "await_resupply_batch:1",
                                     "batch_id": "batch:simul:resupply:1",
                                 },
+                            },
+                            "responses_by_public_player_id": {
+                                "ply_1": {"choice_id": "yes", "public_player_id": "ply_1"},
+                                "ply_2": {"choice_id": "no", "public_player_id": "ply_2"},
                             },
                         },
                     }
@@ -7120,6 +7126,8 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(resume.batch_id, "batch:simul:resupply:1")
         self.assertEqual(resume.provider, "ai")
         self.assertEqual(sorted(resume.batch_responses_by_player_id), [1, 2])
+        self.assertEqual(sorted(resume.batch_responses_by_public_player_id), ["ply_1", "ply_2"])
+        self.assertEqual(resume.batch_responses_by_public_player_id["ply_2"]["choice_id"], "no")
 
     def test_collected_batch_responses_are_applied_before_primary_resume(self) -> None:
         frame = FrameState(

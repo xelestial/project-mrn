@@ -98,6 +98,7 @@ class RuntimeDecisionResume:
     batch_id: str = ""
     provider: str = "human"
     batch_responses_by_player_id: dict[int, dict[str, Any]] = field(default_factory=dict)
+    batch_responses_by_public_player_id: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class RuntimeDecisionResumeMismatch(ValueError):
@@ -168,6 +169,23 @@ def _batch_response_choice_payload(response: dict[str, Any]) -> dict:
         if isinstance(decision, dict):
             choice_payload = decision.get("choice_payload")
     return _normalize_decision_choice_payload(choice_payload)
+
+
+def _batch_responses_by_public_player_id(
+    explicit_public_responses: object,
+    responses_by_player_id: dict[int, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    responses: dict[str, dict[str, Any]] = {}
+    if isinstance(explicit_public_responses, dict):
+        for raw_public_player_id, raw_response in explicit_public_responses.items():
+            public_player_id = str(raw_public_player_id or "").strip()
+            if public_player_id and isinstance(raw_response, dict):
+                responses[public_player_id] = dict(raw_response)
+    for response in responses_by_player_id.values():
+        public_player_id = str(response.get("public_player_id") or "").strip()
+        if public_player_id:
+            responses.setdefault(public_player_id, dict(response))
+    return responses
 
 
 _ACTIVE_FLIP_BATCH_NOT_APPLICABLE = object()
@@ -1969,6 +1987,10 @@ class RuntimeService:
             normalized[player_id] = response
         if not normalized:
             return None
+        public_responses = _batch_responses_by_public_player_id(
+            payload.get("responses_by_public_player_id"),
+            normalized,
+        )
         expected = [
             int(raw)
             for raw in payload.get("expected_player_ids", [])
@@ -1998,6 +2020,7 @@ class RuntimeService:
             batch_id=batch_id,
             provider=provider,
             batch_responses_by_player_id=normalized,
+            batch_responses_by_public_player_id=public_responses,
         )
 
     def _validate_decision_resume_against_checkpoint(self, state, resume: RuntimeDecisionResume) -> None:  # noqa: ANN001
