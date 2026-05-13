@@ -17,6 +17,12 @@ describe("decisionProtocol lifecycle handling", () => {
         promptFingerprint: "sha256:prompt-1",
         promptFingerprintVersion: "prompt-fingerprint-v1",
         promptInstanceId: 1,
+        resumeToken: "resume-token-1",
+        frameId: "frame-1",
+        moduleId: "module-1",
+        moduleType: "PurchaseModule",
+        moduleCursor: "cursor-1",
+        batchId: "batch-1",
       },
     });
 

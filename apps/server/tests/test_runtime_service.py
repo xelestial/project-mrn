@@ -987,6 +987,52 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(len(callbacks), 1)
 
+    def test_round_and_turn_snapshot_guardrails_emit_after_latest_view_commit(self) -> None:
+        calls: list[tuple[str, str | None, int | None]] = []
+
+        class StreamStub:
+            async def emit_latest_view_commit(self, session_id: str):
+                calls.append(("view_commit", session_id, None))
+                return None
+
+            async def emit_snapshot_pulse(
+                self,
+                session_id: str,
+                *,
+                reason: str,
+                target_player_id: int | None = None,
+            ):
+                calls.append((reason, session_id, target_player_id))
+                return None
+
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            self.runtime_service._stream_service = StreamStub()
+            self.runtime_service._emit_latest_view_commit_sync(loop, "sess_guardrail_order")
+            self.runtime_service._emit_snapshot_pulses_sync(
+                loop,
+                "sess_guardrail_order",
+                [
+                    {"reason": "round_start_guardrail", "target_player_id": None},
+                    {"reason": "turn_start_guardrail", "target_player_id": 2},
+                ],
+            )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+        self.assertEqual(
+            calls,
+            [
+                ("view_commit", "sess_guardrail_order", None),
+                ("round_start_guardrail", "sess_guardrail_order", None),
+                ("turn_start_guardrail", "sess_guardrail_order", 2),
+            ],
+        )
+
     def test_redis_backed_prompt_boundary_publish_is_scheduled_without_blocking_runtime(self) -> None:
         callbacks = []
 

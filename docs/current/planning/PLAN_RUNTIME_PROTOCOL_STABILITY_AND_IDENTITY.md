@@ -678,12 +678,19 @@ retention window.
 ### Phase 2. Strict `view_commit` Recovery
 
 - [x] Ensure latest `view_commit` is sent on connect and resume repair.
-- [ ] Prove latest `view_commit` on heartbeat repair, round start, and turn start.
-- [ ] Treat raw prompt messages as wake-up hints only.
-- [ ] Make React and headless clients decide only from active prompt state in `view_commit`.
-- [ ] Verify with `apps/server/tests/test_runtime_end_to_end_contract.py`.
-- [ ] Verify with `apps/web/src/headless/HeadlessGameClient.spec.ts`.
-- [ ] Verify with `apps/web/src/hooks/useGameStream.spec.ts`.
+- [x] Prove latest `view_commit` on heartbeat repair, round start, and turn start.
+- [x] Treat raw prompt messages as wake-up hints only.
+- [x] Make React and headless clients decide only from active prompt state in `view_commit`.
+- [x] Verify with `apps/server/tests/test_runtime_end_to_end_contract.py`.
+- [x] Verify with `apps/web/src/headless/HeadlessGameClient.spec.ts`.
+- [x] Verify with `apps/web/src/hooks/useGameStream.spec.ts`.
+
+Phase 2 completion note: `stream_ws` now checks the latest cached `view_commit` during heartbeat
+delivery and sends it before the heartbeat when the client has not seen that commit. Runtime
+round-start and turn-start snapshot guardrails remain ordered after latest-commit emission.
+Raw `prompt` WebSocket messages remain wake-up hints only; the headless client waits for
+`view_commit.view_state.prompt.active` and builds decisions from that authoritative active prompt.
+The React selector path continues to ignore raw prompt/event payloads for active-prompt state.
 
 ### Phase 3. Viewer Outbox Dual-Write
 
@@ -691,24 +698,65 @@ retention window.
 - [x] Record projected delivery scopes while keeping the old publish path active.
 - [x] Add outbox audit checks for target-only prompt and ack delivery.
 - [x] Add spectator hidden payload tests.
-- [ ] Add real per-viewer outbox read mode behind `MRN_STREAM_OUTBOX_MODE`.
+- [x] Add viewer-aware WebSocket read mode behind `MRN_STREAM_OUTBOX_MODE`.
 - [x] Verify with `apps/server/tests/test_stream_service.py`.
 - [x] Verify with `apps/server/tests/test_stream_api.py`.
 - [x] Verify with `apps/server/tests/test_visibility_projection.py`.
 
+Phase 3 completion note: `MRN_STREAM_OUTBOX_MODE=read` now binds viewer identity to each
+WebSocket subscriber queue and projects messages before queue insertion. Private prompts and
+targeted `decision_ack` messages are therefore filtered before they become readable by a
+non-target subscriber queue. `dual` remains the default and keeps the old raw queue plus
+send-time projection path for parity checks. `off` keeps legacy delivery and disables Redis
+viewer-outbox debug/index writes. This is not yet a full durable Redis outbox read path; the
+live protocol gate and eventual removal of legacy send-time projection remain later phases.
+
 ### Phase 4. Full-Stack Protocol Gate
 
-- [ ] Extend the headless protocol gate to assert identity, outbox, prompt lifecycle, reconnect, stale decision, and spectator privacy conditions.
-- [ ] Run one live game with four headless seats and one spectator.
-- [ ] Run a seed matrix after the one-game gate passes.
+- [x] Extend the headless protocol gate to assert identity, outbox, prompt lifecycle, reconnect, stale decision, and spectator privacy conditions.
+- [x] Run one live game with four headless seats and one spectator.
+- [x] Run a seed matrix after the one-game gate passes.
 - [ ] Promote failed seeds into regression fixtures.
+
+Phase 4 progress note: `fullStackProtocolHarness` now emits `protocolEvidence` for seat/spectator
+topology, completed view-commit delivery, prompt lifecycle trace coverage, decision/ack counts,
+stale-decision recovery, reconnect recovery, spectator privacy leaks, identity violations, monotonic
+commit failures, and client error counts. The live runner writes this as `protocol_evidence` in the
+JSON summary. The gate can now require the expected seat count, require a spectator websocket, and
+fail when a run has accepted decisions without matching `view_commit` active prompt, `decision_sent`,
+or accepted `decision_ack` trace evidence.
+
+Phase 4 live evidence, 2026-05-13:
+
+- Run root: `tmp/rl/full-stack-protocol/phase4-onegame-read-20260513-235502`
+- Mode: `MRN_STREAM_OUTBOX_MODE=read`
+- Topology: `seatClientCount=4`, `spectatorClientCount=1`, `completedViewCommitClientCount=5`
+- Recovery/privacy: `staleRecoveryCount=4`, `unrecoveredStaleAckCount=0`,
+  `forcedReconnectCount=25`, `reconnectRecoveryCount=25`, `reconnectRecoveryPendingCount=0`,
+  `spectatorPromptLeakCount=0`, `spectatorDecisionAckLeakCount=0`
+- Protocol failures: `identityViolationCount=0`, `nonMonotonicCommitCount=0`,
+  `semanticCommitRegressionCount=0`, `runtimeRecoveryRequiredCount=0`, `errorMessageCount=0`
+
+Phase 4 seed-matrix evidence, 2026-05-14:
+
+- Accepted run root: `tmp/rl/full-stack-protocol/phase4-seed-matrix-read-20260514-000107`
+- Mode/topology: `MRN_STREAM_OUTBOX_MODE=read`, `games=5`, `concurrency=5`, four seats plus one spectator per game
+- Budget: `timeout-ms=300000`, `idle-timeout-ms=60000`, raw prompt fallback disabled
+- Result: all five games reached `runtime_status=completed`; durations ranged from `55867ms` to `251916ms`
+- Protocol failures: every game reported zero identity violations, monotonic commit failures, semantic commit regressions,
+  unrecovered stale acks, pending reconnect recoveries, spectator prompt leaks, spectator decision-ack leaks, runtime
+  recovery requirements, and client error messages.
+- Regression fixture promotion: no failed seed existed in the accepted matrix. The earlier run
+  `tmp/rl/full-stack-protocol/phase4-seed-matrix-read-20260513-235645` used a 180-second hard cap and timed out while
+  still progressing (`runtime_status=running_elsewhere`, no protocol/privacy/runtime failures), so it documents the
+  matrix time budget rather than a seed-specific game defect.
 
 ### Phase 5. Flip WebSocket Read Path To Outbox
 
-- [ ] Add `MRN_STREAM_OUTBOX_MODE=off|dual|read`.
-- [ ] Keep `dual` as default until parity is proven.
-- [ ] Switch live gate to `read`.
-- [ ] Remove legacy send-time projection only after stability is demonstrated across the seed matrix.
+- [x] Add `MRN_STREAM_OUTBOX_MODE=off|dual|read`.
+- [x] Keep `dual` as default until parity is proven.
+- [x] Switch live gate to `read`.
+- [ ] Remove legacy send-time projection only after repeated stability is demonstrated across the seed matrix.
 
 ### Phase 6. Browser-Based Profile Validation
 
@@ -720,9 +768,9 @@ retention window.
 
 Use additive compatibility until all gates pass.
 
-- `MRN_STREAM_OUTBOX_MODE=off`: legacy path only.
+- `MRN_STREAM_OUTBOX_MODE=off`: legacy path only, without Redis viewer-outbox debug/index writes.
 - `MRN_STREAM_OUTBOX_MODE=dual`: write old stream and viewer outbox; send from legacy path.
-- `MRN_STREAM_OUTBOX_MODE=read`: send from viewer outbox.
+- `MRN_STREAM_OUTBOX_MODE=read`: project into viewer-aware WebSocket queues before delivery.
 
 Rollback means switching the environment flag back to `off` or `dual`. Do not delete source events or prompt lifecycle records during rollback.
 

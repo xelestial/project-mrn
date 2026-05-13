@@ -58,16 +58,17 @@ class _CachedViewCommitStore:
         index["has_view_commit"] = True
 
 
-def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000) -> None:
+def _reset_state(max_buffer: int = 2000, heartbeat_interval_ms: int = 5000, outbox_mode: str = "dual") -> None:
     from apps.server.src import state
 
     state.runtime_settings = RuntimeSettings(
         stream_heartbeat_interval_ms=heartbeat_interval_ms,
         stream_sender_poll_timeout_ms=100,
+        stream_outbox_mode=outbox_mode,
         runtime_watchdog_timeout_ms=45000,
     )
     state.session_service = SessionService()
-    state.stream_service = StreamService(max_buffer=max_buffer)
+    state.stream_service = StreamService(max_buffer=max_buffer, outbox_mode=outbox_mode)
     state.prompt_service = PromptService()
     state.runtime_service = RuntimeService(
         session_service=state.session_service,
@@ -211,10 +212,10 @@ class StreamApiTests(unittest.TestCase):
         with self.assertRaises(WebSocketDisconnect):
             asyncio.run(_receive_json_or_disconnect(ClosedWebSocket()))  # type: ignore[arg-type]
 
-    def test_heartbeat_has_no_view_commit_snapshot_repair_gate(self) -> None:
+    def test_heartbeat_uses_latest_view_commit_repair_path(self) -> None:
         from apps.server.src.routes import stream
 
-        self.assertFalse(hasattr(stream, "_should_send_heartbeat_view_commit"))
+        self.assertTrue(callable(getattr(stream, "_send_latest_view_commit", None)))
 
     def test_stale_raw_view_commit_can_be_suppressed_before_projection(self) -> None:
         from apps.server.src.routes.stream import _should_suppress_stale_raw_view_commit
@@ -286,12 +287,15 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(heartbeat.get("type"), "heartbeat")
         self.assertEqual(calls, [])
 
-    def test_heartbeat_does_not_send_new_cached_view_commit_snapshot(self) -> None:
+    def test_heartbeat_sends_new_cached_view_commit_snapshot_for_repair(self) -> None:
         from apps.server.src import state
 
         session = state.session_service.create_session(_all_ai_seats(), config={"seed": 71, "visibility": "public"})
         path = f"/api/v1/sessions/{session.session_id}/stream"
         with self.client.websocket_connect(path) as ws:
+            first = ws.receive_json()
+            self.assertEqual(first.get("type"), "heartbeat")
+
             _save_cached_view_commit(
                 session.session_id,
                 commit_seq=3,
@@ -303,12 +307,13 @@ class StreamApiTests(unittest.TestCase):
             for _ in range(8):
                 msg = ws.receive_json()
                 messages.append(msg)
-                if msg.get("type") == "heartbeat":
+                if msg.get("type") == "view_commit":
                     break
 
         commits = [msg for msg in messages if msg.get("type") == "view_commit"]
-        self.assertEqual(commits, [])
-        self.assertIn("heartbeat", {msg.get("type") for msg in messages})
+        self.assertEqual(len(commits), 1)
+        self.assertEqual(commits[0].get("payload", {}).get("commit_seq"), 3)
+        self.assertEqual(commits[0].get("payload", {}).get("source_event_seq"), 2)
 
     def test_connect_resends_pending_prompt_to_matching_seat_without_stream_event(self) -> None:
         from apps.server.src import state
@@ -1109,6 +1114,47 @@ class StreamApiTests(unittest.TestCase):
         self.assertIn("decision_ack", {msg.get("type") for msg in seat_messages})
         self.assertNotIn("prompt", {msg.get("type") for msg in spectator_messages})
         self.assertNotIn("decision_ack", {msg.get("type") for msg in spectator_messages})
+
+    def test_read_outbox_mode_delivers_private_prompt_to_target_seat(self) -> None:
+        _reset_state(max_buffer=256, heartbeat_interval_ms=250, outbox_mode="read")
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 21, "visibility": "public"})
+        join_token = session.join_tokens[1]
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=join_token)
+        session_token = joined["session_token"]
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={session_token}"
+        with self.client.websocket_connect(path) as seat_ws:
+            asyncio.run(
+                state.stream_service.publish(
+                    session.session_id,
+                    "prompt",
+                    module_prompt(
+                        {
+                            "request_id": "r_read_outbox_prompt",
+                            "request_type": "movement",
+                            "player_id": 1,
+                            "timeout_ms": 5000,
+                            "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+                        },
+                        module_type="MapMoveModule",
+                        frame_id="turn:test:p0",
+                    ),
+                )
+            )
+
+            messages: list[dict] = []
+            for _ in range(6):
+                msg = seat_ws.receive_json()
+                messages.append(msg)
+                if msg.get("type") == "prompt":
+                    break
+
+        prompts = [msg for msg in messages if msg.get("type") == "prompt"]
+        self.assertEqual(state.stream_service.outbox_mode, "read")
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(prompts[0].get("payload", {}).get("request_id"), "r_read_outbox_prompt")
 
     def test_seat_decision_retry_returns_stale_after_first_accept(self) -> None:
         from apps.server.src import state

@@ -223,6 +223,7 @@ async function main(): Promise<void> {
     protocol_latency: protocolLatency,
     throughput,
     clients: result.clientSummary,
+    protocol_evidence: result.protocolEvidence,
     trace_count: result.traces.length,
   };
   const summaryText = `${JSON.stringify(summary, null, 2)}\n`;

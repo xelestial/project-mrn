@@ -673,7 +673,7 @@ describe("HeadlessGameClient", () => {
     });
   });
 
-  it("uses raw prompt WebSocket decisions when no active prompt view_commit exists yet", async () => {
+  it("treats a raw prompt as a wake-up hint until an active view_commit prompt exists", async () => {
     const client = new HeadlessGameClient({
       sessionId: "sess_headless_raw_prompt",
       token: "seat-3",
@@ -848,6 +848,59 @@ describe("HeadlessGameClient", () => {
         }),
       ),
     ).toEqual([]);
+  });
+
+  it("decides from active view_commit prompt data instead of raw prompt choices", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_raw_prompt_hint",
+      token: "seat-3",
+      playerId: 3,
+      policy: baselineDecisionPolicy,
+    });
+
+    expect(
+      await client.ingestMessage({
+        type: "prompt",
+        seq: 78,
+        session_id: "sess_headless_raw_prompt_hint",
+        payload: {
+          request_id: "req_hint_only",
+          request_type: "purchase_tile",
+          player_id: 3,
+          runner_kind: "module",
+          prompt_instance_id: 7,
+          resume_token: "resume:raw",
+          frame_id: "frame:3",
+          module_id: "module:3",
+          module_type: "PromptModule",
+          module_cursor: "await_choice",
+          legal_choices: [{ choice_id: "raw_only", title: "raw", value: { raw: true } }],
+        },
+      }),
+    ).toEqual([]);
+
+    const decisions = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 79,
+        requestId: "req_hint_only",
+        playerId: 3,
+        choices: [
+          {
+            choice_id: "commit_only",
+            title: "commit",
+            value: { commit: true },
+          },
+        ],
+      }),
+    );
+
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      request_id: "req_hint_only",
+      choice_id: "commit_only",
+      choice_payload: { commit: true },
+      view_commit_seq_seen: 79,
+    });
   });
 
   it("does not answer a raw prompt if no authoritative view_commit arrives", async () => {

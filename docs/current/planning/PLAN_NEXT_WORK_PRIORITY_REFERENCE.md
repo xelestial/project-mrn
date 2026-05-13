@@ -1,7 +1,7 @@
 # [PLAN] Next Work Priority Reference
 
 Status: ACTIVE  
-Updated: 2026-05-08
+Updated: 2026-05-13
 Owner: Engine runtime
 
 ## Purpose
@@ -46,6 +46,11 @@ Current goal:
   assumptions
 - add semantic regression tests before changing rule flow, prompt lifecycle, or
   server projection behavior
+- keep the Phase 4 live protocol gate as the active regression guard: one-game
+  and five-game read-mode gates now emit `protocol_evidence`; any future failed
+  seed must be promoted into a regression fixture with its saved artifacts
+- move next to Phase 6 browser-based profile validation before removing the
+  legacy send-time projection fallback
 
 ### 2. Redis-Authoritative State And Visibility Projection
 

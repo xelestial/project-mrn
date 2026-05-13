@@ -50,7 +50,10 @@ redis_connection = (
 if redis_connection is not None:
     session_store = RedisSessionStore(redis_connection)
     room_store = RedisRoomStore(redis_connection)
-    stream_backend = RedisStreamStore(redis_connection)
+    stream_backend = RedisStreamStore(
+        redis_connection,
+        viewer_outbox_enabled=runtime_settings.stream_outbox_mode != "off",
+    )
     prompt_store = RedisPromptStore(redis_connection)
     runtime_state_store = RedisRuntimeStateStore(redis_connection)
     game_state_store = RedisGameStateStore(redis_connection)
@@ -94,6 +97,7 @@ stream_service = StreamService(
     command_store=command_store,
     max_persisted_sessions=runtime_settings.stream_store_max_sessions,
     player_name_resolver=lambda session_id: session_service.player_display_names(session_id),
+    outbox_mode=runtime_settings.stream_outbox_mode,
 )
 prompt_service = PromptService(prompt_store=prompt_store, command_store=command_store, batch_collector=batch_collector)
 runtime_service = RuntimeService(

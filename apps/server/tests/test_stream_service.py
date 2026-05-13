@@ -342,6 +342,45 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_dual_outbox_mode_keeps_legacy_raw_subscriber_queue(self) -> None:
+        service = StreamService(outbox_mode="dual")
+
+        async def _run() -> None:
+            spectator = ViewerContext(role="spectator", session_id="s1")
+            queue = await service.subscribe("s1", "spectator", viewer=spectator)
+            await service.publish("s1", "prompt", module_prompt({"request_id": "r1", "player_id": 1}))
+            delivered = await asyncio.wait_for(queue.get(), timeout=0.5)
+
+            self.assertEqual(service.outbox_mode, "dual")
+            self.assertEqual(delivered["type"], "prompt")
+            self.assertEqual(delivered["payload"]["player_id"], 1)
+
+        asyncio.run(_run())
+
+    def test_read_outbox_mode_projects_before_subscriber_queue(self) -> None:
+        service = StreamService(outbox_mode="read")
+
+        async def _run() -> None:
+            seat = ViewerContext(role="seat", session_id="s1", player_id=1)
+            spectator = ViewerContext(role="spectator", session_id="s1")
+            seat_queue = await service.subscribe("s1", "seat-1", viewer=seat)
+            spectator_queue = await service.subscribe("s1", "spectator", viewer=spectator)
+
+            await service.publish("s1", "prompt", module_prompt({"request_id": "r1", "player_id": 1}))
+            seat_prompt = await asyncio.wait_for(seat_queue.get(), timeout=0.5)
+            self.assertEqual(service.outbox_mode, "read")
+            self.assertEqual(seat_prompt["type"], "prompt")
+            self.assertEqual(seat_prompt["payload"]["request_id"], "r1")
+            self.assertTrue(spectator_queue.empty())
+
+            await service.publish("s1", "event", {"event_type": "round_start"})
+            seat_event = await asyncio.wait_for(seat_queue.get(), timeout=0.5)
+            spectator_event = await asyncio.wait_for(spectator_queue.get(), timeout=0.5)
+            self.assertEqual(seat_event["type"], "event")
+            self.assertEqual(spectator_event["type"], "event")
+
+        asyncio.run(_run())
+
     def test_snapshot_returns_all_buffered_messages(self) -> None:
         service = StreamService()
 

@@ -15,6 +15,7 @@ import {
   shouldEmitProtocolProgress,
   summarizeProtocolBackendTiming,
   summarizeProtocolClients,
+  summarizeProtocolGateEvidence,
   summarizeProtocolPromptRepetitions,
   summarizeProtocolThroughput,
   type ProtocolClientRuntime,
@@ -112,6 +113,85 @@ describe("fullStackProtocolHarness", () => {
     });
     expect(JSON.stringify(summary)).not.toContain("view_state");
     expect(JSON.stringify(summary)).not.toContain("messages");
+  });
+
+  it("summarizes protocol gate evidence for topology, prompt lifecycle, reconnects, and privacy", () => {
+    const evidence = summarizeProtocolGateEvidence({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      expectedSeatCount: 4,
+      requireSpectator: true,
+      requireProtocolEvidence: true,
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            viewCommitCount: 5,
+            promptMessageCount: 1,
+            outboundDecisionCount: 1,
+            acceptedAckCount: 1,
+            forcedReconnectCount: 1,
+            reconnectRecoveryCount: 1,
+          },
+        }),
+        clientRuntime("seat:2", {
+          metrics: { ...emptyHeadlessMetrics(), viewCommitCount: 4, acceptedAckCount: 1 },
+        }),
+        clientRuntime("seat:3", {
+          metrics: { ...emptyHeadlessMetrics(), viewCommitCount: 4, acceptedAckCount: 1 },
+        }),
+        clientRuntime("seat:4", {
+          metrics: { ...emptyHeadlessMetrics(), viewCommitCount: 4, acceptedAckCount: 1 },
+        }),
+        clientRuntime("spectator", {
+          metrics: { ...emptyHeadlessMetrics(), viewCommitCount: 4, runtimeCompletedCount: 1 },
+        }),
+      ],
+      traces: [
+        {
+          event: "view_commit_seen",
+          session_id: "sess_1",
+          player_id: 1,
+          commit_seq: 9,
+          payload: {
+            active_prompt_request_id: "req_roll",
+            active_prompt_player_id: 1,
+            active_prompt_request_type: "movement",
+          },
+        },
+        { event: "decision_sent", session_id: "sess_1", player_id: 1, request_id: "req_roll" },
+        {
+          event: "decision_ack",
+          session_id: "sess_1",
+          player_id: 1,
+          request_id: "req_roll",
+          status: "accepted",
+        },
+      ],
+    });
+
+    expect(evidence).toMatchObject({
+      expectedSeatCount: 4,
+      spectatorRequired: true,
+      seatClientCount: 4,
+      spectatorClientCount: 1,
+      completedViewCommitClientCount: 1,
+      viewCommitCount: 21,
+      maxCommitSeq: 12,
+      promptMessageCount: 1,
+      activePromptViewCommitTraceCount: 1,
+      outboundDecisionCount: 1,
+      decisionSentTraceCount: 1,
+      acceptedAckCount: 4,
+      acceptedDecisionAckTraceCount: 1,
+      forcedReconnectCount: 1,
+      reconnectRecoveryCount: 1,
+      spectatorPromptLeakCount: 0,
+      spectatorDecisionAckLeakCount: 0,
+      identityViolationCount: 0,
+      traceCount: 3,
+    });
   });
 
   it("selects per-player policies when profile maps are configured", () => {
@@ -221,6 +301,40 @@ describe("fullStackProtocolHarness", () => {
     });
     expect(unrecoveredUnackedRetryStale.ok).toBe(false);
     expect(unrecoveredUnackedRetryStale.failures).toContain("seat:1 has unrecovered stale decision ack 1/3 time(s)");
+  });
+
+  it("fails the gate when required protocol topology or lifecycle evidence is missing", () => {
+    const result = evaluateProtocolGate({
+      timedOut: false,
+      completed: true,
+      runtimeStatus: "completed",
+      expectedSeatCount: 4,
+      requireSpectator: true,
+      requireProtocolEvidence: true,
+      clients: [
+        clientRuntime("seat:1", {
+          metrics: {
+            ...emptyHeadlessMetrics(),
+            runtimeCompletedCount: 1,
+            viewCommitCount: 1,
+            outboundDecisionCount: 1,
+            acceptedAckCount: 1,
+          },
+        }),
+      ],
+      traces: [{ event: "view_commit_seen", session_id: "sess_1", player_id: 1, commit_seq: 1 }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        "protocol gate expected 4 seat client(s), saw 1",
+        "protocol gate expected a spectator websocket client",
+        "protocol evidence did not include accepted decision_ack trace",
+        "protocol evidence did not include decision_sent trace",
+        "protocol evidence did not include active prompt view_commit trace",
+      ]),
+    );
   });
 
   it("does not accept server-only completion without a completed websocket commit", () => {

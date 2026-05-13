@@ -285,6 +285,27 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(rows[2]["commit_seq"], 3)
         self.assertEqual(self.fake_redis._expires_at_ms[stream_store._viewer_outbox_index_key("s-outbox")], 3600)
 
+    def test_stream_viewer_outbox_can_be_disabled_without_disabling_stream_storage(self) -> None:
+        stream_store = RedisStreamStore(self.connection, viewer_outbox_enabled=False)
+
+        prompt = stream_store.publish(
+            "s-outbox-disabled",
+            "prompt",
+            {"request_id": "req_prompt_disabled", "player_id": 2},
+            server_time_ms=100,
+            max_buffer=20,
+        )
+
+        self.assertEqual(stream_store.load_viewer_outbox_index("s-outbox-disabled"), [])
+        self.assertEqual(
+            [(row["seq"], row["type"]) for row in stream_store.snapshot("s-outbox-disabled")],
+            [(prompt["seq"], "prompt")],
+        )
+        self.assertEqual(
+            [(row["seq"], row["type"]) for row in stream_store.source_snapshot("s-outbox-disabled")],
+            [(prompt["seq"], "prompt")],
+        )
+
     def test_stream_view_commit_source_records_all_cached_viewer_outbox_scopes(self) -> None:
         game_state = RedisGameStateStore(self.connection)
         stream_store = RedisStreamStore(self.connection)

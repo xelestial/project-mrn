@@ -451,7 +451,8 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         log_event("runtime_recovery_failed", session_id=session_id, error=str(exc))
 
     conn_id = f"conn_{uuid.uuid4().hex[:10]}"
-    subscriber_queue = await stream_service.subscribe(session_id, conn_id)
+    viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
+    subscriber_queue = await stream_service.subscribe(session_id, conn_id, viewer=viewer)
     if auth_ctx["role"] == "seat" and auth_ctx["seat"] is not None:
         session_service.mark_connected(session_id, auth_ctx["seat"], True)
     stop_event = asyncio.Event()
@@ -467,7 +468,6 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
         seat=auth_ctx.get("seat"),
         player_id=auth_ctx.get("player_id"),
     )
-    viewer = viewer_from_auth_context(auth_ctx, session_id=session_id)
     delivered_seq = 0
     delivered_stream_seqs: set[int] = set()
     delivered_prompt_request_ids: set[str] = set()
@@ -475,6 +475,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
     delivery_lock = asyncio.Lock()
 
     async def _heartbeat() -> None:
+        nonlocal last_commit_seq
         try:
             while not stop_event.is_set():
                 latest = await stream_service.latest_seq(session_id)
@@ -492,6 +493,15 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 heartbeat_lock_started = time.perf_counter()
                 async with delivery_lock:
                     heartbeat_lock_wait_ms = int((time.perf_counter() - heartbeat_lock_started) * 1000)
+                    last_commit_seq = await _send_latest_view_commit(
+                        websocket=websocket,
+                        stream_service=stream_service,
+                        viewer=viewer,
+                        session_id=session_id,
+                        last_commit_seq=last_commit_seq,
+                        trigger="heartbeat",
+                        connection_id=conn_id,
+                    )
                     heartbeat_send_started = time.perf_counter()
                     await _send_json_or_disconnect(
                         websocket,

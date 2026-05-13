@@ -45,6 +45,7 @@ class StreamService:
         command_store=None,
         max_persisted_sessions: int = 200,
         player_name_resolver=None,
+        outbox_mode: str = "dual",
     ) -> None:
         self._max_buffer = max_buffer
         self._queue_size = queue_size
@@ -52,6 +53,7 @@ class StreamService:
         self._seq: dict[str, int] = defaultdict(int)
         self._buffers: dict[str, list[StreamMessage]] = defaultdict(list)
         self._subscribers: dict[str, dict[str, asyncio.Queue[dict]]] = defaultdict(dict)
+        self._subscriber_viewers: dict[str, dict[str, ViewerContext]] = defaultdict(dict)
         self._drop_counts: dict[str, int] = defaultdict(int)
         self._lock = asyncio.Lock()
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -61,6 +63,7 @@ class StreamService:
         self._game_state_store = game_state_store
         self._command_store = command_store
         self._player_name_resolver = player_name_resolver
+        self._outbox_mode = self._normalize_outbox_mode(outbox_mode)
         self._view_commit_cache: OrderedDict[tuple[str, str], dict] = OrderedDict()
         self._view_commit_cache_lock = threading.RLock()
         self._view_commit_cache_max_entries = max(256, self._max_persisted_sessions * 8)
@@ -375,18 +378,34 @@ class StreamService:
                 "queue_size": self._queue_size,
             }
 
-    async def subscribe(self, session_id: str, connection_id: str) -> asyncio.Queue[dict]:
+    @property
+    def outbox_mode(self) -> str:
+        return self._outbox_mode
+
+    async def subscribe(
+        self,
+        session_id: str,
+        connection_id: str,
+        *,
+        viewer: ViewerContext | None = None,
+    ) -> asyncio.Queue[dict]:
         async with self._subscriber_lock_for_session(session_id):
             queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=self._queue_size)
             self._subscribers[session_id][connection_id] = queue
+            if viewer is not None:
+                self._subscriber_viewers[session_id][connection_id] = viewer
+            else:
+                self._subscriber_viewers.get(session_id, {}).pop(connection_id, None)
             return queue
 
     async def unsubscribe(self, session_id: str, connection_id: str) -> None:
         async with self._subscriber_lock_for_session(session_id):
             if session_id in self._subscribers:
                 self._subscribers[session_id].pop(connection_id, None)
+                self._subscriber_viewers.get(session_id, {}).pop(connection_id, None)
                 if not self._subscribers[session_id]:
                     self._subscribers.pop(session_id, None)
+                    self._subscriber_viewers.pop(session_id, None)
 
     async def _broadcast(self, session_id: str, item: StreamMessage) -> None:
         async with self._subscriber_lock_for_session(session_id):
@@ -530,12 +549,19 @@ class StreamService:
 
     def _broadcast_no_lock(self, session_id: str, item: StreamMessage) -> None:
         subscribers = self._subscribers.get(session_id, {})
+        subscriber_viewers = self._subscriber_viewers.get(session_id, {})
         dropped_count = 0
         full_before_count = 0
         max_depth_before = 0
         min_depth_before: int | None = None
-        message = item.to_dict()
-        for queue in subscribers.values():
+        source_message = item.to_dict()
+        for connection_id, queue in subscribers.items():
+            message = self._outbox_message_for_subscriber_no_lock(
+                source_message,
+                subscriber_viewers.get(connection_id),
+            )
+            if message is None:
+                continue
             depth_before = queue.qsize()
             max_depth_before = max(max_depth_before, depth_before)
             min_depth_before = depth_before if min_depth_before is None else min(min_depth_before, depth_before)
@@ -562,6 +588,22 @@ class StreamService:
                 min_depth_before=0 if min_depth_before is None else min_depth_before,
                 max_depth_before=max_depth_before,
             )
+
+    def _outbox_message_for_subscriber_no_lock(
+        self,
+        message: dict,
+        viewer: ViewerContext | None,
+    ) -> dict | None:
+        if self._outbox_mode != "read":
+            return message
+        if viewer is None:
+            return None
+        return self._project_message_for_viewer_no_lock(message, viewer)
+
+    @staticmethod
+    def _normalize_outbox_mode(value: str) -> str:
+        mode = str(value or "").strip().lower()
+        return mode if mode in {"off", "dual", "read"} else "dual"
 
     def _history_records_no_lock(self, session_id: str) -> list[dict]:
         if self._stream_backend is not None:

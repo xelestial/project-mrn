@@ -133,11 +133,46 @@ export type ProtocolGateInput = {
   backendTiming?: ProtocolBackendTimingGateInput;
   traces?: HeadlessTraceEvent[];
   maxRepeatedPromptSignatureCount?: number;
+  expectedSeatCount?: number;
+  requireSpectator?: boolean;
+  requireProtocolEvidence?: boolean;
 };
 
 export type ProtocolGateResult = {
   ok: boolean;
   failures: string[];
+};
+
+export type ProtocolGateEvidence = {
+  expectedSeatCount: number | null;
+  spectatorRequired: boolean;
+  seatClientCount: number;
+  spectatorClientCount: number;
+  completedViewCommitClientCount: number;
+  viewCommitCount: number;
+  maxCommitSeq: number;
+  promptMessageCount: number;
+  activePromptViewCommitTraceCount: number;
+  outboundDecisionCount: number;
+  decisionSentTraceCount: number;
+  acceptedAckCount: number;
+  decisionAckTraceCount: number;
+  acceptedDecisionAckTraceCount: number;
+  staleAckCount: number;
+  staleRecoveryCount: number;
+  unrecoveredStaleAckCount: number;
+  forcedReconnectCount: number;
+  reconnectRecoveryCount: number;
+  reconnectRecoveryPendingCount: number;
+  rawPromptFallbackWithoutActiveCommitCount: number;
+  spectatorPromptLeakCount: number;
+  spectatorDecisionAckLeakCount: number;
+  identityViolationCount: number;
+  nonMonotonicCommitCount: number;
+  semanticCommitRegressionCount: number;
+  runtimeRecoveryRequiredCount: number;
+  errorMessageCount: number;
+  traceCount: number;
 };
 
 export type ProtocolBackendTimingEvent = {
@@ -286,6 +321,7 @@ export type FullStackProtocolRunResult = {
   failures: string[];
   clients: ProtocolClientRuntime[];
   clientSummary: ProtocolClientSummary;
+  protocolEvidence: ProtocolGateEvidence;
   traces: HeadlessTraceEvent[];
 };
 
@@ -383,9 +419,87 @@ export function summarizeProtocolClients(clients: ProtocolClientRuntime[]): Prot
   );
 }
 
+export function summarizeProtocolGateEvidence(input: ProtocolGateInput): ProtocolGateEvidence {
+  const traces = input.traces ?? [];
+  const seatClients = input.clients.filter((client) => client.role === "seat");
+  const spectatorClients = input.clients.filter((client) => client.role === "spectator");
+  const metrics = input.clients.map((client) => client.metrics);
+  const metricSum = (selector: (metrics: HeadlessMetrics) => number): number =>
+    metrics.reduce((sum, item) => sum + selector(item), 0);
+  const staleAckCount = metricSum((item) => item.staleAckCount);
+  const staleRecoveryCount = metricSum((item) => item.staleDecisionRetryCount + item.unackedDecisionRetryCount);
+  return {
+    expectedSeatCount: input.expectedSeatCount ?? null,
+    spectatorRequired: input.requireSpectator ?? false,
+    seatClientCount: seatClients.length,
+    spectatorClientCount: spectatorClients.length,
+    completedViewCommitClientCount: input.clients.filter((client) => client.metrics.runtimeCompletedCount > 0).length,
+    viewCommitCount: metricSum((item) => item.viewCommitCount),
+    maxCommitSeq: Math.max(0, ...input.clients.map((client) => client.lastCommitSeq)),
+    promptMessageCount: metricSum((item) => item.promptMessageCount),
+    activePromptViewCommitTraceCount: traces.filter(
+      (trace) =>
+        trace.event === "view_commit_seen" &&
+        isRecord(trace.payload) &&
+        typeof trace.payload["active_prompt_request_id"] === "string",
+    ).length,
+    outboundDecisionCount: metricSum((item) => item.outboundDecisionCount),
+    decisionSentTraceCount: traces.filter(
+      (trace) =>
+        trace.event === "decision_sent" ||
+        trace.event === "decision_retry_sent" ||
+        trace.event === "decision_unacked_retry_sent",
+    ).length,
+    acceptedAckCount: metricSum((item) => item.acceptedAckCount),
+    decisionAckTraceCount: traces.filter((trace) => trace.event === "decision_ack").length,
+    acceptedDecisionAckTraceCount: traces.filter(
+      (trace) => trace.event === "decision_ack" && trace.status === "accepted",
+    ).length,
+    staleAckCount,
+    staleRecoveryCount,
+    unrecoveredStaleAckCount: Math.max(0, staleAckCount - staleRecoveryCount),
+    forcedReconnectCount: metricSum((item) => item.forcedReconnectCount),
+    reconnectRecoveryCount: metricSum((item) => item.reconnectRecoveryCount),
+    reconnectRecoveryPendingCount: metricSum((item) => item.reconnectRecoveryPendingCount),
+    rawPromptFallbackWithoutActiveCommitCount: metricSum((item) => item.rawPromptFallbackWithoutActiveCommitCount),
+    spectatorPromptLeakCount: metricSum((item) => item.spectatorPromptLeakCount),
+    spectatorDecisionAckLeakCount: metricSum((item) => item.spectatorDecisionAckLeakCount),
+    identityViolationCount: metricSum((item) => item.identityViolationCount),
+    nonMonotonicCommitCount: metricSum((item) => item.nonMonotonicCommitCount),
+    semanticCommitRegressionCount: metricSum((item) => item.semanticCommitRegressionCount),
+    runtimeRecoveryRequiredCount: metricSum((item) => item.runtimeRecoveryRequiredCount),
+    errorMessageCount: metricSum((item) => item.errorMessageCount),
+    traceCount: traces.length,
+  };
+}
+
 export function evaluateProtocolGate(input: ProtocolGateInput): ProtocolGateResult {
   const failures: string[] = [];
+  const evidence = summarizeProtocolGateEvidence(input);
   const runtimeCompleted = input.runtimeStatus === "completed" || input.completed;
+  if (input.expectedSeatCount !== undefined && evidence.seatClientCount !== input.expectedSeatCount) {
+    failures.push(`protocol gate expected ${input.expectedSeatCount} seat client(s), saw ${evidence.seatClientCount}`);
+  }
+  if (input.requireSpectator && evidence.spectatorClientCount === 0) {
+    failures.push("protocol gate expected a spectator websocket client");
+  }
+  if (input.requireProtocolEvidence) {
+    if (evidence.viewCommitCount === 0) {
+      failures.push("protocol evidence did not include any view_commit delivery");
+    }
+    if (evidence.traceCount === 0) {
+      failures.push("protocol evidence did not include any frontend trace");
+    }
+    if (evidence.acceptedAckCount > 0 && evidence.acceptedDecisionAckTraceCount === 0) {
+      failures.push("protocol evidence did not include accepted decision_ack trace");
+    }
+    if (evidence.outboundDecisionCount > 0 && evidence.decisionSentTraceCount === 0) {
+      failures.push("protocol evidence did not include decision_sent trace");
+    }
+    if (evidence.acceptedAckCount > 0 && evidence.activePromptViewCommitTraceCount === 0) {
+      failures.push("protocol evidence did not include active prompt view_commit trace");
+    }
+  }
   if (input.timedOut) {
     failures.push("protocol run timed out before completion");
   }
@@ -1113,14 +1227,19 @@ export async function runFullStackProtocolGame(
   }
 
   const clientRuntimes = clients.map(toProtocolClientRuntime);
-  const gate = evaluateProtocolGate({
+  const gateInput: ProtocolGateInput = {
     timedOut,
     idleTimedOut,
     completed,
     clients: clientRuntimes,
     runtimeStatus,
     traces: clients.flatMap((client) => client.trace),
-  });
+    expectedSeatCount: payload.seats.length,
+    requireSpectator: options.spectator ?? true,
+    requireProtocolEvidence: true,
+  };
+  const protocolEvidence = summarizeProtocolGateEvidence(gateInput);
+  const gate = evaluateProtocolGate(gateInput);
   return {
     ok: gate.ok,
     profile,
@@ -1137,7 +1256,8 @@ export async function runFullStackProtocolGame(
     failures: gate.failures,
     clients: clientRuntimes,
     clientSummary: summarizeProtocolClients(clientRuntimes),
-    traces: clients.flatMap((client) => client.trace),
+    protocolEvidence,
+    traces: gateInput.traces ?? [],
   };
 }
 

@@ -12,6 +12,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             settings = load_runtime_settings()
         self.assertEqual(settings.stream_heartbeat_interval_ms, 5000)
         self.assertEqual(settings.stream_sender_poll_timeout_ms, 1000)
+        self.assertEqual(settings.stream_outbox_mode, "dual")
         self.assertEqual(settings.runtime_watchdog_timeout_ms, 45000)
         self.assertEqual(settings.log_level, "INFO")
         self.assertEqual(settings.log_file_path, "")
@@ -50,6 +51,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             {
                 "MRN_STREAM_HEARTBEAT_INTERVAL_MS": "7000",
                 "MRN_STREAM_SENDER_POLL_TIMEOUT_MS": "500",
+                "MRN_STREAM_OUTBOX_MODE": "read",
                 "MRN_RUNTIME_WATCHDOG_TIMEOUT_MS": "60000",
                 "MRN_LOG_LEVEL": "debug",
                 "MRN_LOG_FILE_PATH": "result/server/server.log",
@@ -87,6 +89,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             settings = load_runtime_settings()
         self.assertEqual(settings.stream_heartbeat_interval_ms, 7000)
         self.assertEqual(settings.stream_sender_poll_timeout_ms, 500)
+        self.assertEqual(settings.stream_outbox_mode, "read")
         self.assertEqual(settings.runtime_watchdog_timeout_ms, 60000)
         self.assertEqual(settings.log_level, "DEBUG")
         self.assertEqual(settings.log_file_path, "result/server/server.log")
@@ -125,6 +128,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             {
                 "MRN_STREAM_HEARTBEAT_INTERVAL_MS": "x",
                 "MRN_STREAM_SENDER_POLL_TIMEOUT_MS": "0",
+                "MRN_STREAM_OUTBOX_MODE": "invalid",
                 "MRN_RUNTIME_WATCHDOG_TIMEOUT_MS": "4999",
                 "MRN_LOG_LEVEL": "",
                 "MRN_LOG_FILE_PATH": "",
@@ -162,6 +166,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             settings = load_runtime_settings()
         self.assertEqual(settings.stream_heartbeat_interval_ms, 5000)
         self.assertEqual(settings.stream_sender_poll_timeout_ms, 1000)
+        self.assertEqual(settings.stream_outbox_mode, "dual")
         self.assertEqual(settings.runtime_watchdog_timeout_ms, 45000)
         self.assertEqual(settings.log_level, "INFO")
         self.assertEqual(settings.log_file_path, "")
@@ -208,6 +213,7 @@ class _temporary_env:
         self._keys = [
             "MRN_STREAM_HEARTBEAT_INTERVAL_MS",
             "MRN_STREAM_SENDER_POLL_TIMEOUT_MS",
+            "MRN_STREAM_OUTBOX_MODE",
             "MRN_RUNTIME_WATCHDOG_TIMEOUT_MS",
             "MRN_LOG_LEVEL",
             "MRN_LOG_FILE_PATH",

@@ -24,8 +24,9 @@ class ViewCommitSequenceConflict(RuntimeError):
 
 
 class RedisStreamStore:
-    def __init__(self, connection: RedisConnection) -> None:
+    def __init__(self, connection: RedisConnection, *, viewer_outbox_enabled: bool = True) -> None:
         self._connection = connection
+        self._viewer_outbox_enabled = bool(viewer_outbox_enabled)
 
     def publish(
         self,
@@ -229,6 +230,8 @@ class RedisStreamStore:
         server_time_ms: int,
         client: Any | None = None,
     ) -> None:
+        if not self._viewer_outbox_enabled:
+            return
         scopes = _viewer_outbox_scopes(str(msg_type), payload)
         if not scopes:
             return
