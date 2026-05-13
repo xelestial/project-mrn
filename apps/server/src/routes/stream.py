@@ -275,6 +275,22 @@ async def _wake_runtime_after_accepted_decision(
     )
 
 
+def _resolve_decision_player_id(session_service: Any, session_id: str, message: dict[str, Any]) -> int | None:
+    resolver = getattr(session_service, "resolve_protocol_player_id", None)
+    if not callable(resolver):
+        player_id = message.get("player_id")
+        return player_id if isinstance(player_id, int) and not isinstance(player_id, bool) else None
+    return resolver(
+        session_id,
+        player_id=message.get("player_id"),
+        legacy_player_id=message.get("legacy_player_id"),
+        seat=message.get("seat"),
+        public_player_id=message.get("public_player_id"),
+        seat_id=message.get("seat_id"),
+        viewer_id=message.get("viewer_id"),
+    )
+
+
 async def _send_direct_decision_ack(
     *,
     websocket: WebSocket,
@@ -802,7 +818,8 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         ),
                     )
                     continue
-                if message.get("player_id") != auth_ctx.get("player_id"):
+                resolved_player_id = _resolve_decision_player_id(session_service, session_id, message)
+                if resolved_player_id != auth_ctx.get("player_id"):
                     await stream_service.publish(
                         session_id,
                         "error",
@@ -813,6 +830,7 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                         ),
                     )
                     continue
+                message["player_id"] = resolved_player_id
                 message["session_id"] = session_id
                 phase_started_ms = time.perf_counter()
                 decision_state = prompt_service.submit_decision(message)

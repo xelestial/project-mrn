@@ -203,6 +203,36 @@ class SessionService:
                 return auth
         raise SessionStateError("invalid_session_token")
 
+    def resolve_protocol_player_id(
+        self,
+        session_id: str,
+        *,
+        player_id: int | str | None = None,
+        legacy_player_id: int | str | None = None,
+        seat: int | str | None = None,
+        public_player_id: str | None = None,
+        seat_id: str | None = None,
+        viewer_id: str | None = None,
+    ) -> int | None:
+        """Resolve public protocol identity fields to the server's internal seat id."""
+        session = self.get_session(session_id)
+        for candidate in (player_id, legacy_player_id, seat):
+            numeric = self._optional_int(candidate)
+            if numeric is not None and self._has_seat(session, numeric):
+                return numeric
+
+        public_player_id = self._clean_optional_string(public_player_id)
+        seat_id = self._clean_optional_string(seat_id)
+        viewer_id = self._clean_optional_string(viewer_id)
+        for seat_cfg in session.seats:
+            if public_player_id is not None and seat_cfg.public_player_id == public_player_id:
+                return seat_cfg.seat
+            if seat_id is not None and seat_cfg.seat_id == seat_id:
+                return seat_cfg.seat
+            if viewer_id is not None and seat_cfg.viewer_id == viewer_id:
+                return seat_cfg.seat
+        return None
+
     def player_display_names(self, session_id: str) -> dict[int, str]:
         session = self.get_session(session_id)
         result: dict[int, str] = {}
@@ -378,6 +408,26 @@ class SessionService:
             if seat_cfg.seat == seat:
                 return seat_cfg
         raise SessionStateError("seat_not_found")
+
+    @staticmethod
+    def _has_seat(session: Session, seat: int) -> bool:
+        return any(seat_cfg.seat == seat for seat_cfg in session.seats)
+
+    @staticmethod
+    def _optional_int(value: int | str | None) -> int | None:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _clean_optional_string(value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        return value or None
 
     @staticmethod
     def _all_required_humans_joined(session: Session) -> bool:

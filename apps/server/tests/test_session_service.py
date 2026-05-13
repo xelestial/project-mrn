@@ -167,6 +167,43 @@ class SessionServiceTests(unittest.TestCase):
         self.assertEqual(seat_payload["public_player_id"], join_1["public_player_id"])
         self.assertEqual(seat_payload["seat_id"], join_1["seat_id"])
 
+    def test_resolve_protocol_player_id_accepts_numeric_compatibility_fields(self) -> None:
+        session = self.service.create_session(_default_seats())
+
+        self.assertEqual(self.service.resolve_protocol_player_id(session.session_id, player_id=1), 1)
+        self.assertEqual(self.service.resolve_protocol_player_id(session.session_id, legacy_player_id="4"), 4)
+        self.assertEqual(self.service.resolve_protocol_player_id(session.session_id, seat="2"), 2)
+        self.assertIsNone(self.service.resolve_protocol_player_id(session.session_id, player_id=99))
+        self.assertIsNone(self.service.resolve_protocol_player_id(session.session_id, player_id="not-a-seat"))
+
+    def test_resolve_protocol_player_id_accepts_public_identity_fields(self) -> None:
+        session = self.service.create_session(_default_seats())
+        join_1 = self.service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        public = self.service.to_public(session)
+        ai_seat = public["seats"][1]
+
+        self.assertEqual(
+            self.service.resolve_protocol_player_id(session.session_id, public_player_id=join_1["public_player_id"]),
+            1,
+        )
+        self.assertEqual(
+            self.service.resolve_protocol_player_id(session.session_id, seat_id=join_1["seat_id"]),
+            1,
+        )
+        self.assertEqual(
+            self.service.resolve_protocol_player_id(session.session_id, viewer_id=join_1["viewer_id"]),
+            1,
+        )
+        self.assertEqual(
+            self.service.resolve_protocol_player_id(
+                session.session_id,
+                public_player_id=ai_seat["public_player_id"],
+            ),
+            2,
+        )
+        self.assertEqual(self.service.resolve_protocol_player_id(session.session_id, seat_id=ai_seat["seat_id"]), 2)
+        self.assertIsNone(self.service.resolve_protocol_player_id(session.session_id, public_player_id="ply_unknown"))
+
     def test_private_session_rejects_missing_spectator_token(self) -> None:
         session = self.service.create_session(_default_seats())
         with self.assertRaises(SessionStateError):
