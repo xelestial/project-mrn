@@ -6994,6 +6994,48 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(_ServerDecisionPolicyBridge._prompt_instance_id_from_resume(resume), 60)
 
+    def test_prompt_boundary_enrichment_uses_explicit_batch_and_player_for_opaque_request_id(self) -> None:
+        RuntimeService._ensure_engine_import_path()
+        from runtime_modules.prompts import PromptApi
+
+        frame = FrameState(
+            frame_id="frame:resupply",
+            frame_type="simultaneous",
+            owner_player_id=None,
+            parent_frame_id=None,
+        )
+        module = ModuleRef(
+            module_id="module:resupply",
+            module_type="ResupplyModule",
+            phase="round",
+            owner_player_id=None,
+            cursor="await_resupply_batch:1",
+        )
+        batch = PromptApi().create_batch(
+            batch_id="batch:simul:opaque",
+            frame=frame,
+            module=module,
+            participant_player_ids=[0, 1],
+            request_type="burden_exchange",
+            legal_choices_by_player_id={0: [{"choice_id": "yes"}], 1: [{"choice_id": "no"}]},
+        )
+        state = type("State", (), {"runtime_active_prompt_batch": batch})()
+        payload = {
+            "request_id": "req_opaque_batch_prompt",
+            "batch_id": "batch:simul:opaque",
+            "player_id": 2,
+            "request_type": "burden_exchange",
+        }
+
+        RuntimeService._enrich_prompt_boundary_from_active_batch(payload, state)
+
+        expected = batch.prompts_by_player_id[1]
+        self.assertEqual(payload["resume_token"], expected.resume_token)
+        self.assertEqual(payload["frame_id"], expected.frame_id)
+        self.assertEqual(payload["module_id"], expected.module_id)
+        self.assertEqual(payload["module_type"], expected.module_type)
+        self.assertEqual(payload["module_cursor"], expected.module_cursor)
+
     def test_decision_resume_from_batch_complete_command_uses_collected_response(self) -> None:
         class _CommandStoreStub:
             def list_commands(self, session_id: str) -> list[dict]:

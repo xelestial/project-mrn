@@ -4024,8 +4024,10 @@ class RuntimeService:
             return str(_field(source, key, "") or "").strip()
 
         request_id = str(payload.get("request_id") or "").strip()
+        payload_batch_id = str(payload.get("batch_id") or "").strip()
         derived_batch_id = _derive_batch_id_from_request_id(request_id)
-        if derived_batch_id and not str(payload.get("batch_id") or "").strip():
+        effective_batch_id = payload_batch_id or derived_batch_id
+        if derived_batch_id and not payload_batch_id:
             payload["batch_id"] = derived_batch_id
 
         batch = getattr(state, "runtime_active_prompt_batch", None) if state is not None else None
@@ -4045,14 +4047,20 @@ class RuntimeService:
                 continuation_internal_player_id = int(internal_player_id)
             except (TypeError, ValueError):
                 continue
+            submitted_internal_player_id = _optional_int(payload.get("player_id"))
+            if submitted_internal_player_id is not None:
+                submitted_internal_player_id -= 1
             if (
                 active_batch_id
-                and derived_batch_id == active_batch_id
-                and _derive_internal_player_id_from_batch_request_id(request_id) == continuation_internal_player_id
+                and effective_batch_id == active_batch_id
+                and (
+                    submitted_internal_player_id == continuation_internal_player_id
+                    or _derive_internal_player_id_from_batch_request_id(request_id) == continuation_internal_player_id
+                )
             ):
                 matching_prompt = continuation
                 break
-        if matching_prompt is None and (not active_batch_id or derived_batch_id != active_batch_id):
+        if matching_prompt is None and (not active_batch_id or effective_batch_id != active_batch_id):
             return
 
         payload.setdefault("runner_kind", "module")
