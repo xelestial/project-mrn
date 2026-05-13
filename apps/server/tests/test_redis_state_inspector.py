@@ -68,6 +68,10 @@ class RedisStateInspectorTests(unittest.TestCase):
             "waiting_prompt_request_id": "req-move-1",
             "waiting_prompt_player_id": 2,
             "waiting_prompt_type": "movement",
+            "frame_id": "turn:r2:p2",
+            "module_id": "module:move",
+            "module_type": "MovementModule",
+            "module_cursor": "await_movement",
             "runtime_active_prompt": active_prompt,
         }
         self.game_state.commit_transition(
@@ -121,6 +125,10 @@ class RedisStateInspectorTests(unittest.TestCase):
                 "turn_index": 7,
                 "turn_label": "R2-T7",
                 "current_player_id": 2,
+                "active_frame_id": "turn:r2:p2",
+                "active_module_id": "module:move",
+                "active_module_type": "MovementModule",
+                "active_module_cursor": "await_movement",
                 "active_prompt": active_prompt,
             },
         )
@@ -140,7 +148,7 @@ class RedisStateInspectorTests(unittest.TestCase):
         self.stream_store.publish(
             session_id,
             "prompt",
-            {**active_prompt, "session_id": session_id},
+            {**active_prompt, "session_id": session_id, "event_id": "evt-prompt-1", "event_type": "prompt_required"},
             server_time_ms=100,
             max_buffer=20,
         )
@@ -156,6 +164,7 @@ class RedisStateInspectorTests(unittest.TestCase):
             server_time_ms=101,
             max_buffer=20,
         )
+        self.game_state.save_checkpoint(session_id, checkpoint)
 
         report = RedisStateInspector(self.connection).inspect_session(session_id, now_ms=123456)
 
@@ -169,6 +178,14 @@ class RedisStateInspectorTests(unittest.TestCase):
         self.assertEqual(report["issues"], [])
         self.assertEqual(report["view_commits"]["latest_commit_seq"], 5)
         self.assertIn("player:2", {viewer["label"] for viewer in report["view_commits"]["viewers"]})
+        self.assertEqual(report["state"]["debug_snapshot_summary"]["active_frame_id"], "turn:r2:p2")
+        self.assertEqual(report["state"]["debug_snapshot_summary"]["active_module_id"], "module:move")
+        self.assertEqual(report["state"]["debug_snapshot_runtime"]["frame_stack"][0]["active_module_id"], "module:move")
+        self.assertEqual(report["stream"]["event_index_ttl_seconds"], 3600)
+        self.assertEqual(report["stream"]["viewer_outbox_ttl_seconds"], 3600)
+        self.assertEqual(report["stream"]["latest_event_index"][-1]["event_id"], "evt-prompt-1")
+        self.assertEqual(report["stream"]["latest_event_index"][-1]["event_type"], "prompt_required")
+        self.assertTrue(any(row["message_type"] == "prompt" and row["viewer_scope"] == "player:2" for row in report["stream"]["latest_viewer_outbox"]))
 
     def test_inspector_detects_missing_viewer_outbox_and_prompt_delivery_records(self) -> None:
         session_id = "s-inspect-outbox-missing"

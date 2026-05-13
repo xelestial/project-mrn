@@ -171,10 +171,18 @@ class RedisStateInspector:
                         "current_player_id",
                         "latest_seq",
                         "latest_commit_seq",
+                        "latest_source_event_seq",
+                        "latest_event_type",
+                        "active_frame_id",
+                        "active_module_id",
+                        "active_module_type",
+                        "active_module_cursor",
                         "waiting_prompt_request_id",
                     ),
                 ),
+                "debug_snapshot_runtime": self._debug_snapshot_runtime(debug_snapshot),
             },
+            "stream": self._debug_stream(debug_snapshot),
             "prompts": {
                 "active_request_ids": sorted(active_request_ids),
                 "pending": [self._compact_prompt(prompt) for prompt in pending_prompts],
@@ -611,6 +619,53 @@ class RedisStateInspector:
             "active_prompt": self._compact_prompt(active_prompt),
         }
 
+    def _debug_snapshot_runtime(self, debug_snapshot: dict[str, Any]) -> dict[str, Any]:
+        runtime = debug_snapshot.get("runtime") if isinstance(debug_snapshot.get("runtime"), dict) else {}
+        return {
+            "runner_kind": runtime.get("runner_kind"),
+            "active_prompt": self._compact_prompt(runtime.get("active_prompt") if isinstance(runtime.get("active_prompt"), dict) else {}),
+            "frame_stack": [
+                self._compact_mapping(
+                    frame if isinstance(frame, dict) else {},
+                    (
+                        "frame_id",
+                        "frame_type",
+                        "status",
+                        "player_id",
+                        "round_index",
+                        "turn_index",
+                        "active_module_id",
+                        "active_module_type",
+                        "active_module_cursor",
+                        "parent_frame_id",
+                    ),
+                )
+                for frame in runtime.get("frame_stack", [])
+                if isinstance(frame, dict)
+            ],
+            "module_path": runtime.get("module_path") if isinstance(runtime.get("module_path"), list) else [],
+        }
+
+    def _debug_stream(self, debug_snapshot: dict[str, Any]) -> dict[str, Any]:
+        stream = debug_snapshot.get("stream") if isinstance(debug_snapshot.get("stream"), dict) else {}
+        return {
+            "stream_seq": self._int_or_default(stream.get("stream_seq"), 0),
+            "event_index_count": self._int_or_default(stream.get("event_index_count"), 0),
+            "viewer_outbox_count": self._int_or_default(stream.get("viewer_outbox_count"), 0),
+            "event_index_ttl_seconds": self._int_or_default(stream.get("event_index_ttl_seconds"), 0),
+            "viewer_outbox_ttl_seconds": self._int_or_default(stream.get("viewer_outbox_ttl_seconds"), 0),
+            "latest_event_index": [
+                self._compact_outbox(row)
+                for row in stream.get("latest_event_index", [])
+                if isinstance(row, dict)
+            ],
+            "latest_viewer_outbox": [
+                self._compact_outbox(row)
+                for row in stream.get("latest_viewer_outbox", [])
+                if isinstance(row, dict)
+            ],
+        }
+
     def _raw_key_map(self, session_id: str) -> dict[str, str]:
         return {
             "checkpoint": self._connection.key("game", session_id, "checkpoint"),
@@ -686,6 +741,7 @@ class RedisStateInspector:
                 "viewer_scope",
                 "stream_seq",
                 "message_type",
+                "event_type",
                 "event_id",
                 "request_id",
                 "player_id",

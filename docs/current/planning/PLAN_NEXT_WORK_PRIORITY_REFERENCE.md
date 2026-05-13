@@ -76,8 +76,9 @@ Current goal:
 - preserve production-like Redis restart-smoke evidence when backend/runtime
   boundary work changes process roles, recovery, prompt continuation, or stream
   projection
-- close remaining Redis debug acceptance gaps only when they improve
-  inspectability without turning debug snapshots into unbounded logs
+- keep Redis debug acceptance closed through focused inspector tests; add fields
+  only when they improve inspectability without turning debug snapshots into
+  unbounded logs
 
 ### 3. Frontend Readability Follow-Up
 
