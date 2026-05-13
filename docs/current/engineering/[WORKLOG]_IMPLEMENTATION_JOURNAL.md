@@ -1,5 +1,21 @@
 # Implementation Journal
 
+## 2026-05-13 Server Runtime Rebuild Phase 9 Command Boundary Finalizer
+
+- Added `CommandBoundaryFinalizer` as the command-boundary finalization owner.
+- Moved deferred commit copy, authoritative Redis commit, latest `view_commit` emission, waiting prompt materialization, and finalization timing log out of `RuntimeService._run_engine_command_boundary_loop_sync()`.
+- Kept `_CommandBoundaryGameStateStore` intentionally. It is still the transitional adapter that prevents internal module transitions from committing mid-command; deleting it before SessionLoop owns atomic commit would reintroduce the write-boundary defect.
+- Added focused tests for deferred commit finalization and no-op finalization when no deferred commit exists.
+
+## Verification
+
+- `python3 -m compileall apps/server/src/services/command_boundary_finalizer.py apps/server/src/services/runtime_service.py`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_command_boundary_finalizer.py apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_command_scope_loop_defers_internal_transition_commits apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_command_boundary_loop_uses_per_call_store_without_swapping_shared_store apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_command_boundary_loop_hydrates_and_prepares_engine_once -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_command_boundary_finalizer.py apps/server/tests/test_command_execution_gate.py apps/server/tests/test_command_processing_guard.py apps/server/tests/test_command_recovery.py apps/server/tests/test_runtime_service.py apps/server/tests/test_session_loop.py apps/server/tests/test_command_wakeup_worker.py apps/server/tests/test_command_router.py apps/server/tests/test_stream_api.py apps/server/tests/test_sessions_api.py -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests -q`
+
+Result: focused finalizer and command-boundary tests passed, direct-impact server tests passed with `279 passed, 14 subtests passed`, and full server tests passed with `680 passed, 46 subtests passed`.
+
 ## 2026-05-13 Server Runtime Rebuild Phase 9 Command Execution Gate Ownership
 
 - Added `CommandExecutionGate` as the in-process command execution gate. It owns active command session begin/end/active checks and active runtime task deferral.

@@ -44,6 +44,7 @@ from apps.server.src.services.decision_gateway import (
     build_routed_decision_call,
 )
 from apps.server.src.services.command_execution_gate import CommandExecutionGate
+from apps.server.src.services.command_boundary_finalizer import CommandBoundaryFinalizer
 from apps.server.src.services.engine_config_factory import EngineConfigFactory
 from apps.server.src.services.command_processing_guard import CommandProcessingGuardService
 from apps.server.src.services.command_recovery import CommandRecoveryService
@@ -1694,66 +1695,36 @@ class RuntimeService:
                 break
         engine_transition_loop_ms = _duration_ms(transition_loop_started)
 
-        finalization_started = time.perf_counter()
-        finalization_phase_started = finalization_started
-        finalization_timings: dict[str, int] = {}
-
-        def mark_finalization_phase(name: str) -> None:
-            nonlocal finalization_phase_started
-            now = time.perf_counter()
-            finalization_timings[name] = int((now - finalization_phase_started) * 1000)
-            finalization_phase_started = now
-
-        deferred_commit = boundary_store.deferred_commit()
-        mark_finalization_phase("deferred_commit_copy_ms")
-        redis_commit_count = 0
-        view_commit_count = 0
-        if deferred_commit is not None:
-            commit_session_id = str(deferred_commit.pop("session_id"))
-            original_store.commit_transition(commit_session_id, **deferred_commit)
-            mark_finalization_phase("authoritative_commit_ms")
-            redis_commit_count = 1
-            if deferred_commit.get("view_commits"):
-                view_commit_count = 1
-            self._emit_latest_view_commit_sync(loop, session_id)
-            mark_finalization_phase("view_commit_emit_ms")
-            current_state = deferred_commit.get("current_state")
-            if str(last_step.get("status") or "") == "waiting_input" and isinstance(current_state, dict):
-                self._materialize_prompt_boundaries_from_checkpoint_sync(loop, session_id, current_state)
-            mark_finalization_phase("prompt_materialize_ms")
-        finalization_total_ms = _duration_ms(finalization_started)
-
         terminal_status = str(last_step.get("status", ""))
         terminal_reason = str(last_step.get("reason") or terminal_status or "unknown")
-        if deferred_commit is not None:
-            log_event(
-                "runtime_command_boundary_finalization_timing",
-                session_id=session_id,
-                processed_command_seq=checkpoint_command_seq,
-                terminal_status=terminal_status,
-                terminal_boundary_reason=terminal_reason,
-                redis_commit_count=redis_commit_count,
-                view_commit_count=view_commit_count,
-                total_ms=finalization_total_ms,
-                **finalization_timings,
-            )
+        finalization = CommandBoundaryFinalizer(
+            authoritative_store=original_store,
+            emit_latest_view_commit=self._emit_latest_view_commit_sync,
+            materialize_prompt_boundaries=self._materialize_prompt_boundaries_from_checkpoint_sync,
+        ).finalize(
+            loop=loop,
+            session_id=session_id,
+            boundary_store=boundary_store,
+            processed_command_seq=checkpoint_command_seq,
+            terminal_status=terminal_status,
+            terminal_boundary_reason=terminal_reason,
+        )
         return {
             **last_step,
             "transitions": transitions,
             "module_transition_count": transitions,
-            "redis_commit_count": redis_commit_count,
-            "view_commit_count": view_commit_count,
+            "redis_commit_count": finalization.redis_commit_count,
+            "view_commit_count": finalization.view_commit_count,
             "internal_redis_commit_attempt_count": boundary_store.redis_commit_count,
             "internal_view_commit_attempt_count": boundary_store.view_commit_count,
             "internal_state_stage_count": boundary_store.internal_state_stage_count,
             "terminal_status": terminal_status,
             "terminal_boundary_reason": terminal_reason,
             "module_trace": module_trace,
-            "command_boundary_finalization_ms": finalization_total_ms,
             "engine_loop_total_ms": _duration_ms(loop_started),
             "engine_prepare_ms": engine_prepare_ms,
             "engine_transition_loop_ms": engine_transition_loop_ms,
-            **finalization_timings,
+            **finalization.result_fields(),
         }
 
     @staticmethod

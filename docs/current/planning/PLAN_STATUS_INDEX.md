@@ -70,8 +70,9 @@ Read and maintain these:
   wakeup paths and split route-level command recovery queries into
   `CommandRecoveryService`; command precondition and stale terminal handling now
   live in `CommandProcessingGuardService`; in-process active command/task gating
-  lives in `CommandExecutionGate`; `RuntimeService.process_command_once()` remains
-  the transitional lease/commit adapter.
+  lives in `CommandExecutionGate`; command-boundary deferred commit finalization
+  lives in `CommandBoundaryFinalizer`; `RuntimeService.process_command_once()`
+  remains the transitional lease/commit adapter.
 
 ## Closed Enough
 
