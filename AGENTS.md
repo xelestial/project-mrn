@@ -2,6 +2,21 @@
 
 This folder is home. Treat it that way.
 
+## Project Execution Rule
+
+Before any implementation, explicitly write:
+
+- Goal
+- Completion criteria
+- Non-goals
+- Protected boundaries
+- Verification commands
+- Responsibility check
+
+After implementation, check the result against those fields before reporting
+completion. Tests passing is not enough when the task is architectural; also
+state which responsibility moved, disappeared, or intentionally remains.
+
 ## First Run
 
 If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.

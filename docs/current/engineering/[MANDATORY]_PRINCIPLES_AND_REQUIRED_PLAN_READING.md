@@ -1,7 +1,7 @@
 # [MANDATORY] Principles And Required Plan Reading
 
 Status: ACTIVE  
-Updated: 2026-05-03  
+Updated: 2026-05-13
 Scope: engine / server / web / contracts
 
 ## Absolute Start Rule
@@ -10,12 +10,36 @@ Before any implementation work:
 
 1. open this document first
 2. open the required plans in the order listed below
-3. only then begin code changes
+3. write the task's completion criteria before editing code
+4. only then begin code changes
 
 This rule applies to all work sizes:
 - small patch
 - medium refactor
 - large architecture change
+
+## Mandatory Pre-Implementation Contract
+
+Before code changes, the implementer must state the concrete contract for the
+task. This is required even for small changes because passing tests alone does
+not prove that the intended responsibility moved, disappeared, or stayed
+bounded.
+
+Required fields:
+
+- Goal: what behavior, responsibility, or document state must change.
+- Completion criteria: the observable conditions that make the task done.
+- Non-goals: related work that must not be pulled into the change.
+- Protected boundaries: files, runtime contracts, protocol shapes, or ownership
+  rules that must not be broken.
+- Verification commands: the focused tests, broader tests, gates, or manual
+  checks that will prove the completion criteria.
+- Responsibility check: for architecture/runtime work, explicitly say which
+  responsibility was removed, moved, or intentionally left in place.
+
+The final report must compare the result against these fields. Do not report a
+task as complete merely because the edited files compile or because a broad test
+suite passed.
 
 ## Required Reading Order Before Coding
 
@@ -92,15 +116,29 @@ Read these in order:
 - Do not introduce new inline visible strings unless there is a strong temporary reason.
 - Any string or wording work must check the current active web locale/resources and worklog.
 
+### P-09 Completion Criteria Discipline
+
+- Every implementation starts by making the completion criteria explicit.
+- The criteria must be specific enough to falsify: a reviewer should be able to
+  say whether each item passed or failed.
+- Verification must be chosen from the criteria, not from habit.
+- Architecture work must include a responsibility check, not only behavior
+  tests.
+- If the implementation changes direction, update the criteria before
+  continuing.
+
 ## Mandatory Working Checklist
 
 Before merge or handoff, confirm:
 
 - [ ] required documents were read first
+- [ ] task goal, completion criteria, non-goals, protected boundaries, and
+      verification commands were stated before code edits
 - [ ] rule source matches implementation intent
 - [ ] decision contract ordering was preserved
 - [ ] UTF-8 / LF policy was preserved
 - [ ] relevant tests were run or explicitly noted as not run
+- [ ] final report compared the result against the stated completion criteria
 - [ ] worklog entry was added
 
 ## Encoding Incident Prevention Note

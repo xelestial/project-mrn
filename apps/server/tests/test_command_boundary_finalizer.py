@@ -98,3 +98,54 @@ class CommandBoundaryFinalizerTests(unittest.TestCase):
         self.assertEqual(emitted, [])
         self.assertEqual(materialized, [])
         self.assertEqual(events, [])
+
+    def test_commit_guard_blocks_deferred_commit_side_effects(self) -> None:
+        authoritative_store = _AuthoritativeStore()
+        emitted: list[tuple[object, str]] = []
+        materialized: list[tuple[object, str, dict]] = []
+        events: list[tuple[str, dict]] = []
+        boundary_store = _BoundaryStore(
+            {
+                "session_id": "s1",
+                "current_state": {"session_id": "s1", "pending_prompt_request_id": "req_1"},
+                "checkpoint": {"latest_commit_seq": 5},
+                "view_state": {},
+                "view_commits": {"spectator": {"commit_seq": 5}},
+                "command_consumer_name": "runtime_wakeup",
+                "command_seq": 7,
+                "runtime_event_payload": {},
+                "runtime_event_server_time_ms": 123,
+                "expected_previous_commit_seq": 4,
+            }
+        )
+
+        result = CommandBoundaryFinalizer(
+            authoritative_store=authoritative_store,
+            emit_latest_view_commit=lambda loop, session_id: emitted.append((loop, session_id)),
+            materialize_prompt_boundaries=lambda loop, session_id, state: materialized.append(
+                (loop, session_id, copy.deepcopy(state))
+            ),
+            commit_guard=lambda session_id: {
+                "reason": "runtime_lease_lost_before_commit",
+                "lease_owner": "other-runtime-worker",
+                "guard_session_id": session_id,
+            },
+            logger=lambda event, **fields: events.append((event, dict(fields))),
+        ).finalize(
+            loop=None,
+            session_id="s1",
+            boundary_store=boundary_store,
+            processed_command_seq=7,
+            terminal_status="waiting_input",
+            terminal_boundary_reason="prompt_required",
+        )
+
+        self.assertEqual(result.redis_commit_count, 0)
+        self.assertEqual(result.view_commit_count, 0)
+        self.assertEqual(result.blocked_reason, "runtime_lease_lost_before_commit")
+        self.assertEqual(result.blocked_fields["lease_owner"], "other-runtime-worker")
+        self.assertEqual(authoritative_store.commits, [])
+        self.assertEqual(emitted, [])
+        self.assertEqual(materialized, [])
+        self.assertEqual(events[0][0], "runtime_command_boundary_commit_blocked")
+        self.assertEqual(events[0][1]["processed_command_seq"], 7)

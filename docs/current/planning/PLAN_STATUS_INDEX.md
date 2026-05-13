@@ -71,8 +71,10 @@ Read and maintain these:
   `CommandRecoveryService`; command precondition and stale terminal handling now
   live in `CommandProcessingGuardService`; in-process active command/task gating
   lives in `CommandExecutionGate`; command-boundary deferred commit finalization
-  lives in `CommandBoundaryFinalizer`; `RuntimeService.process_command_once()`
-  remains the transitional lease/commit adapter.
+  lives in `CommandBoundaryFinalizer`; command-boundary final commit now rechecks
+  runtime lease ownership before authoritative Redis/view/prompt side effects;
+  `RuntimeService.process_command_once()` remains the transitional lease/commit
+  adapter.
 
 ## Closed Enough
 

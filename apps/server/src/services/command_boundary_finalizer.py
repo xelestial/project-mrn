@@ -18,12 +18,19 @@ class CommandBoundaryFinalization:
     view_commit_count: int
     total_ms: int
     timings: dict[str, int]
+    blocked_reason: str | None = None
+    blocked_fields: dict[str, Any] | None = None
 
-    def result_fields(self) -> dict[str, int]:
-        return {
+    def result_fields(self) -> dict[str, Any]:
+        fields: dict[str, Any] = {
             "command_boundary_finalization_ms": self.total_ms,
             **self.timings,
         }
+        if self.blocked_reason is not None:
+            fields["command_boundary_commit_blocked"] = True
+            fields["command_boundary_commit_blocked_reason"] = self.blocked_reason
+            fields.update(self.blocked_fields or {})
+        return fields
 
 
 class CommandBoundaryFinalizer:
@@ -33,11 +40,13 @@ class CommandBoundaryFinalizer:
         authoritative_store: object,
         emit_latest_view_commit: Callable[[Any, str], object],
         materialize_prompt_boundaries: Callable[[Any, str, dict], object],
+        commit_guard: Callable[[str], dict[str, Any] | None] | None = None,
         logger: Callable[..., None] = log_event,
     ) -> None:
         self._authoritative_store = authoritative_store
         self._emit_latest_view_commit = emit_latest_view_commit
         self._materialize_prompt_boundaries = materialize_prompt_boundaries
+        self._commit_guard = commit_guard
         self._logger = logger
 
     def finalize(
@@ -66,7 +75,34 @@ class CommandBoundaryFinalizer:
         view_commit_count = 0
 
         if deferred_commit is not None:
-            commit_session_id = str(deferred_commit.pop("session_id"))
+            commit_session_id = str(deferred_commit["session_id"])
+            blocked_fields = self._commit_guard(commit_session_id) if self._commit_guard is not None else None
+            if blocked_fields is not None:
+                mark_phase("commit_guard_ms")
+                blocked_reason = str(blocked_fields.get("reason") or "command_boundary_commit_blocked")
+                total_ms = _duration_ms(started)
+                self._logger(
+                    "runtime_command_boundary_commit_blocked",
+                    session_id=session_id,
+                    commit_session_id=commit_session_id,
+                    processed_command_seq=processed_command_seq,
+                    terminal_status=terminal_status,
+                    terminal_boundary_reason=terminal_boundary_reason,
+                    reason=blocked_reason,
+                    total_ms=total_ms,
+                    **{key: value for key, value in blocked_fields.items() if key != "reason"},
+                    **timings,
+                )
+                return CommandBoundaryFinalization(
+                    redis_commit_count=0,
+                    view_commit_count=0,
+                    total_ms=total_ms,
+                    timings=timings,
+                    blocked_reason=blocked_reason,
+                    blocked_fields={key: value for key, value in blocked_fields.items() if key != "reason"},
+                )
+
+            deferred_commit.pop("session_id")
             self._authoritative_store.commit_transition(commit_session_id, **deferred_commit)
             mark_phase("authoritative_commit_ms")
             redis_commit_count = 1

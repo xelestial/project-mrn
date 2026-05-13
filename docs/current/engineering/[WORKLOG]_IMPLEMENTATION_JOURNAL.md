@@ -349,3 +349,33 @@ Result: focused worker/session-loop/router tests passed, broader runtime/Redis/p
 - Web focused selector/replay tests: 206 passed.
 - Python compile check passed for touched engine, server, policy, and audit modules.
 - `git diff --check` passed.
+
+## 2026-05-13 Pre-Implementation Completion Criteria Rule
+
+- Added a mandatory pre-implementation contract to `docs/current/engineering/[MANDATORY]_PRINCIPLES_AND_REQUIRED_PLAN_READING.md`.
+- The contract requires every implementation task to state goal, completion criteria, non-goals, protected boundaries, verification commands, and responsibility check before code edits.
+- Added `P-09 Completion Criteria Discipline` so architecture work is checked for actual responsibility movement, not only test success.
+- Added the same execution rule to root `AGENTS.md` so future sessions inherit it immediately.
+
+## Verification
+
+- Documentation-only change; no runtime tests required.
+- `git diff --check`
+
+## 2026-05-13 Command-Boundary Final Commit Lease Guard
+
+- Added a `commit_guard` hook to `CommandBoundaryFinalizer`.
+- Connected `RuntimeService._run_engine_command_boundary_loop_sync()` to the runtime lease owner check before authoritative command-boundary finalization.
+- If another runtime worker owns the lease before the final write, the command-boundary path returns `status=stale` / `reason=runtime_lease_lost_before_commit`.
+- In that blocked state, the staged boundary store may record internal commit attempts, but the authoritative Redis state commit, latest `view_commit` emit, and prompt materialization do not run.
+- This is not the full SessionLoop ownership migration. `RuntimeService` still provides the transitional lease adapter until the command execution loop is moved.
+
+## Verification
+
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_command_boundary_finalizer.py apps/server/tests/test_runtime_service.py -k 'command_boundary_loop_blocks_final_commit_when_runtime_lease_is_lost or commit_guard_blocks_deferred_commit_side_effects' -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_command_boundary_finalizer.py -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k 'command_boundary_loop or runtime_lease_lost_before_commit' -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests -q`
+- `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`
+- `python3 tools/plan_policy_gate.py`
+- `git diff --check`

@@ -1701,6 +1701,7 @@ class RuntimeService:
             authoritative_store=original_store,
             emit_latest_view_commit=self._emit_latest_view_commit_sync,
             materialize_prompt_boundaries=self._materialize_prompt_boundaries_from_checkpoint_sync,
+            commit_guard=self._command_boundary_commit_guard,
         ).finalize(
             loop=loop,
             session_id=session_id,
@@ -1709,8 +1710,17 @@ class RuntimeService:
             terminal_status=terminal_status,
             terminal_boundary_reason=terminal_reason,
         )
+        result_step = dict(last_step)
+        if finalization.blocked_reason is not None:
+            result_step.update(
+                {
+                    "status": "stale",
+                    "reason": finalization.blocked_reason,
+                    **(finalization.blocked_fields or {}),
+                }
+            )
         return {
-            **last_step,
+            **result_step,
             "transitions": transitions,
             "module_transition_count": transitions,
             "redis_commit_count": finalization.redis_commit_count,
@@ -1725,6 +1735,20 @@ class RuntimeService:
             "engine_prepare_ms": engine_prepare_ms,
             "engine_transition_loop_ms": engine_transition_loop_ms,
             **finalization.result_fields(),
+        }
+
+    def _command_boundary_commit_guard(self, session_id: str) -> dict[str, Any] | None:
+        lease_owner_before_write = self._runtime_lease_owner(session_id)
+        lease_check_required = self._runtime_state_store is not None and (
+            self._runtime_lease_held_by_this_process(session_id)
+            or lease_owner_before_write is not None
+        )
+        if not lease_check_required or lease_owner_before_write == self._worker_id:
+            return None
+        return {
+            "reason": "runtime_lease_lost_before_commit",
+            "lease_owner": lease_owner_before_write,
+            "worker_id": self._worker_id,
         }
 
     @staticmethod

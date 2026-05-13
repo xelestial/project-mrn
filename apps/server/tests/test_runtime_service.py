@@ -6721,6 +6721,95 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(len(store.commits), 1)
         self.assertIs(runtime._game_state_store, store)
 
+    def test_command_boundary_loop_blocks_final_commit_when_runtime_lease_is_lost(self) -> None:
+        store = _MutableGameStateStoreStub()
+        runtime_state_store = _RuntimeStateStoreStub()
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            game_state_store=store,
+            runtime_state_store=runtime_state_store,
+        )
+        session = self.session_service.create_session(
+            seats=[
+                {"seat": 1, "seat_type": "human"},
+                {"seat": 2, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 3, "seat_type": "ai", "ai_profile": "balanced"},
+                {"seat": 4, "seat_type": "ai", "ai_profile": "balanced"},
+            ],
+            config={"seed": 42, "runtime": {"runner_kind": "module", "ai_decision_delay_ms": 0}},
+        )
+        store.checkpoint = {
+            "schema_version": 3,
+            "session_id": session.session_id,
+            "runner_kind": "module",
+            "has_snapshot": True,
+            "latest_commit_seq": 4,
+        }
+        runtime_state_store.leases[session.session_id] = "other-runtime-worker"
+        captured_boundary_stores: list[object] = []
+
+        def _fake_prepare(*args, **kwargs):  # noqa: ANN002, ANN003
+            del args
+            boundary_store = kwargs.get("game_state_store_override")
+            self.assertIsNotNone(boundary_store)
+            captured_boundary_stores.append(boundary_store)
+            return object()
+
+        def _fake_transition(*args, **kwargs):  # noqa: ANN002, ANN003
+            del args
+            boundary_store = kwargs.get("game_state_store_override")
+            self.assertIs(boundary_store, captured_boundary_stores[0])
+            boundary_store.commit_transition(
+                session.session_id,
+                current_state={"session_id": session.session_id, "tiles": []},
+                checkpoint={
+                    "schema_version": 3,
+                    "session_id": session.session_id,
+                    "runner_kind": "module",
+                    "has_snapshot": True,
+                    "base_commit_seq": 4,
+                    "latest_commit_seq": 5,
+                },
+                view_state={},
+                view_commits={"spectator": {"commit_seq": 5, "view_state": {"ok": True}}},
+                expected_previous_commit_seq=4,
+            )
+            return {
+                "status": "waiting_input",
+                "reason": "prompt_required",
+                "runner_kind": "module",
+                "module_type": "DraftModule",
+                "request_id": "req_next",
+                "request_type": "draft_card",
+                "player_id": 2,
+            }
+
+        with (
+            patch.object(runtime, "_prepare_runtime_transition_context_sync", side_effect=_fake_prepare),
+            patch.object(runtime, "_run_engine_transition_once_sync", side_effect=_fake_transition),
+            patch.object(runtime, "_emit_latest_view_commit_sync", return_value=None),
+            patch.object(runtime, "_materialize_prompt_boundaries_from_checkpoint_sync", return_value=None),
+        ):
+            result = runtime._run_engine_command_boundary_loop_sync(
+                None,
+                session.session_id,
+                42,
+                None,
+                max_transitions=1,
+                first_command_consumer_name="runtime-worker",
+                first_command_seq=1,
+            )
+
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["reason"], "runtime_lease_lost_before_commit")
+        self.assertEqual(result["lease_owner"], "other-runtime-worker")
+        self.assertEqual(result["redis_commit_count"], 0)
+        self.assertEqual(result["view_commit_count"], 0)
+        self.assertEqual(result["internal_redis_commit_attempt_count"], 1)
+        self.assertEqual(store.commits, [])
+
     def test_command_boundary_loop_hydrates_and_prepares_engine_once(self) -> None:
         RuntimeService._ensure_engine_import_path()
         import engine

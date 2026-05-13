@@ -623,6 +623,7 @@ commit signal
 - 완료: `CommandProcessingGuardService`를 추가해 consumer offset guard, stale command terminal 판단, rejected/superseded/expired command state mark를 `RuntimeService` 밖으로 분리했다. `RuntimeService.process_command_once()`는 여전히 lease를 잡고 engine loop를 호출하지만, command precondition/stale terminal 규칙은 새 service에 위임한다.
 - 완료: `CommandExecutionGate`를 추가해 in-process active command session lock과 active runtime task guard를 `RuntimeService` 필드 구현에서 분리했다. `RuntimeService`에는 호환 wrapper만 남아 runtime status와 command execution entrypoint가 같은 gate를 바라본다.
 - 완료: `CommandBoundaryFinalizer`를 추가해 command-boundary deferred commit 최종화(`deferred_commit` copy, authoritative Redis commit, latest `view_commit` emit, waiting prompt materialization, timing log)를 `RuntimeService._run_engine_command_boundary_loop_sync()` 본문 밖으로 분리했다. `_CommandBoundaryGameStateStore`는 아직 남아 있지만, 최종 commit side effect 묶음의 소유자는 별도 service로 이동했다.
+- 완료: `CommandBoundaryFinalizer`가 authoritative commit 직전에 `commit_guard`를 호출하게 했다. command-boundary loop가 runtime lease를 잃은 상태이면 Redis authoritative state/view/prompt side effect를 실행하지 않고 `runtime_lease_lost_before_commit` stale result를 반환한다.
 - 보류: `_CommandBoundaryGameStateStore`는 현재 `RuntimeService._run_engine_command_boundary_loop_sync()`의 command-boundary deferred commit adapter다. SessionLoop가 atomic state/prompt/view/command commit을 직접 소유하기 전에는 제거하면 같은 명령 안의 중간 transition commit 방지가 깨진다.
 - 보류: `_runtime_prompt_sequence_seed`는 prompt boundary ownership이 `RuntimeService` 밖으로 나가기 전까지 checkpoint/resume prompt instance id를 맞추는 복구 시드다. Phase 8에서 stable id 충돌은 줄였지만 process-local prompt instance source 제거는 아직 끝나지 않았다.
 - 남음: `SessionLoop`는 아직 `RuntimeService.process_command_once()`를 runtime boundary adapter로 호출한다. 즉 외부 wakeup owner, route recovery query owner, command precondition/stale terminal owner, local execution gate는 정리됐지만 runtime lease, runtime status persistence, state/prompt/view/command atomic commit의 실소유권은 아직 `RuntimeService` 내부에 남아 있다.
@@ -645,6 +646,7 @@ commit signal
 - [x] command precondition/stale terminal 판단이 `RuntimeService` 구현 본문이 아니라 별도 service에서 실행된다.
 - [x] active command session lock과 active runtime task guard가 별도 execution gate에서 실행된다.
 - [x] command-boundary deferred commit finalization이 `RuntimeService` 본문이 아니라 별도 service에서 실행된다.
+- [x] command-boundary final authoritative commit 직전에 runtime lease owner를 재검증하고, lease를 잃은 실행자는 Redis commit/view emit/prompt materialization을 하지 않는다.
 - [x] command wakeup worker가 consumed command를 무한 재스캔하지 않는다.
 - [x] 테스트 전용 env branch 없이 live/headless 설정이 동일한 resolver 경로를 탄다.
 
