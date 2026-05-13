@@ -228,6 +228,76 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(lifecycle_by_public["request_id"], pending.request_id)
         self.assertEqual(lifecycle_by_public["decision"]["public_request_id"], public_request_id)
 
+    def test_mark_prompt_delivered_resolves_public_request_id_alias(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:7",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 7,
+                "timeout_ms": 30000,
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        delivered = self.service.mark_prompt_delivered(
+            public_request_id,
+            session_id="s1",
+            stream_seq=15,
+            commit_seq=9,
+        )
+
+        self.assertIsNotNone(delivered)
+        assert delivered is not None
+        self.assertEqual(delivered["request_id"], pending.request_id)
+        self.assertEqual(delivered["state"], "delivered")
+        lifecycle = self.service.get_prompt_lifecycle(public_request_id, session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], pending.request_id)
+        self.assertEqual(lifecycle["stream_seq"], 15)
+        self.assertEqual(lifecycle["commit_seq"], 9)
+        self.assertEqual(len(self.service.list_prompt_lifecycle(session_id="s1")), 1)
+
+    def test_external_decision_result_resolves_public_request_id_alias(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:8",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 8,
+                "timeout_ms": 30000,
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        recorded = self.service.record_external_decision_result(
+            {
+                "session_id": "s1",
+                "request_id": public_request_id,
+                "player_id": 1,
+                "choice_id": "roll",
+            },
+            status="rejected",
+            reason="external_ai_invalid_choice",
+        )
+
+        self.assertIsNotNone(recorded)
+        assert recorded is not None
+        self.assertEqual(recorded["request_id"], pending.request_id)
+        self.assertEqual(recorded["state"], "rejected")
+        lifecycle = self.service.get_prompt_lifecycle(pending.request_id, session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], pending.request_id)
+        self.assertEqual(lifecycle["decision"]["request_id"], pending.request_id)
+        self.assertEqual(lifecycle["decision"]["public_request_id"], public_request_id)
+        self.assertEqual(lifecycle["decision"]["submitted_request_id"], public_request_id)
+        self.assertEqual(lifecycle["reason"], "external_ai_invalid_choice")
+        self.assertEqual(len(self.service.list_prompt_lifecycle(session_id="s1")), 1)
+
     def test_module_decision_command_carries_prompt_instance_id_for_public_request_alias(self) -> None:
         command_store = CapturingCommandStore()
         service = PromptService(command_store=command_store)

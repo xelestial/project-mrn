@@ -34,6 +34,11 @@ in the active plans, status index, tests, or canonical contract documents.
 - `PromptService.get_prompt_lifecycle()` now accepts the same public request
   alias and returns the legacy-key lifecycle record, which keeps debug/status
   reads usable before the canonical prompt key migration.
+- `PromptService.mark_prompt_delivered()` and
+  `record_external_decision_result()` now resolve submitted public request
+  aliases before lifecycle writes, so delivered/external-result states update
+  the same legacy-key lifecycle record instead of creating a parallel public-key
+  record.
 - Decision command materialization now copies prompt player identity companions
   (`public_player_id`, `seat_id`, `viewer_id`, and display aliases) into normal
   decision commands, simultaneous batch collector responses, and timeout
@@ -55,6 +60,7 @@ Verification:
 
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_mark_prompt_delivered_resolves_public_request_id_alias apps/server/tests/test_prompt_service.py::PromptServiceTests::test_external_decision_result_resolves_public_request_id_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`

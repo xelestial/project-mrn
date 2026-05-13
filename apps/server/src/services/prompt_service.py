@@ -706,13 +706,15 @@ class PromptService:
         stream_seq: int | None = None,
         commit_seq: int | None = None,
     ) -> dict[str, Any] | None:
+        normalized_request_id = str(request_id).strip()
         with self._lock:
-            pending = self._get_pending(str(request_id).strip(), session_id=session_id)
-            current = self._get_lifecycle(str(request_id).strip(), session_id=session_id)
+            resolved_request_id = self._resolve_submitted_request_id(normalized_request_id, session_id=session_id)
+            pending = self._get_pending(resolved_request_id, session_id=session_id)
+            current = self._get_lifecycle(resolved_request_id, session_id=session_id)
             if pending is None and current is None:
                 return None
             return self._record_lifecycle(
-                request_id=str(request_id).strip(),
+                request_id=resolved_request_id,
                 state="delivered",
                 session_id=pending.session_id if pending is not None else session_id,
                 player_id=pending.player_id if pending is not None else None,
@@ -733,14 +735,20 @@ class PromptService:
             return None
         session_id = str(payload.get("session_id") or "").strip() or None
         with self._lock:
-            pending = self._get_pending(request_id, session_id=session_id)
+            resolved_request_id = self._resolve_submitted_request_id(request_id, session_id=session_id)
+            lifecycle_payload = dict(payload)
+            if resolved_request_id != request_id:
+                lifecycle_payload["request_id"] = resolved_request_id
+                lifecycle_payload.setdefault("submitted_request_id", request_id)
+                lifecycle_payload.setdefault("public_request_id", request_id)
+            pending = self._get_pending(resolved_request_id, session_id=session_id)
             return self._record_lifecycle(
-                request_id=request_id,
+                request_id=resolved_request_id,
                 state=str(status or "rejected"),
                 session_id=pending.session_id if pending is not None else session_id,
                 player_id=pending.player_id if pending is not None else None,
                 prompt=pending.payload if pending is not None else None,
-                decision=payload,
+                decision=lifecycle_payload,
                 reason=reason,
             )
 
@@ -1401,6 +1409,7 @@ def _compact_prompt_lifecycle_payload(prompt: dict) -> dict[str, Any]:
 def _compact_decision_lifecycle_payload(decision: dict) -> dict[str, Any]:
     result: dict[str, Any] = {
         "request_id": str(decision.get("request_id") or ""),
+        "submitted_request_id": str(decision.get("submitted_request_id") or ""),
         "legacy_request_id": str(decision.get("legacy_request_id") or ""),
         "public_request_id": str(decision.get("public_request_id") or ""),
         "player_id": decision.get("player_id"),
