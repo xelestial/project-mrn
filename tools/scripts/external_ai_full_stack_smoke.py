@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 def _request_json(
@@ -151,6 +152,25 @@ def _admin_headers(admin_token: str) -> dict[str, str]:
     return {"X-Admin-Token": token}
 
 
+def _is_loopback_base_url(base_url: str) -> bool:
+    parsed = urlparse(str(base_url or ""))
+    host = (parsed.hostname or "").strip().lower()
+    return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _require_non_local_base_url(base_url: str, *, label: str) -> None:
+    if _is_loopback_base_url(base_url):
+        raise RuntimeError(f"{label} must be non-local when remote evidence is required")
+
+
+def _worker_headers(worker_auth_header: str, worker_auth_value: str, *, require_worker_auth: bool) -> dict[str, str]:
+    header = str(worker_auth_header or "").strip()
+    value = str(worker_auth_value or "").strip()
+    if require_worker_auth and (not header or not value):
+        raise RuntimeError("--require-worker-auth requires both --worker-auth-header and --worker-auth-value")
+    return {header: value} if header and value else {}
+
+
 def _load_session_payload(path: str, *, worker_base_url: str, seed: int) -> dict[str, Any]:
     if not path:
         return _default_session_payload(worker_base_url=worker_base_url, seed=seed)
@@ -160,10 +180,16 @@ def _load_session_payload(path: str, *, worker_base_url: str, seed: int) -> dict
 def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
     server_base_url = args.server_base_url.rstrip("/")
     worker_base_url = args.worker_base_url.rstrip("/")
+    if getattr(args, "require_non_local_server", False):
+        _require_non_local_base_url(server_base_url, label="server base URL")
+    if getattr(args, "require_non_local_worker", False):
+        _require_non_local_base_url(worker_base_url, label="worker base URL")
     admin_headers = _admin_headers(args.admin_token or os.getenv("MRN_ADMIN_TOKEN", ""))
-    worker_headers: dict[str, str] = {}
-    if args.worker_auth_header and args.worker_auth_value:
-        worker_headers[args.worker_auth_header] = args.worker_auth_value
+    worker_headers = _worker_headers(
+        args.worker_auth_header,
+        args.worker_auth_value,
+        require_worker_auth=getattr(args, "require_worker_auth", False),
+    )
 
     health = _request_json(f"{worker_base_url}/health", headers=worker_headers)
     session_payload = _load_session_payload(args.session_payload, worker_base_url=worker_base_url, seed=args.seed)
@@ -251,6 +277,9 @@ def main() -> int:
     parser.add_argument("--admin-token", default="")
     parser.add_argument("--worker-auth-header", default="")
     parser.add_argument("--worker-auth-value", default="")
+    parser.add_argument("--require-worker-auth", action="store_true")
+    parser.add_argument("--require-non-local-server", action="store_true")
+    parser.add_argument("--require-non-local-worker", action="store_true")
     parser.add_argument("--session-payload", default="")
     parser.add_argument("--external-seat", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)

@@ -150,7 +150,10 @@ Those themes should reopen only if a concrete regression or rollout need appears
    idempotency tests, and frontend decision/prompt contract tests. Keep
    end-to-end payload shape, round/action control, prompt lifecycle, and
    modular-runtime frame semantics synchronized between `engine/`,
-   `apps/server/`, and `apps/web/` as new rule changes land.
+   `apps/server/`, and `apps/web/` as new rule changes land. The Phase 0
+   checklist in the protocol plan is synchronized to the current 2026-05-13
+   implementation evidence; request IDs and prompt instance IDs remain explicit
+   residual migration boundaries rather than hidden completion.
 3. UI/UX follow-up. Effect cause visibility now preserves backend
    `effect_context` source player, source family, source name, and resource
    delta through the prompt overlay. The 2026-05-04 automated evidence pass
@@ -165,9 +168,11 @@ Those themes should reopen only if a concrete regression or rollout need appears
    the worker API tests and priority-scored worker runbook smoke. The game
    server HTTP external-AI path no longer calls the worker directly inside the
    session loop; it now waits on a provider=`ai` prompt and accepts the later
-   callback through the same decision command path as human decisions. A remote
-   non-local external AI endpoint still needs its actual base URL and
-   credential/config values before it can be called deployment evidence.
+   callback through the same decision command path as human decisions. Remote
+   evidence commands now have fail-closed flags requiring a non-local server,
+   non-local worker, worker auth, and summary-file output. A remote non-local
+   external AI endpoint still needs its actual base URL and credential/config
+   values before it can be called deployment evidence.
 
 ## Rule For New Work
 

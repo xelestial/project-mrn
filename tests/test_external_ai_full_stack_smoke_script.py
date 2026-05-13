@@ -76,3 +76,37 @@ def test_callback_payload_preserves_fingerprint_and_worker_choice_payload() -> N
         "prompt_fingerprint": "pf_123",
         "prompt_fingerprint_version": "prompt_fingerprint.v1",
     }
+
+
+def test_remote_smoke_requires_worker_auth_when_flagged() -> None:
+    module = _load_module()
+
+    try:
+        module._worker_headers("", "", require_worker_auth=True)
+    except RuntimeError as exc:
+        assert "--require-worker-auth" in str(exc)
+    else:
+        raise AssertionError("remote worker smoke must reject missing worker auth")
+
+
+def test_remote_smoke_rejects_local_worker_when_non_local_required() -> None:
+    module = _load_module()
+
+    try:
+        module._require_non_local_base_url("http://127.0.0.1:8011", label="worker base URL")
+    except RuntimeError as exc:
+        assert "worker base URL must be non-local" in str(exc)
+    else:
+        raise AssertionError("remote evidence gate must reject local worker URLs")
+
+
+def test_remote_smoke_accepts_non_local_worker_with_auth_header() -> None:
+    module = _load_module()
+
+    module._require_non_local_base_url("https://worker.example.test", label="worker base URL")
+
+    assert module._worker_headers(
+        "X-Worker-Auth",
+        "Token secret",
+        require_worker_auth=True,
+    ) == {"X-Worker-Auth": "Token secret"}

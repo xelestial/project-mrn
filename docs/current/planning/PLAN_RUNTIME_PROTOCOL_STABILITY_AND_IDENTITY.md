@@ -2,8 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` when splitting implementation across workers, or `superpowers:executing-plans` when applying this plan sequentially. Track each checklist item in this document as it is completed.
 
-Status: ACTIVE DRAFT  
-Updated: 2026-05-08  
+Status: ACTIVE STABILIZATION TRACK
+Updated: 2026-05-13
 Owner: Engine runtime / WebSocket protocol  
 Scope: Runtime identity, sequence contracts, viewer outbox, prompt lifecycle, `view_commit` recovery, Redis debug state, full-stack protocol gates
 
@@ -63,8 +63,8 @@ Phase 0 is the compatibility foundation. It must not change the WebSocket wire s
 
 Checklist:
 
-- [ ] Add protocol ID helpers for `PlayerId`, `SeatId`, `ViewerId`, `EventId`, `RequestId`, and turn labels.
-- [ ] Add additive session identity fields:
+- [x] Add protocol ID helpers for `PlayerId`, `SeatId`, `ViewerId`, `EventId`, `RequestId`, and turn labels.
+- [x] Add additive session identity fields:
   - `seat_id`
   - `public_player_id`
   - `viewer_id`
@@ -72,16 +72,34 @@ Checklist:
   - `turn_order_index`
   - `player_label`
   - `legacy_player_id`
-- [ ] Preserve old numeric `player_id` and `seat` in auth, prompts, and decisions until the engine adapter is moved.
-- [ ] Add `round_index`, `turn_index`, and `turn_label` to authoritative `view_commit` payloads.
-- [ ] Add viewer display metadata to `view_commit.viewer` without changing visibility checks.
-- [ ] Add source `event_id` to newly published non-commit stream messages.
-- [ ] Keep Redis debug retention capped at 3600 seconds and make the debug snapshot sufficient for state inspection.
-- [ ] Add tests that prove:
+- [x] Preserve old numeric `player_id` and `seat` in auth, prompts, and decisions until the engine adapter is moved.
+- [x] Add `round_index`, `turn_index`, and `turn_label` to authoritative `view_commit` payloads.
+- [x] Add viewer display metadata to `view_commit.viewer` without changing visibility checks.
+- [x] Add source `event_id` to newly published non-commit stream messages.
+- [x] Keep Redis debug retention capped at 3600 seconds and make the debug snapshot sufficient for state inspection.
+- [x] Add tests that prove:
   - public player identity is UUID-like and not the numeric seat/player value
   - session persistence preserves the new IDs
   - view commits carry turn label metadata
   - source stream messages carry event IDs
+
+Current Phase 0 evidence, 2026-05-13:
+
+| Contract | Current evidence |
+| --- | --- |
+| Protocol ID helpers | `apps/server/src/domain/protocol_ids.py` defines `new_public_player_id`, `new_seat_id`, `new_viewer_id`, `new_event_id`, `new_request_uuid`, `player_label`, and `turn_label`. |
+| Additive session identity | `apps/server/tests/test_session_service.py` covers join payloads, public session payloads, auth context, and store-backed reload preserving `public_player_id`, `seat_id`, and `viewer_id`. |
+| Legacy numeric compatibility | `player_id`, `seat`, `seat_index`, `turn_order_index`, and `legacy_player_id` remain in the join/auth/viewer payloads while public UUID-like IDs are additive. |
+| `view_commit` round/turn metadata | `apps/server/src/services/runtime_service.py` builds authoritative commits with `round_index`, `turn_index`, and `turn_label` at both payload and `runtime` levels; frontend contract fields are in `apps/web/src/core/contracts/stream.ts`. |
+| Viewer display metadata | `display_identity_fields()` populates seat display fields; `apps/server/tests/test_visibility_projection.py` proves auth-derived viewer identity is preserved without changing visibility checks. |
+| Source event IDs | `apps/server/tests/test_stream_service.py::test_publish_adds_source_event_id` proves non-commit `event` and `prompt` messages get `evt_*` IDs while `view_commit` remains the commit boundary. |
+| Redis debug retention | `apps/server/tests/test_redis_realtime_services.py::test_stream_event_index_maps_event_id_to_source_sequence`, `test_stream_store_persists_compact_view_commit_pointer_only`, and `test_game_state_debug_snapshot_uses_one_hour_ttl` cover event index TTL, compact view-commit pointer persistence, and 3600-second debug snapshot TTL. |
+
+Residual Phase 0 boundaries:
+
+- `stable_prompt_request_id()` intentionally keeps legacy semantic request IDs unless module-boundary identity is available. `new_request_uuid()` exists for the next migration step, but prompt request IDs are not globally opaque UUIDs yet.
+- `prompt_instance_id` remains numeric by design in Phase 0.
+- Viewer outbox migration remains out of scope for Phase 0.
 
 Out of scope for Phase 0:
 

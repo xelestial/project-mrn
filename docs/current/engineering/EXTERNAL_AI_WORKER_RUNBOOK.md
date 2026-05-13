@@ -51,6 +51,27 @@ For a stronger-worker capability smoke check, run:
   --require-request-type purchase_tile
 ```
 
+For deployment evidence against a remote worker, the same checker must reject
+local endpoints and must require the worker credential. Save the summary to a
+file instead of relying on chat logs:
+
+```bash
+.venv311/bin/python tools/check_external_ai_endpoint.py \
+  --base-url "$MRN_EXTERNAL_AI_WORKER_BASE_URL" \
+  --auth-header X-Worker-Auth \
+  --auth-value "Token $MRN_EXTERNAL_AI_WORKER_TOKEN" \
+  --require-auth \
+  --require-non-local-endpoint \
+  --require-ready \
+  --require-profile priority_scored \
+  --require-adapter priority_score_v1 \
+  --require-policy-class PriorityScoredPolicy \
+  --require-decision-style priority_scored_contract \
+  --require-request-type movement \
+  --require-request-type purchase_tile \
+  --summary-out tmp/external-ai-remote-endpoint/summary.json
+```
+
 If worker auth is enabled, pass the auth header values too:
 
 ```bash
@@ -144,6 +165,22 @@ Then run:
   --worker-base-url http://127.0.0.1:8011 \
   --admin-token admin-secret \
   --summary-out tmp/external-ai-full-stack-smoke/summary.json
+```
+
+For remote deployment evidence, require non-local server and worker endpoints
+and require the worker auth header:
+
+```bash
+.venv/bin/python tools/scripts/external_ai_full_stack_smoke.py \
+  --server-base-url "$MRN_SERVER_BASE_URL" \
+  --worker-base-url "$MRN_EXTERNAL_AI_WORKER_BASE_URL" \
+  --admin-token "$MRN_ADMIN_TOKEN" \
+  --worker-auth-header X-Worker-Auth \
+  --worker-auth-value "Token $MRN_EXTERNAL_AI_WORKER_TOKEN" \
+  --require-worker-auth \
+  --require-non-local-server \
+  --require-non-local-worker \
+  --summary-out tmp/external-ai-remote-full-stack/summary.json
 ```
 
 This smoke creates a session with an `external_ai` seat, polls

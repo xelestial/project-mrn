@@ -5,7 +5,9 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 def _request_json(url: str, *, method: str = "GET", body: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
@@ -53,22 +55,48 @@ def _sample_decision_request() -> dict[str, Any]:
     }
 
 
-def main() -> int:
+def _is_loopback_base_url(base_url: str) -> bool:
+    parsed = urlparse(str(base_url or ""))
+    host = (parsed.hostname or "").strip().lower()
+    return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _auth_headers(auth_header: str, auth_value: str, *, require_auth: bool = False) -> dict[str, str]:
+    header = str(auth_header or "").strip()
+    value = str(auth_value or "").strip()
+    if require_auth and (not header or not value):
+        raise ValueError("--require-auth requires both --auth-header and --auth-value")
+    return {header: value} if header and value else {}
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Smoke-check an MRN external AI worker endpoint.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8011")
     parser.add_argument("--auth-header", default="")
     parser.add_argument("--auth-value", default="")
+    parser.add_argument("--require-auth", action="store_true")
+    parser.add_argument("--require-non-local-endpoint", action="store_true")
     parser.add_argument("--require-ready", action="store_true")
     parser.add_argument("--require-adapter", default="")
     parser.add_argument("--require-profile", default="")
     parser.add_argument("--require-policy-class", default="")
     parser.add_argument("--require-decision-style", default="")
     parser.add_argument("--require-request-type", action="append", default=[])
-    args = parser.parse_args()
+    parser.add_argument("--summary-out", default="")
+    args = parser.parse_args(argv)
 
-    headers: dict[str, str] = {}
-    if args.auth_header and args.auth_value:
-        headers[args.auth_header] = args.auth_value
+    try:
+        headers = _auth_headers(args.auth_header, args.auth_value, require_auth=args.require_auth)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    if args.require_non_local_endpoint and _is_loopback_base_url(args.base_url):
+        print(
+            "ERROR: --require-non-local-endpoint rejects loopback/local worker endpoints",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         health = _request_json(f"{args.base_url.rstrip('/')}/health", headers=headers)
@@ -102,7 +130,12 @@ def main() -> int:
     if not decide.get("choice_id"):
         problems.append("decision response missing choice_id")
 
-    print(json.dumps({"health": health, "decide": decide}, indent=2, ensure_ascii=False))
+    summary = {"health": health, "decide": decide}
+    raw = json.dumps(summary, indent=2, ensure_ascii=False)
+    if args.summary_out:
+        Path(args.summary_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.summary_out).write_text(raw + "\n", encoding="utf-8")
+    print(raw)
     if problems:
         for problem in problems:
             print(f"FAIL: {problem}", file=sys.stderr)
