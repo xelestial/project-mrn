@@ -168,9 +168,21 @@ class PromptService:
             storage_key = _scoped_request_key(pending.session_id, pending.request_id) if pending is not None else _scoped_request_key(decision_session_id, request_id)
             if pending is None:
                 if self._has_recently_resolved_request(request_id, session_id=decision_session_id or None):
-                    self._record_lifecycle(request_id=request_id, state="stale", decision=payload, reason="already_resolved")
+                    self._record_lifecycle(
+                        request_id=request_id,
+                        state="stale",
+                        session_id=decision_session_id or None,
+                        decision=payload,
+                        reason="already_resolved",
+                    )
                     return {"status": "stale", "reason": "already_resolved"}
-                self._record_lifecycle(request_id=request_id, state="stale", decision=payload, reason="request_not_pending")
+                self._record_lifecycle(
+                    request_id=request_id,
+                    state="stale",
+                    session_id=decision_session_id or None,
+                    decision=payload,
+                    reason="request_not_pending",
+                )
                 return {"status": "stale", "reason": "request_not_pending"}
 
             now = self._now_ms()
@@ -258,6 +270,15 @@ class PromptService:
                 if expected_fingerprint:
                     decision_payload["prompt_fingerprint"] = expected_fingerprint
                     decision_payload["prompt_fingerprint_version"] = PROMPT_FINGERPRINT_VERSION
+                self._record_lifecycle(
+                    request_id=request_id,
+                    state="decision_received",
+                    session_id=pending.session_id,
+                    player_id=pending.player_id,
+                    prompt=pending.payload,
+                    decision=decision_payload,
+                    now_ms=now,
+                )
                 command_payload = {
                     "request_id": request_id,
                     "player_id": player_id,
@@ -344,6 +365,16 @@ class PromptService:
                 self._record_lifecycle(
                     request_id=request_id,
                     state="accepted",
+                    session_id=pending.session_id,
+                    player_id=pending.player_id,
+                    prompt=pending.payload,
+                    decision=decision_payload,
+                    reason="accepted",
+                    now_ms=now,
+                )
+                self._record_lifecycle(
+                    request_id=request_id,
+                    state="resolved",
                     session_id=pending.session_id,
                     player_id=pending.player_id,
                     prompt=pending.payload,
@@ -497,12 +528,11 @@ class PromptService:
             self._set_decision(request_id, decision_payload, session_id=pending.session_id)
             self._record_lifecycle(
                 request_id=request_id,
-                state="accepted",
+                state="decision_received",
                 session_id=pending.session_id,
                 player_id=pending.player_id,
                 prompt=pending.payload,
                 decision=decision_payload,
-                reason="timeout_fallback",
                 now_ms=now,
             )
             command_ref = None
@@ -531,6 +561,26 @@ class PromptService:
                 decision_payload["command_seq"] = _command_seq(command_ref)
                 decision_payload["batch_status"] = batch_result.status
                 decision_payload["remaining_player_ids"] = list(batch_result.remaining_player_ids)
+            self._record_lifecycle(
+                request_id=request_id,
+                state="accepted",
+                session_id=pending.session_id,
+                player_id=pending.player_id,
+                prompt=pending.payload,
+                decision=decision_payload,
+                reason="timeout_fallback",
+                now_ms=now,
+            )
+            self._record_lifecycle(
+                request_id=request_id,
+                state="resolved",
+                session_id=pending.session_id,
+                player_id=pending.player_id,
+                prompt=pending.payload,
+                decision=decision_payload,
+                reason="timeout_fallback",
+                now_ms=now,
+            )
         return decision_payload
 
     def _record_batch_response(self, *, pending: PendingPrompt, response: dict, server_time_ms: int):
@@ -927,7 +977,8 @@ class PromptService:
         record: dict[str, Any] = dict(current)
         record.setdefault("schema_version", 1)
         record["request_id"] = normalized_request_id
-        record["state"] = str(state or "unknown")
+        normalized_state = str(state or "unknown")
+        record["state"] = normalized_state
         record["updated_at_ms"] = int(now)
         if "created_at_ms" not in record or state == "created":
             record["created_at_ms"] = int(now)
@@ -939,21 +990,71 @@ class PromptService:
             record["request_type"] = str(prompt.get("request_type") or record.get("request_type") or "")
             record["prompt"] = _compact_prompt_lifecycle_payload(prompt)
         if decision is not None:
-            record["decision"] = _compact_decision_lifecycle_payload(decision)
+            compact_decision = _compact_decision_lifecycle_payload(decision)
+            record["decision"] = compact_decision
+            if normalized_state == "stale":
+                stale_decisions = record.get("stale_decisions")
+                if not isinstance(stale_decisions, list):
+                    stale_decisions = []
+                stale_decisions.append(compact_decision)
+                record["stale_decisions"] = stale_decisions[-10:]
         if reason is not None:
             record["reason"] = str(reason)
-        elif state in {"accepted", "delivered", "created"}:
+        elif state in {"accepted", "delivered", "created", "decision_received", "resolved"}:
             record.pop("reason", None)
         if stream_seq is not None:
             record["stream_seq"] = int(stream_seq)
         if commit_seq is not None:
             record["commit_seq"] = int(commit_seq)
+        record["state_history"] = self._append_lifecycle_history(
+            record.get("state_history"),
+            previous_state=current.get("state"),
+            state=normalized_state,
+            now_ms=int(now),
+            reason=record.get("reason") if reason is not None else None,
+            stream_seq=stream_seq,
+            commit_seq=commit_seq,
+        )
+        if state == "decision_received":
+            record["decision_received_at_ms"] = int(now)
         if state == "delivered":
             record["delivered_at_ms"] = int(now)
+        if state == "accepted":
+            record["accepted_at_ms"] = int(now)
+        if state == "resolved":
+            record["resolved_at_ms"] = int(now)
+        if state == "stale":
+            record["stale_at_ms"] = int(now)
         if state in {"accepted", "rejected", "stale", "expired", "resolved"}:
             record["terminal_at_ms"] = int(now)
         self._set_lifecycle(normalized_request_id, record, session_id=session_id)
         return dict(record)
+
+    @staticmethod
+    def _append_lifecycle_history(
+        history: Any,
+        *,
+        previous_state: Any,
+        state: str,
+        now_ms: int,
+        reason: Any = None,
+        stream_seq: int | None = None,
+        commit_seq: int | None = None,
+    ) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = (
+            [dict(item) for item in history if isinstance(item, dict)] if isinstance(history, list) else []
+        )
+        if not events and isinstance(previous_state, str) and previous_state and previous_state != state:
+            events.append({"state": previous_state})
+        event: dict[str, Any] = {"state": state, "at_ms": int(now_ms)}
+        if reason is not None:
+            event["reason"] = str(reason)
+        if stream_seq is not None:
+            event["stream_seq"] = int(stream_seq)
+        if commit_seq is not None:
+            event["commit_seq"] = int(commit_seq)
+        events.append(event)
+        return events[-32:]
 
     def _set_lifecycle(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
         if self._prompt_store is not None and callable(getattr(self._prompt_store, "save_lifecycle", None)):

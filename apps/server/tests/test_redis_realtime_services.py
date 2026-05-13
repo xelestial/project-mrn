@@ -519,6 +519,25 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertEqual(debug_index["counts"]["pending"], 0)
         self.assertEqual(debug_index["counts"]["lifecycle"], 1)
 
+    def test_prompt_service_active_prompt_storage_has_no_redis_ttl(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        service = PromptService(prompt_store=prompt_store)
+
+        service.create_prompt(
+            "s-prompt-no-ttl",
+            {
+                "request_id": "req_prompt_no_ttl",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        self.assertIsNotNone(prompt_store.get_pending("req_prompt_no_ttl", session_id="s-prompt-no-ttl"))
+        self.assertNotIn(prompt_store._pending_key(), self.fake_redis._expires_at_ms)
+        self.assertNotIn(prompt_store._lifecycle_key(), self.fake_redis._expires_at_ms)
+
     def test_prompt_debug_index_refresh_uses_session_buckets(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
         prompt_store.save_pending(
@@ -1320,6 +1339,14 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(prompt_store.get_pending("r-atomic"))
         self.assertEqual(prompt_store.get_resolved("r-atomic")["reason"], "accepted")
         self.assertEqual(prompt_store.pop_decision("r-atomic")["choice_id"], "roll")
+        lifecycle = prompt_store.get_lifecycle("r-atomic", session_id="s-atomic")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["state"], "resolved")
+        self.assertEqual(
+            [event["state"] for event in lifecycle["state_history"]],
+            ["created", "decision_received", "accepted", "resolved"],
+        )
         commands = command_store.list_commands("s-atomic")
         self.assertEqual(len(commands), 1)
         self.assertEqual(commands[0]["payload"]["request_id"], "r-atomic")

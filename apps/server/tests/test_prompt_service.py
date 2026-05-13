@@ -54,6 +54,19 @@ class CountingPromptStore:
         return None
 
 
+class FailingCommandStore:
+    def append_command(
+        self,
+        session_id: str,
+        command_type: str,
+        payload: dict,
+        *,
+        request_id: str | None = None,
+        server_time_ms: int | None = None,
+    ) -> None:
+        return None
+
+
 class BatchCollectorStub:
     def __init__(self, results: list[BatchCollectorResult]) -> None:
         self.results = list(results)
@@ -154,7 +167,7 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(decision["batch_status"], "completed")
         self.assertEqual(collector.calls[0]["response"]["provider"], "timeout_fallback")
 
-    def test_records_prompt_lifecycle_from_create_to_accept(self) -> None:
+    def test_records_prompt_lifecycle_from_create_to_resolve(self) -> None:
         self.service.create_prompt(
             "s1",
             {
@@ -194,12 +207,52 @@ class PromptServiceTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "accepted")
 
-        accepted = self.service.get_prompt_lifecycle("r1_lifecycle")
-        self.assertIsNotNone(accepted)
-        assert accepted is not None
-        self.assertEqual(accepted["state"], "accepted")
-        self.assertEqual(accepted["decision"]["choice_id"], "roll")
-        self.assertEqual(accepted["decision"]["view_commit_seq_seen"], 7)
+        resolved = self.service.get_prompt_lifecycle("r1_lifecycle")
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved["state"], "resolved")
+        self.assertEqual(resolved["decision"]["choice_id"], "roll")
+        self.assertEqual(resolved["decision"]["view_commit_seq_seen"], 7)
+        self.assertEqual(
+            [event["state"] for event in resolved["state_history"]],
+            ["created", "delivered", "decision_received", "accepted", "resolved"],
+        )
+        self.assertEqual(resolved["resolved_at_ms"], resolved["updated_at_ms"])
+
+    def test_failed_command_append_records_stale_without_deleting_active_prompt(self) -> None:
+        service = PromptService(command_store=FailingCommandStore())
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_stale_active",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll", "label": "Roll"}],
+            },
+        )
+
+        result = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "r_stale_active",
+                "player_id": 1,
+                "choice_id": "roll",
+                "view_commit_seq_seen": 3,
+            }
+        )
+
+        self.assertEqual(result, {"status": "stale", "reason": "command_append_failed"})
+        self.assertIsNotNone(service.get_pending_prompt("r_stale_active", session_id="s1"))
+        lifecycle = service.get_prompt_lifecycle("r_stale_active", session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["state"], "stale")
+        self.assertEqual(
+            [event["state"] for event in lifecycle["state_history"]],
+            ["created", "decision_received", "stale"],
+        )
+        self.assertEqual(lifecycle["stale_decisions"][0]["choice_id"], "roll")
 
     def test_records_rejected_and_expired_prompt_lifecycle(self) -> None:
         self.service.create_prompt(

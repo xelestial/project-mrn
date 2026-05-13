@@ -662,12 +662,18 @@ Store latest-N summaries plus stream pointers. Full source streams and viewer ou
 
 - [x] Add prompt lifecycle domain model.
 - [x] Persist baseline prompt states through created, delivered, accepted, rejected, and expired.
-- [ ] Complete lifecycle coverage for decision received, stale, and resolved as first-class audited states.
-- [ ] Prove active prompts do not depend on TTL cleanup in the Redis-backed path.
-- [ ] Record stale decisions without deleting active prompts.
+- [x] Complete lifecycle coverage for decision received, stale, and resolved as first-class audited states.
+- [x] Prove active prompts do not depend on TTL cleanup in the Redis-backed path.
+- [x] Record stale decisions without deleting active prompts.
 - [x] Verify baseline lifecycle coverage with `apps/server/tests/test_prompt_service.py`.
 - [x] Verify pending prompt delivery repair with `apps/server/tests/test_stream_api.py`.
-- [ ] Verify frontend decision protocol lifecycle handling with `apps/web/src/domain/stream/decisionProtocol.spec.ts`.
+- [x] Verify frontend decision protocol lifecycle handling with `apps/web/src/domain/stream/decisionProtocol.spec.ts`.
+
+Phase 1 completion note: `PromptService` owns lifecycle state transitions and now records bounded
+`state_history` events for `decision_received`, `accepted`, `resolved`, and `stale`. A stale decision
+caused by failed command append is audited without deleting the active prompt. Redis-backed active
+prompt and lifecycle hashes remain non-TTL authoritative state; only debug artifacts use the one-hour
+retention window.
 
 ### Phase 2. Strict `view_commit` Recovery
 
