@@ -6994,6 +6994,27 @@ class RuntimeServiceTests(unittest.TestCase):
 
         self.assertEqual(_ServerDecisionPolicyBridge._prompt_instance_id_from_resume(resume), 60)
 
+    def test_continuation_debug_fields_include_explicit_decision_resume_prompt_instance_id(self) -> None:
+        from apps.server.src.services.runtime_service import _runtime_continuation_debug_fields
+
+        resume = RuntimeDecisionResume(
+            request_id="req_opaque_prompt",
+            player_id=1,
+            request_type="trick_tile_target",
+            choice_id="8",
+            choice_payload={},
+            resume_token="resume_current",
+            frame_id="seq:action:1:p0:89",
+            module_id="mod:seq:action:1:p0:89:fortuneresolve",
+            module_type="FortuneResolveModule",
+            module_cursor="await_action_prompt",
+            prompt_instance_id=60,
+        )
+
+        fields = _runtime_continuation_debug_fields({}, resume)
+
+        self.assertEqual(fields["decision_resume_prompt_instance_id"], 60)
+
     def test_prompt_boundary_enrichment_uses_explicit_batch_and_player_for_opaque_request_id(self) -> None:
         RuntimeService._ensure_engine_import_path()
         from runtime_modules.prompts import PromptApi

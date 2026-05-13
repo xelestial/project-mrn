@@ -249,6 +249,7 @@ def _runtime_continuation_debug_fields(payload: dict | None, decision_resume: ob
                 "decision_resume_request_type": getattr(decision_resume, "request_type", None),
                 "decision_resume_player_id": getattr(decision_resume, "player_id", None),
                 "decision_resume_choice_id": getattr(decision_resume, "choice_id", None),
+                "decision_resume_prompt_instance_id": getattr(decision_resume, "prompt_instance_id", None),
                 "decision_resume_frame_id": getattr(decision_resume, "frame_id", None),
                 "decision_resume_module_id": getattr(decision_resume, "module_id", None),
                 "decision_resume_module_type": getattr(decision_resume, "module_type", None),
