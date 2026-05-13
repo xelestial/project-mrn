@@ -428,9 +428,14 @@ overload, not find the first boundary, so they were not run.
   `--require-non-local-server`.
 - Synchronized the runtime protocol plan status with actual evidence. Phase 0
   additive identity, Redis debug retention, baseline prompt lifecycle, and
-  Redis viewer-outbox debug/indexing are implemented; globally opaque prompt
-  request IDs, UUID prompt instance IDs, first-class stale/resolved lifecycle
-  states, and real outbox read mode remain explicit residual work.
+  Redis viewer-outbox debug/indexing were implemented at that checkpoint.
+  Later 2026-05-14 evidence in this journal and
+  `PLAN_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md` supersedes the older
+  residual list: opaque request IDs, first-class stale/resolved lifecycle
+  states, and read-mode viewer outbox delivery are now implemented. The
+  remaining protocol migration boundaries are numeric compatibility aliases,
+  especially numeric `player_id` payload aliases and numeric
+  `prompt_instance_id` lifecycle keys.
 - Local validation passed: 190 server protocol/lifecycle/outbox tests, 76
   frontend headless/stream tests, smoke workflow gate, live protocol gate,
   bounded UI full-game progress, and full-stack live RL smoke at

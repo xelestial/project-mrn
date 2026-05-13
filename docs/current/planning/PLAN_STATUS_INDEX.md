@@ -152,7 +152,10 @@ Those themes should reopen only if a concrete regression or rollout need appears
    modular-runtime frame semantics synchronized between `engine/`,
    `apps/server/`, and `apps/web/` as new rule changes land. The Phase 0
    checklist in the protocol plan is synchronized to the current 2026-05-13
-   implementation evidence; request IDs and prompt instance IDs remain explicit
+   implementation evidence; opaque request IDs, prompt lifecycle state
+   coverage, and read-mode viewer outbox delivery are implemented. Numeric
+   protocol compatibility aliases, including numeric `player_id` payload
+   aliases and numeric `prompt_instance_id` lifecycle keys, remain explicit
    residual migration boundaries rather than hidden completion. The current
    local evidence pass includes server identity/lifecycle/outbox tests, frontend
    headless protocol tests, the smoke workflow gate, the live protocol gate,
