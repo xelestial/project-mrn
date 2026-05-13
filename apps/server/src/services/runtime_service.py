@@ -5364,6 +5364,19 @@ class _FanoutVisEventStream:
         enriched = dict(payload)
         self._merge_identity_fields(enriched, enriched.get("player_id"))
         self._merge_identity_fields(enriched, enriched.get("acting_player_id"), prefix="acting")
+        for field_name, value in payload.items():
+            if field_name in {"player_id", "acting_player_id"}:
+                continue
+            if field_name.endswith("_player_id"):
+                prefix = field_name[: -len("_player_id")]
+                if prefix:
+                    self._merge_identity_fields(enriched, value, prefix=prefix)
+            elif field_name.endswith("_player_ids"):
+                prefix = field_name[: -len("_player_ids")]
+                if prefix:
+                    self._merge_identity_list_fields(enriched, value, prefix=prefix)
+            elif field_name == "winner_ids":
+                self._merge_identity_list_fields(enriched, value, prefix="winner")
         return enriched
 
     def _merge_identity_fields(
@@ -5382,6 +5395,31 @@ class _FanoutVisEventStream:
                 continue
             field_name = f"{prefix}_{name}" if prefix else name
             payload.setdefault(field_name, value)
+
+    def _merge_identity_list_fields(self, payload: dict[str, Any], player_ids: object, *, prefix: str) -> None:
+        if not isinstance(player_ids, list) or self._identity_fields_for_player is None:
+            return
+        collected: dict[str, list[Any]] = {}
+        for item in player_ids:
+            numeric_player_id = self._numeric_player_id(item)
+            if numeric_player_id is None:
+                return
+            identity_fields = self._identity_fields_for_player(numeric_player_id)
+            for name, value in identity_fields.items():
+                if name == "legacy_player_id":
+                    continue
+                list_name = self._identity_list_field_name(prefix, name)
+                collected.setdefault(list_name, []).append(value)
+        for name, values in collected.items():
+            payload.setdefault(name, values)
+
+    @staticmethod
+    def _identity_list_field_name(prefix: str, identity_field_name: str) -> str:
+        if identity_field_name.endswith("_id"):
+            return f"{prefix}_{identity_field_name[:-3]}_ids"
+        if identity_field_name.endswith("_index"):
+            return f"{prefix}_{identity_field_name[:-6]}_indices"
+        return f"{prefix}_{identity_field_name}s"
 
     @staticmethod
     def _numeric_player_id(player_id: object) -> int | None:

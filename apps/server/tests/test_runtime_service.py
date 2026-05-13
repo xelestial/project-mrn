@@ -1302,6 +1302,100 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_fanout_event_payload_adds_prefixed_identity_for_related_players(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            stream = _IdempotentStreamServiceStub()
+            fanout = _FanoutVisEventStream(
+                loop,
+                stream,
+                "sess_related_identity_fanout",
+                lambda _session_id: None,
+                identity_fields_for_player=lambda player_id: {
+                    "legacy_player_id": player_id,
+                    "seat_index": player_id,
+                    "turn_order_index": player_id - 1,
+                    "player_label": f"P{player_id}",
+                    "public_player_id": f"player_{player_id}",
+                    "seat_id": f"seat_{player_id}",
+                    "viewer_id": f"viewer_{player_id}",
+                },
+            )
+
+            fanout.append(
+                _DebugEventStub(
+                    {
+                        "event_type": "rent_paid",
+                        "payer_player_id": 2,
+                        "owner_player_id": 4,
+                    }
+                )
+            )
+
+            payload = stream.published_payloads[0]
+            self.assertEqual(payload["payer_player_id"], 2)
+            self.assertEqual(payload["payer_public_player_id"], "player_2")
+            self.assertEqual(payload["payer_seat_id"], "seat_2")
+            self.assertEqual(payload["payer_viewer_id"], "viewer_2")
+            self.assertNotIn("payer_legacy_player_id", payload)
+            self.assertEqual(payload["owner_player_id"], 4)
+            self.assertEqual(payload["owner_public_player_id"], "player_4")
+            self.assertEqual(payload["owner_seat_id"], "seat_4")
+            self.assertEqual(payload["owner_viewer_id"], "viewer_4")
+            self.assertNotIn("owner_legacy_player_id", payload)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
+    def test_fanout_event_payload_adds_public_identity_lists_for_player_id_lists(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            stream = _IdempotentStreamServiceStub()
+            fanout = _FanoutVisEventStream(
+                loop,
+                stream,
+                "sess_list_identity_fanout",
+                lambda _session_id: None,
+                identity_fields_for_player=lambda player_id: {
+                    "legacy_player_id": player_id,
+                    "seat_index": player_id,
+                    "turn_order_index": player_id - 1,
+                    "player_label": f"P{player_id}",
+                    "public_player_id": f"player_{player_id}",
+                    "seat_id": f"seat_{player_id}",
+                    "viewer_id": f"viewer_{player_id}",
+                },
+            )
+
+            fanout.append(
+                _DebugEventStub(
+                    {
+                        "event_type": "round_start",
+                        "alive_player_ids": [1, 3],
+                        "winner_ids": [2, 4],
+                    }
+                )
+            )
+
+            payload = stream.published_payloads[0]
+            self.assertEqual(payload["alive_player_ids"], [1, 3])
+            self.assertEqual(payload["alive_public_player_ids"], ["player_1", "player_3"])
+            self.assertEqual(payload["alive_seat_ids"], ["seat_1", "seat_3"])
+            self.assertEqual(payload["alive_viewer_ids"], ["viewer_1", "viewer_3"])
+            self.assertEqual(payload["winner_ids"], [2, 4])
+            self.assertEqual(payload["winner_public_player_ids"], ["player_2", "player_4"])
+            self.assertEqual(payload["winner_seat_ids"], ["seat_2", "seat_4"])
+            self.assertEqual(payload["winner_viewer_ids"], ["viewer_2", "viewer_4"])
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_fanout_event_stream_drops_publish_timeout_without_blocking_runtime(self) -> None:
         class StreamStub:
             async def latest_seq(self, session_id: str) -> int:
