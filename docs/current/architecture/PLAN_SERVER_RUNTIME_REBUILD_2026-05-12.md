@@ -715,6 +715,28 @@ commit signal
   `tmp/rl/full-stack-protocol/server-rebuild-5server-1redis-prompt-probe-fix-20260513`.
   All 5 games completed. Max command 1224ms, max transition 538ms, max Redis
   commit 1, max view commit 1, missing ACK 0.
+- 5-game, 1-server, 1-Redis live gate:
+  `tmp/rl/full-stack-protocol/server-rebuild-live-5game-20260513-205642`.
+  All 5 concurrent games completed. Max command 1875ms, max transition 1232ms,
+  max Redis commit 1, max view commit 1, stale/rejected/failed/fallback 0, and
+  Redis inspector reported diagnostic `ok` for all five sessions.
+- 8-game, 1-server, 1-Redis capacity gate:
+  `tmp/rl/full-stack-protocol/server-rebuild-capacity-8game-1server-20260513-211035`.
+  All 8 concurrent games completed. Max command 3943ms, max transition 2159ms,
+  max Redis commit 1, max view commit 1, slow command 0, slow transition 0,
+  and no Traceback/critical/prompt lifecycle failure pattern was found in the
+  artifact scan.
+- 10-game, 1-server, 1-Redis capacity boundary:
+  `tmp/rl/full-stack-protocol/server-rebuild-capacity-10game-1server-20260513-211951`.
+  Fail-fast stopped at game 3 with `backend_timing`: command seq 1 took
+  5886ms for `reason=prompt_required`, exceeding the 5000ms command SLO. The
+  same command kept `engine_loop_total_ms=203`, `redis_commit_count=1`, and
+  `view_commit_count=1`; the excess was `executor_overhead_ms=5680` under
+  single-server concurrency. Max transition stayed 1273ms. This is the first
+  measured one-server capacity boundary, not a Redis/view-commit/prompt
+  lifecycle correctness failure. Higher 12/15-game one-server runs are not
+  required unless the goal changes to overload characterization beyond the
+  first failing SLO boundary.
 - 20-game, 1-server bottleneck gate:
   `tmp/rl/full-stack-protocol/server-rebuild-20game-1server-prompt-probe-fix-20260513`.
   Fail-fast classified the expected single-server capacity bottleneck:

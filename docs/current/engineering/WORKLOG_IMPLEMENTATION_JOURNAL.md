@@ -252,6 +252,48 @@ loop remains the only command execution path. `RuntimeService` still performs
 the engine resume and state mutation, but it no longer decides whether a batch
 is complete or creates per-response commands.
 
+## 2026-05-13 One-Server Five-Game Baseline
+
+- Live protocol gate with one server, one Redis, five concurrent games passed:
+  `tmp/rl/full-stack-protocol/server-rebuild-live-5game-20260513-205642`.
+- All five sessions completed with no stale ACK, rejected ACK, failed command,
+  or raw-prompt fallback counts.
+- Backend timing stayed inside the 5s gate: max command 1875ms and max
+  transition 1232ms. Redis commit count and view commit count stayed at 1.
+- Redis state inspector reported diagnostic `ok` for all five sessions.
+
+Responsibility result: the current rebuild is not dependent on one server per
+game for a five-game live smoke. The remaining one-server question is capacity
+boundary measurement, not a known Redis/view-commit/prompt-lifecycle violation.
+
+## 2026-05-13 One-Server Capacity Boundary
+
+- Committed local reproducibility cleanup as `f1a24ead`
+  (`chore: stabilize protocol gate local artifacts`): ignored `.playwright-mcp/`
+  and passed `MRN_ADMIN_TOKEN` through the protocol compose file.
+- One server plus one Redis with eight concurrent games passed:
+  `tmp/rl/full-stack-protocol/server-rebuild-capacity-8game-1server-20260513-211035`.
+  All eight sessions completed; max command was 3943ms, max transition was
+  2159ms, Redis/view commit counts stayed at 1, and slow command/transition
+  counts were 0.
+- One server plus one Redis with ten concurrent games found the first measured
+  SLO boundary:
+  `tmp/rl/full-stack-protocol/server-rebuild-capacity-10game-1server-20260513-211951`.
+  Game 3 failed `backend_timing` because command seq 1 took 5886ms for
+  `reason=prompt_required`, above the 5000ms command SLO.
+- The failure did not show a rule-flow or persistence contract break. For the
+  failing command, `engine_loop_total_ms=203`, `redis_commit_count=1`,
+  `view_commit_count=1`, and max transition stayed 1273ms. The excess was
+  `executor_overhead_ms=5680`, which points to single-server runtime scheduling
+  contention under concurrent command execution.
+
+Responsibility result: no game-rule, Redis authority, `view_commit`, prompt
+identity, ACK, or command-inbox responsibility moved or failed in this
+checkpoint. The measured boundary is capacity/SLO ownership: a single server is
+inside the current 5s command SLO at eight concurrent games and outside it at
+ten concurrent games. Further 12/15-game one-server runs would characterize
+overload, not find the first boundary, so they were not run.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
