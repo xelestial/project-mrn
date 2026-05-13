@@ -6914,7 +6914,7 @@ class RuntimeServiceTests(unittest.TestCase):
         )
         self.assertEqual(store.commits[0]["checkpoint"]["active_module_type"], "ResupplyModule")
 
-    def test_decision_resume_derives_batch_id_from_batch_request_id(self) -> None:
+    def test_decision_resume_does_not_derive_batch_id_from_batch_request_id(self) -> None:
         class _CommandStoreStub:
             def list_commands(self, session_id: str) -> list[dict]:
                 return [
@@ -6950,10 +6950,7 @@ class RuntimeServiceTests(unittest.TestCase):
         resume = runtime._decision_resume_from_command("sess_batch", 7)
 
         self.assertIsNotNone(resume)
-        self.assertEqual(
-            resume.batch_id,
-            "batch:simul:resupply:2:107:mod:simul:resupply:2:107:resupply:1",
-        )
+        self.assertEqual(resume.batch_id, "")
 
     def test_decision_resume_uses_explicit_prompt_instance_id_with_opaque_request_id(self) -> None:
         class _CommandStoreStub:

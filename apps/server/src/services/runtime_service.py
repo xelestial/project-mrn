@@ -139,26 +139,6 @@ def _is_command_boundary_terminal_status(status: object) -> bool:
     return str(status or "") in _COMMAND_BOUNDARY_TERMINAL_STATUSES
 
 
-def _derive_batch_id_from_request_id(request_id: str) -> str:
-    request_id = str(request_id or "").strip()
-    if not request_id.startswith("batch:") or ":p" not in request_id:
-        return ""
-    batch_id, player_suffix = request_id.rsplit(":p", 1)
-    if not player_suffix.isdigit():
-        return ""
-    return batch_id
-
-
-def _derive_internal_player_id_from_batch_request_id(request_id: str) -> int | None:
-    request_id = str(request_id or "").strip()
-    if not request_id.startswith("batch:") or ":p" not in request_id:
-        return None
-    _, player_suffix = request_id.rsplit(":p", 1)
-    if not player_suffix.isdigit():
-        return None
-    return int(player_suffix)
-
-
 def _normalize_decision_choice_payload(value: object) -> dict:
     return dict(value) if isinstance(value, dict) else {}
 
@@ -1936,10 +1916,7 @@ class RuntimeService:
             decision = decision if isinstance(decision, dict) else {}
 
             def _field(name: str) -> str:
-                value = str(payload.get(name) or decision.get(name) or "").strip()
-                if name == "batch_id" and not value:
-                    value = _derive_batch_id_from_request_id(str(payload.get("request_id") or decision.get("request_id") or ""))
-                return value
+                return str(payload.get(name) or decision.get(name) or "").strip()
 
             def _int_field(name: str) -> int:
                 value = self._int_or_none(payload.get(name))
@@ -4087,10 +4064,7 @@ class RuntimeService:
 
         request_id = str(payload.get("request_id") or "").strip()
         payload_batch_id = str(payload.get("batch_id") or "").strip()
-        derived_batch_id = _derive_batch_id_from_request_id(request_id)
-        effective_batch_id = payload_batch_id or derived_batch_id
-        if derived_batch_id and not payload_batch_id:
-            payload["batch_id"] = derived_batch_id
+        effective_batch_id = payload_batch_id
 
         batch = getattr(state, "runtime_active_prompt_batch", None) if state is not None else None
         if batch is None:
@@ -4115,10 +4089,7 @@ class RuntimeService:
             if (
                 active_batch_id
                 and effective_batch_id == active_batch_id
-                and (
-                    submitted_internal_player_id == continuation_internal_player_id
-                    or _derive_internal_player_id_from_batch_request_id(request_id) == continuation_internal_player_id
-                )
+                and submitted_internal_player_id == continuation_internal_player_id
             ):
                 matching_prompt = continuation
                 break
