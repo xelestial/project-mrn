@@ -27,6 +27,10 @@ in the active plans, status index, tests, or canonical contract documents.
   `command_seq`, matching the REST/external-AI decision callback boundary and
   letting clients correlate an accepted prompt decision with the queued runtime
   command.
+- `PromptService.wait_for_decision()` now resolves already-submitted public
+  request aliases through lifecycle metadata for both in-memory and Redis
+  stores. Zero-timeout missing-decision probes still avoid pending/resolved hash
+  scans.
 - Responsibility moved: prompt continuation matching no longer relies first on
   semantic `request_id` strings. Compatibility storage and replay still keep
   the legacy request id key until the canonical opaque prompt-key migration is
@@ -38,6 +42,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
+- `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_public_request_id_with_redis_prompt_store -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py apps/server/tests/test_redis_realtime_services.py -q -k "runtime_prompt_sequence_seed or prompt_sequence"`
 - `./.venv/bin/python tools/plan_policy_gate.py`
 - `./.venv/bin/python -m pytest engine/test_doc_integrity.py -q`

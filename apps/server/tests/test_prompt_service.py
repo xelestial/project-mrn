@@ -211,6 +211,11 @@ class PromptServiceTests(unittest.TestCase):
         assert decision is not None
         self.assertEqual(decision["request_id"], pending.request_id)
         self.assertEqual(decision["public_request_id"], public_request_id)
+        decision_by_public = self.service.wait_for_decision(public_request_id, timeout_ms=0, session_id="s1")
+        self.assertIsNotNone(decision_by_public)
+        assert decision_by_public is not None
+        self.assertEqual(decision_by_public["request_id"], pending.request_id)
+        self.assertEqual(decision_by_public["public_request_id"], public_request_id)
         lifecycle = self.service.get_prompt_lifecycle(pending.request_id, session_id="s1")
         self.assertIsNotNone(lifecycle)
         assert lifecycle is not None

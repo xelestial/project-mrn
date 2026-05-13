@@ -617,11 +617,19 @@ class PromptService:
 
     def wait_for_decision(self, request_id: str, timeout_ms: int, session_id: str | None = None) -> dict | None:
         with self._lock:
+            request_id = str(request_id or "").strip()
             decision = self._get_decision(request_id, session_id=session_id)
             if decision is not None:
                 return decision
+            lifecycle_alias = self._resolve_lifecycle_request_alias(request_id, session_id=session_id)
+            if lifecycle_alias:
+                request_id = lifecycle_alias
+                decision = self._get_decision(request_id, session_id=session_id)
+                if decision is not None:
+                    return decision
             if timeout_ms <= 0:
                 return None
+            request_id = self._resolve_submitted_request_id(request_id, session_id=session_id)
             waiter_key = self._waiter_key(request_id, session_id=session_id)
             waiter = self._waiters.get(waiter_key) if waiter_key is not None else None
             if waiter is None:

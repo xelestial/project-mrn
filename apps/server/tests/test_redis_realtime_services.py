@@ -1492,6 +1492,11 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         assert decision is not None
         self.assertEqual(decision["request_id"], pending.request_id)
         self.assertEqual(decision["public_request_id"], public_request_id)
+        decision_by_public = service.wait_for_decision(public_request_id, timeout_ms=0, session_id=pending.session_id)
+        self.assertIsNotNone(decision_by_public)
+        assert decision_by_public is not None
+        self.assertEqual(decision_by_public["request_id"], pending.request_id)
+        self.assertEqual(decision_by_public["public_request_id"], public_request_id)
 
     def test_command_store_recovers_seq_after_seq_key_eviction(self) -> None:
         command_store = RedisCommandStore(self.connection)
