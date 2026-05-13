@@ -814,7 +814,7 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
 
 ## Acceptance Criteria
 
-- [ ] Migrate protocol `player_id` payload fields from numeric legacy aliases to string IDs. Current completed state adds string public player, seat, viewer, event, and request identifiers while intentionally keeping numeric `player_id` aliases for compatibility. `SessionService.resolve_protocol_player_id()` now provides the first server-side migration adapter by resolving public string identity fields back to the internal numeric seat id at one boundary. The WebSocket decision route accepts those string identity fields and normalizes them before calling `PromptService`; HTTP/API decision payloads and downstream event payloads still need staged adoption before numeric aliases can be removed.
+- [ ] Migrate protocol `player_id` payload fields from numeric legacy aliases to string IDs. Current completed state adds string public player, seat, viewer, event, and request identifiers while intentionally keeping numeric `player_id` aliases for compatibility. `SessionService.resolve_protocol_player_id()` now provides the first server-side migration adapter by resolving public string identity fields back to the internal numeric seat id at one boundary. The WebSocket decision route and the external-AI HTTP decision callback accept those string identity fields and normalize them before calling `PromptService`; downstream event payloads still need staged adoption before numeric aliases can be removed.
 - [x] UI labels still show `P1` to `P4` through `seat_index` and `player_label`.
 - [x] `source_event_seq`, `stream_seq`, and `commit_seq` are numeric and monotonic.
 - [x] Every prompt has `request_id`, `prompt_instance_id`, `resume_token`, target identity, lifecycle state, and required commit sequence.
@@ -839,6 +839,9 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_stream_api.py::test_seat_decision_accepts_public_player_identity_with_ack`
   verifies that the WebSocket decision route accepts a public string player identity, normalizes it to the
   authenticated internal seat id, and still returns the compatibility `player_id` in the ack payload.
+- `apps/server/tests/test_sessions_api.py::test_external_ai_decision_callback_accepts_public_player_identity`
+  verifies that the external-AI HTTP decision callback accepts a public string player identity, normalizes it
+  to the internal seat id, and still returns the compatibility `player_id` in the ack payload.
 - `apps/server/tests/test_redis_realtime_services.py` verifies Redis stream/view-commit sequence persistence, monotonic command offsets, non-monotonic view-commit rejection, stale previous-commit rejection, and cached next-commit sequencing.
 - `apps/server/tests/test_prompt_service.py`, `apps/server/tests/test_prompt_module_continuation.py`, and `apps/server/tests/test_stream_api.py` verify prompt lifecycle states, active prompt persistence, resume tokens, required commit sequence handling, reconnect/resume repair, and target-scoped prompt delivery.
 - `apps/server/tests/test_stream_service.py`, `apps/server/tests/test_visibility_projection.py`, and `apps/server/tests/test_stream_api.py::test_spectator_does_not_receive_prompt_or_decision_ack_for_seat` verify private prompt and `decision_ack` projection boundaries.

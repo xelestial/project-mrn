@@ -26,7 +26,12 @@ class DebugPromptRequest(BaseModel):
 
 class ExternalAiDecisionRequest(BaseModel):
     request_id: str
-    player_id: int
+    player_id: int | None = None
+    legacy_player_id: int | str | None = None
+    seat: int | str | None = None
+    public_player_id: str | None = None
+    seat_id: str | None = None
+    viewer_id: str | None = None
     choice_id: str
     prompt_fingerprint: str | None = None
     choice_payload: dict | None = None
@@ -159,15 +164,35 @@ async def submit_external_ai_decision(
             "data": None,
             "error": build_error_payload(code="SESSION_NOT_FOUND", message="Session not found.", retryable=False),
         }
+    resolved_player_id = sessions.resolve_protocol_player_id(
+        session_id,
+        player_id=payload.player_id,
+        legacy_player_id=payload.legacy_player_id,
+        seat=payload.seat,
+        public_player_id=payload.public_player_id,
+        seat_id=payload.seat_id,
+        viewer_id=payload.viewer_id,
+    )
+    if resolved_player_id is None:
+        return {
+            "ok": False,
+            "data": None,
+            "error": build_error_payload(
+                code="PLAYER_MISMATCH",
+                message="Decision player does not match a session seat.",
+                retryable=False,
+            ),
+        }
 
     decision_payload = payload.model_dump(exclude_none=True)
+    decision_payload["player_id"] = resolved_player_id
     decision_payload["session_id"] = session_id
     decision_payload["provider"] = "ai"
     decision_state = prompts.submit_decision(decision_payload)
     ack_payload = build_decision_ack_payload(
         request_id=payload.request_id,
         status=str(decision_state.get("status") or ""),
-        player_id=payload.player_id,
+        player_id=resolved_player_id,
         reason=decision_state.get("reason"),
         provider="ai",
         command_seq=decision_state.get("command_seq"),
@@ -183,7 +208,7 @@ async def submit_external_ai_decision(
         "external_ai_decision_callback",
         session_id=session_id,
         request_id=payload.request_id,
-        player_id=payload.player_id,
+        player_id=resolved_player_id,
         status=decision_state.get("status"),
         reason=decision_state.get("reason"),
         command_seq=decision_state.get("command_seq"),
