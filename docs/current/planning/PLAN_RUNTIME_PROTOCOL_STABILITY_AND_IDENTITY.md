@@ -866,9 +866,11 @@ Acceptance evidence status, 2026-05-14:
   same public identity fields while keeping numeric compatibility aliases.
 - `apps/server/tests/test_protocol_ids.py::test_prompt_protocol_identity_fields_are_stable_opaque_companions`
   verifies that prompt legacy request IDs now get stable opaque request and prompt-instance companions.
-- `apps/server/tests/test_prompt_service.py::test_create_prompt_adds_opaque_identity_companions_to_lifecycle`
-  verifies that prompt creation and lifecycle payloads expose `legacy_request_id`, `public_request_id`, and
-  `public_prompt_instance_id` without replacing the canonical storage key.
+- `apps/server/tests/test_prompt_service.py::test_create_prompt_uses_public_request_id_as_canonical_key`
+  and `test_create_prompt_does_not_rewrap_public_request_id_on_replay` verify that new prompt creation
+  stores the opaque public request id as the canonical `request_id`, while replayed public ids stay stable.
+  `test_create_prompt_adds_opaque_identity_companions_to_lifecycle` verifies that lifecycle payloads preserve
+  `legacy_request_id`, `public_request_id`, and `public_prompt_instance_id` for compatibility and debugging.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`
   and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_instance_from_resume_does_not_parse_legacy_request_id`
   verify that prompt sequence recovery and bridge advancement no longer parse legacy request-id suffixes when
