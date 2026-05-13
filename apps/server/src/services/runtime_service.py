@@ -13,7 +13,7 @@ import threading
 import time
 import traceback
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -87,6 +87,7 @@ class RuntimeDecisionResume:
     module_cursor: str
     batch_id: str = ""
     provider: str = "human"
+    batch_responses_by_player_id: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
 class RuntimeDecisionResumeMismatch(ValueError):
@@ -148,6 +149,15 @@ def _derive_internal_player_id_from_batch_request_id(request_id: str) -> int | N
 
 def _normalize_decision_choice_payload(value: object) -> dict:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _batch_response_choice_payload(response: dict[str, Any]) -> dict:
+    choice_payload = response.get("choice_payload")
+    if not isinstance(choice_payload, dict):
+        decision = response.get("decision")
+        if isinstance(decision, dict):
+            choice_payload = decision.get("choice_payload")
+    return _normalize_decision_choice_payload(choice_payload)
 
 
 _ACTIVE_FLIP_BATCH_NOT_APPLICABLE = object()
@@ -1900,10 +1910,13 @@ class RuntimeService:
         for command in list_commands(session_id):
             if int(command.get("seq", 0) or 0) != target_seq:
                 continue
-            if str(command.get("type") or "").strip() != "decision_submitted":
-                return None
+            command_type = str(command.get("type") or "").strip()
             payload = command.get("payload")
             if not isinstance(payload, dict):
+                return None
+            if command_type == "batch_complete":
+                return self._decision_resume_from_batch_complete_payload(payload)
+            if command_type != "decision_submitted":
                 return None
             decision = payload.get("decision")
             decision = decision if isinstance(decision, dict) else {}
@@ -1936,6 +1949,54 @@ class RuntimeService:
             )
         return None
 
+    def _decision_resume_from_batch_complete_payload(self, payload: dict[str, Any]) -> RuntimeDecisionResume | None:
+        responses = payload.get("responses_by_player_id")
+        if not isinstance(responses, dict):
+            return None
+        normalized: dict[int, dict[str, Any]] = {}
+        for raw_player_id, raw_response in responses.items():
+            try:
+                player_id = int(raw_player_id)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(raw_response, dict):
+                continue
+            response = dict(raw_response)
+            response.setdefault("player_id", player_id)
+            response.setdefault("batch_id", str(payload.get("batch_id") or ""))
+            normalized[player_id] = response
+        if not normalized:
+            return None
+        expected = [
+            int(raw)
+            for raw in payload.get("expected_player_ids", [])
+            if self._int_or_none(raw) is not None and int(raw) in normalized
+        ]
+        primary_player_id = expected[-1] if expected else sorted(normalized)[-1]
+        primary = normalized[primary_player_id]
+        choice_payload = _batch_response_choice_payload(primary)
+        decision = primary.get("decision")
+        decision = decision if isinstance(decision, dict) else {}
+        provider = str(primary.get("provider") or decision.get("provider") or "human").strip().lower()
+        if provider not in {"human", "ai"}:
+            provider = "human"
+        batch_id = str(primary.get("batch_id") or payload.get("batch_id") or "").strip()
+        return RuntimeDecisionResume(
+            request_id=str(primary.get("request_id") or ""),
+            player_id=int(primary.get("player_id") or primary_player_id),
+            request_type=str(primary.get("request_type") or ""),
+            choice_id=str(primary.get("choice_id") or ""),
+            choice_payload=_normalize_decision_choice_payload(choice_payload),
+            resume_token=str(primary.get("resume_token") or ""),
+            frame_id=str(primary.get("frame_id") or ""),
+            module_id=str(primary.get("module_id") or ""),
+            module_type=str(primary.get("module_type") or ""),
+            module_cursor=str(primary.get("module_cursor") or ""),
+            batch_id=batch_id,
+            provider=provider,
+            batch_responses_by_player_id=normalized,
+        )
+
     def _validate_decision_resume_against_checkpoint(self, state, resume: RuntimeDecisionResume) -> None:  # noqa: ANN001
         from runtime_modules.prompts import validate_resume
 
@@ -1963,6 +2024,33 @@ class RuntimeService:
         expected_module_type = str(getattr(continuation, "module_type", "") or "").strip()
         if expected_module_type and resume.module_type and expected_module_type != resume.module_type:
             raise ValueError("module type mismatch")
+
+    def _apply_collected_batch_responses_to_state(self, state, resume: RuntimeDecisionResume) -> None:  # noqa: ANN001
+        if not resume.batch_responses_by_player_id:
+            return
+        from runtime_modules.prompts import PromptApi
+
+        batch = getattr(state, "runtime_active_prompt_batch", None)
+        if batch is None:
+            return
+        if resume.batch_id and str(getattr(batch, "batch_id", "") or "") != resume.batch_id:
+            raise ValueError("batch id mismatch")
+        prompt_api = PromptApi()
+        resume_internal_player_id = max(0, int(resume.player_id) - 1)
+        for external_player_id, response in sorted(resume.batch_responses_by_player_id.items()):
+            internal_player_id = max(0, int(external_player_id) - 1)
+            if internal_player_id == resume_internal_player_id:
+                continue
+            if internal_player_id in getattr(batch, "responses_by_player_id", {}):
+                continue
+            prompt_api.record_batch_response(
+                batch,
+                player_id=internal_player_id,
+                request_id=str(response.get("request_id") or ""),
+                resume_token=str(response.get("resume_token") or ""),
+                choice_id=str(response.get("choice_id") or ""),
+                response={"choice_payload": _batch_response_choice_payload(response)},
+            )
 
     def _mark_command_state(
         self,
@@ -2197,6 +2285,8 @@ class RuntimeService:
         if state is not None:
             self._apply_runner_kind(state, runner_kind, checkpoint_schema_version)
             decision_resume = self._decision_resume_from_command(session_id, command_seq)
+            if decision_resume is not None:
+                self._apply_collected_batch_responses_to_state(state, decision_resume)
             if callable(getattr(policy, "set_prompt_sequence", None)):
                 policy.set_prompt_sequence(
                     runtime_prompt_sequence_seed(state, runtime_recovery_checkpoint, decision_resume)

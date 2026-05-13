@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import unittest
 
+from apps.server.src.services.batch_collector import BatchCollectorResult
 from apps.server.src.services.prompt_service import PromptService
 
 
@@ -53,6 +54,37 @@ class CountingPromptStore:
         return None
 
 
+class BatchCollectorStub:
+    def __init__(self, results: list[BatchCollectorResult]) -> None:
+        self.results = list(results)
+        self.calls: list[dict[str, object]] = []
+
+    def record_response(self, **kwargs) -> BatchCollectorResult:
+        self.calls.append(kwargs)
+        if not self.results:
+            raise AssertionError("unexpected collector call")
+        return self.results.pop(0)
+
+
+def _batch_prompt(*, player_id: int) -> dict[str, object]:
+    return {
+        "request_id": f"batch:1:p{player_id}",
+        "request_type": "burden_exchange",
+        "player_id": player_id,
+        "timeout_ms": 30000,
+        "legal_choices": [{"choice_id": "yes"}, {"choice_id": "no"}],
+        "runner_kind": "module",
+        "resume_token": f"resume_p{player_id}",
+        "frame_id": "frame:1",
+        "module_id": "module:1",
+        "module_type": "ResupplyModule",
+        "module_cursor": "await_resupply_batch:1",
+        "batch_id": "batch:1",
+        "missing_player_ids": [1, 2],
+        "resume_tokens_by_player_id": {"1": "resume_p1", "2": "resume_p2"},
+    }
+
+
 class PromptServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.service = PromptService()
@@ -69,6 +101,58 @@ class PromptServiceTests(unittest.TestCase):
         )
         result = self.service.submit_decision({"request_id": "r1", "player_id": 1, "choice_id": "roll"})
         self.assertEqual(result["status"], "accepted")
+
+    def test_simultaneous_batch_decisions_wait_for_collector_completion(self) -> None:
+        collector = BatchCollectorStub(
+            [
+                BatchCollectorResult(status="pending", remaining_player_ids=[2]),
+                BatchCollectorResult(
+                    status="completed",
+                    remaining_player_ids=[],
+                    command={"seq": 9, "session_id": "s1", "type": "batch_complete"},
+                ),
+            ]
+        )
+        service = PromptService(batch_collector=collector)
+        for player_id in [1, 2]:
+            service.create_prompt("s1", _batch_prompt(player_id=player_id))
+
+        first = service.submit_decision(
+            {"session_id": "s1", "request_id": "batch:1:p1", "player_id": 1, "choice_id": "yes"}
+        )
+        second = service.submit_decision(
+            {"session_id": "s1", "request_id": "batch:1:p2", "player_id": 2, "choice_id": "no"}
+        )
+
+        self.assertEqual(first["status"], "accepted")
+        self.assertIsNone(first["command_seq"])
+        self.assertEqual(first["batch_status"], "pending")
+        self.assertEqual(first["remaining_player_ids"], [2])
+        self.assertEqual(second["status"], "accepted")
+        self.assertEqual(second["command_seq"], 9)
+        self.assertEqual(second["batch_status"], "completed")
+        self.assertEqual([call["player_id"] for call in collector.calls], [1, 2])
+        self.assertEqual(service.wait_for_decision("batch:1:p1", timeout_ms=0, session_id="s1")["choice_id"], "yes")
+
+    def test_simultaneous_batch_timeout_fallback_uses_collector(self) -> None:
+        collector = BatchCollectorStub(
+            [
+                BatchCollectorResult(
+                    status="completed",
+                    remaining_player_ids=[],
+                    command={"seq": 11, "session_id": "s1", "type": "batch_complete"},
+                )
+            ]
+        )
+        service = PromptService(batch_collector=collector)
+        pending = service.create_prompt("s1", _batch_prompt(player_id=1))
+
+        decision = service.record_timeout_fallback_decision(pending, choice_id="yes", submitted_at_ms=123)
+
+        self.assertEqual(decision["status"], "accepted")
+        self.assertEqual(decision["command_seq"], 11)
+        self.assertEqual(decision["batch_status"], "completed")
+        self.assertEqual(collector.calls[0]["response"]["provider"], "timeout_fallback")
 
     def test_records_prompt_lifecycle_from_create_to_accept(self) -> None:
         self.service.create_prompt(

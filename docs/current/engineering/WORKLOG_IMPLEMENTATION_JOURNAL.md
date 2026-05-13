@@ -229,6 +229,28 @@ Wake remains in `CommandRouter`. Redis command inbox remains the durable
 authority. Local and loopback AI transports intentionally remain outside this
 checkpoint.
 
+## 2026-05-13 Simultaneous Batch Command Boundary
+
+- `PromptService.submit_decision()` now routes simultaneous batch prompt
+  responses through `BatchCollector` instead of appending one
+  `decision_submitted` command per player.
+- `PromptService.record_timeout_fallback_decision()` uses the same collector for
+  simultaneous batch timeout fallback decisions, so human and timeout races are
+  resolved by the collector's atomic completion primitive.
+- Incomplete batch responses return accepted decision state with no command
+  sequence. `PromptTimeoutWorker` now wakes the command router only when the
+  accepted decision state contains a positive command sequence.
+- `SessionLoop` accepts `batch_complete` as a runtime command, and
+  `RuntimeService` reconstructs a `RuntimeDecisionResume` from the collected
+  responses. Non-primary collected responses are applied to the active batch
+  before the primary resume continues the engine transition.
+
+Responsibility result: simultaneous batch completion ownership moved out of
+route/timeout-side command append paths and into `BatchCollector`. The session
+loop remains the only command execution path. `RuntimeService` still performs
+the engine resume and state mutation, but it no longer decides whether a batch
+is complete or creates per-response commands.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

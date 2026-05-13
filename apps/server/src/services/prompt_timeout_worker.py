@@ -40,7 +40,8 @@ class PromptTimeoutWorker:
                     choice_id=choice_id,
                     submitted_at_ms=int(fallback_result.get("executed_at_ms") or 0) or None,
                 )
-                if self._command_router is not None and isinstance(decision_state, dict):
+                command_seq = _command_seq(decision_state) if isinstance(decision_state, dict) else None
+                if self._command_router is not None and isinstance(decision_state, dict) and command_seq is not None:
                     self._command_router.wake_after_accept(
                         command_ref=decision_state,
                         session_id=pending.session_id,
@@ -112,6 +113,17 @@ class PromptTimeoutWorker:
             runtime_status_lookup=load_status if callable(load_status) else None,
             lease_owner_lookup=lease_owner if callable(lease_owner) else None,
         )
+
+
+def _command_seq(command_ref: dict) -> int | None:
+    for field_name in ("command_seq", "seq"):
+        try:
+            value = int(command_ref.get(field_name))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
 
 
 class PromptTimeoutWorkerLoop:

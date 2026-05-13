@@ -40,6 +40,20 @@ class PromptTimeoutWorkerLoopTests(unittest.TestCase):
             ],
         )
 
+    def test_worker_does_not_wake_runtime_for_incomplete_batch_timeout(self) -> None:
+        prompt_service = _PromptServiceStub(command_seq=None)
+        command_router = _CommandRouterStub()
+        worker = PromptTimeoutWorker(
+            prompt_service=prompt_service,
+            runtime_service=_RuntimeServiceStub(),
+            stream_service=_StreamServiceStub(),
+            command_router=command_router,
+        )
+
+        asyncio.run(worker.run_once(now_ms=1_000, session_id="sess_timeout"))
+
+        self.assertEqual(command_router.wake_calls, [])
+
     def test_loop_runs_configured_iterations_without_websocket_heartbeat(self) -> None:
         worker = _WorkerStub(results=[[{"request_id": "r1"}], [], [{"request_id": "r2"}]])
         sleeps: list[float] = []
@@ -124,7 +138,8 @@ class _PendingPrompt:
 
 
 class _PromptServiceStub:
-    def __init__(self) -> None:
+    def __init__(self, *, command_seq: int | None = 5) -> None:
+        self.command_seq = command_seq
         self.recorded_request_ids: list[str] = []
         self.cleaned: list[str | None] = []
 
@@ -139,7 +154,7 @@ class _PromptServiceStub:
         submitted_at_ms: int | None = None,
     ) -> dict:
         self.recorded_request_ids.append(pending.request_id)
-        return {"status": "accepted", "session_id": pending.session_id, "command_seq": 5}
+        return {"status": "accepted", "session_id": pending.session_id, "command_seq": self.command_seq}
 
     def cleanup_orphaned_pending(self, **_kwargs) -> None:
         return None

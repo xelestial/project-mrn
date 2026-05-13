@@ -6491,6 +6491,129 @@ class RuntimeServiceTests(unittest.TestCase):
             "batch:simul:resupply:2:107:mod:simul:resupply:2:107:resupply:1",
         )
 
+    def test_decision_resume_from_batch_complete_command_uses_collected_response(self) -> None:
+        class _CommandStoreStub:
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [
+                    {
+                        "seq": 7,
+                        "type": "batch_complete",
+                        "session_id": session_id,
+                        "payload": {
+                            "request_id": "batch_complete:batch:simul:resupply:1",
+                            "batch_id": "batch:simul:resupply:1",
+                            "expected_player_ids": [1, 2],
+                            "responses_by_player_id": {
+                                "1": {
+                                    "request_id": "batch:simul:resupply:1:p0",
+                                    "player_id": 1,
+                                    "request_type": "burden_exchange",
+                                    "choice_id": "yes",
+                                    "decision": {"choice_payload": {"accepted": True}},
+                                    "resume_token": "resume_p0",
+                                    "frame_id": "frame:resupply",
+                                    "module_id": "module:resupply",
+                                    "module_type": "ResupplyModule",
+                                    "module_cursor": "await_resupply_batch:1",
+                                    "batch_id": "batch:simul:resupply:1",
+                                },
+                                "2": {
+                                    "request_id": "batch:simul:resupply:1:p1",
+                                    "player_id": 2,
+                                    "request_type": "burden_exchange",
+                                    "choice_id": "no",
+                                    "provider": "ai",
+                                    "choice_payload": {"accepted": False},
+                                    "resume_token": "resume_p1",
+                                    "frame_id": "frame:resupply",
+                                    "module_id": "module:resupply",
+                                    "module_type": "ResupplyModule",
+                                    "module_cursor": "await_resupply_batch:1",
+                                    "batch_id": "batch:simul:resupply:1",
+                                },
+                            },
+                        },
+                    }
+                ]
+
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=_CommandStoreStub(),
+        )
+
+        resume = runtime._decision_resume_from_command("sess_batch_complete", 7)
+
+        self.assertIsNotNone(resume)
+        assert resume is not None
+        self.assertEqual(resume.request_id, "batch:simul:resupply:1:p1")
+        self.assertEqual(resume.player_id, 2)
+        self.assertEqual(resume.choice_id, "no")
+        self.assertEqual(resume.choice_payload, {"accepted": False})
+        self.assertEqual(resume.batch_id, "batch:simul:resupply:1")
+        self.assertEqual(resume.provider, "ai")
+        self.assertEqual(sorted(resume.batch_responses_by_player_id), [1, 2])
+
+    def test_collected_batch_responses_are_applied_before_primary_resume(self) -> None:
+        frame = FrameState(
+            frame_id="frame:resupply",
+            frame_type="simultaneous",
+            owner_player_id=None,
+            parent_frame_id=None,
+        )
+        module = ModuleRef(
+            module_id="module:resupply",
+            module_type="ResupplyModule",
+            phase="round",
+            owner_player_id=None,
+            cursor="await_resupply_batch:1",
+        )
+        batch = PromptApi().create_batch(
+            batch_id="batch:simul:resupply:1",
+            frame=frame,
+            module=module,
+            participant_player_ids=[0, 1],
+            request_type="burden_exchange",
+            legal_choices_by_player_id={0: [{"choice_id": "yes"}], 1: [{"choice_id": "no"}]},
+        )
+        state = type("State", (), {"runtime_active_prompt_batch": batch})()
+        resume = RuntimeDecisionResume(
+            request_id=batch.prompts_by_player_id[1].request_id,
+            player_id=2,
+            request_type="burden_exchange",
+            choice_id="no",
+            choice_payload={"accepted": False},
+            resume_token=batch.prompts_by_player_id[1].resume_token,
+            frame_id="frame:resupply",
+            module_id="module:resupply",
+            module_type="ResupplyModule",
+            module_cursor="await_resupply_batch:1",
+            batch_id="batch:simul:resupply:1",
+            batch_responses_by_player_id={
+                1: {
+                    "request_id": batch.prompts_by_player_id[0].request_id,
+                    "player_id": 1,
+                    "choice_id": "yes",
+                    "resume_token": batch.prompts_by_player_id[0].resume_token,
+                    "decision": {"choice_payload": {"accepted": True}},
+                },
+                2: {
+                    "request_id": batch.prompts_by_player_id[1].request_id,
+                    "player_id": 2,
+                    "choice_id": "no",
+                    "resume_token": batch.prompts_by_player_id[1].resume_token,
+                    "choice_payload": {"accepted": False},
+                },
+            },
+        )
+
+        self.runtime_service._apply_collected_batch_responses_to_state(state, resume)
+
+        self.assertEqual(batch.responses_by_player_id[0]["choice_id"], "yes")
+        self.assertEqual(batch.responses_by_player_id[0]["choice_payload"], {"accepted": True})
+        self.assertEqual(batch.missing_player_ids, [1])
+
     def test_decision_resume_ignores_scalar_choice_payload(self) -> None:
         class _CommandStoreStub:
             def list_commands(self, session_id: str) -> list[dict]:

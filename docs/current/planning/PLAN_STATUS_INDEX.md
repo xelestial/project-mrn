@@ -84,6 +84,9 @@ Read and maintain these:
   prompt-creation path; HTTP external AI now stops at a provider=`ai` pending
   prompt boundary and callback decisions re-enter through
   `PromptService`/`CommandInbox` before `CommandRouter` wakeup;
+  simultaneous batch prompt submit and timeout fallback now enter
+  `BatchCollector` instead of appending per-player decision commands, and
+  completed batches re-enter `SessionLoop` as one `batch_complete` command;
   `RuntimeService.process_command_once()` remains only as a compatibility
   wrapper over that executor. Remaining high-risk work is remote external AI
   operation/deployment evidence and any future local/loopback AI policy

@@ -526,7 +526,14 @@ commit signal
 - 완료: `apps/server/src/services/batch_collector.py`를 추가했다.
 - 완료: production path는 Redis Lua 한 번으로 response `HSETNX`, remaining 계산, batch completion idempotency, command stream append, command state `accepted` 기록을 처리한다.
 - 완료: 테스트 fake path는 같은 의미를 lock 기반 fallback으로 검증한다. 기본 Redis client에서 Lua가 없으면 fallback하지 않는다.
-- 미완료: 기존 simultaneous prompt submit/timeout worker가 이 collector를 호출하도록 배선하는 작업은 Phase 7/PromptBoundary 분리와 함께 남아 있다.
+
+2026-05-13 구현 상태:
+
+- 완료: `PromptService.submit_decision()`은 simultaneous batch prompt를 감지하면 개별 `decision_submitted` command를 append하지 않고 `BatchCollector.record_response()`로 응답을 넘긴다.
+- 완료: `PromptService.record_timeout_fallback_decision()`도 simultaneous batch prompt에서는 같은 collector를 사용한다. 따라서 human response와 timeout fallback이 교차해도 batch completion 판단은 collector의 atomic primitive 한 곳에서 끝난다.
+- 완료: incomplete batch response는 decision record만 accepted로 남기고 `command_seq=None`, `batch_status=pending`, `remaining_player_ids`를 반환한다. 이 상태에서는 runtime wakeup을 하지 않는다.
+- 완료: 마지막 batch response가 들어온 경우에만 `batch_complete` command reference를 반환하고, `SessionLoop`는 `batch_complete`를 runtime boundary command로 처리한다.
+- 완료: `RuntimeService`는 `batch_complete.responses_by_player_id`에서 선택된 primary response로 기존 prompt resume을 만들고, 나머지 collected response를 active batch state에 먼저 반영한 뒤 engine transition을 재개한다.
 
 ### Phase 7 - AI와 timeout을 같은 command 경로로 통합
 
@@ -549,7 +556,8 @@ commit signal
 
 검증:
 
-- [x] human과 timeout decision은 같은 `decision_submitted` command append 경로를 사용한다.
+- [x] non-batch human과 timeout decision은 같은 `decision_submitted` command append 경로를 사용한다.
+- [x] simultaneous batch human과 timeout decision은 같은 `BatchCollector` completion 경로를 사용하고, 완료 시 하나의 `batch_complete` command로 session loop에 들어온다.
 - [x] HTTP external AI decision의 persisted command shape가 human/timeout과 동일하다.
 - [x] HTTP external AI endpoint 지연이 session loop lease를 장시간 점유하지 않는다.
 

@@ -10,6 +10,7 @@ from apps.server.src.services.persistence import (
     RedisSessionStore,
 )
 from apps.server.src.services.archive_service import LocalJsonArchiveService
+from apps.server.src.services.batch_collector import BatchCollector
 from apps.server.src.services.command_wakeup_worker import CommandStreamWakeupWorker
 from apps.server.src.services.command_router import CommandRouter
 from apps.server.src.services.prompt_service import PromptService
@@ -54,6 +55,7 @@ if redis_connection is not None:
     runtime_state_store = RedisRuntimeStateStore(redis_connection)
     game_state_store = RedisGameStateStore(redis_connection)
     command_store = RedisCommandStore(redis_connection)
+    batch_collector = BatchCollector(redis_connection, command_store)
     session_storage_backend = "redis"
     room_storage_backend = "redis"
 else:
@@ -68,6 +70,7 @@ else:
     runtime_state_store = None
     game_state_store = None
     command_store = None
+    batch_collector = None
     session_storage_backend = "json_file" if runtime_settings.session_store_path else "memory"
     room_storage_backend = session_storage_backend
 stream_store = (
@@ -92,7 +95,7 @@ stream_service = StreamService(
     max_persisted_sessions=runtime_settings.stream_store_max_sessions,
     player_name_resolver=lambda session_id: session_service.player_display_names(session_id),
 )
-prompt_service = PromptService(prompt_store=prompt_store, command_store=command_store)
+prompt_service = PromptService(prompt_store=prompt_store, command_store=command_store, batch_collector=batch_collector)
 runtime_service = RuntimeService(
     session_service=session_service,
     stream_service=stream_service,

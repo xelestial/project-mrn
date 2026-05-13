@@ -37,6 +37,24 @@ class SessionLoopTests(unittest.TestCase):
         self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 31, None)])
         self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
 
+    def test_session_loop_processes_batch_complete_command_through_runtime_boundary(self) -> None:
+        command_store, sessions, session = _build_session(seed=39)
+        runtime = _RuntimeBoundaryStub(command_store=command_store)
+        loop = SessionLoop(command_store=command_store, session_service=sessions, runtime_service=runtime)
+        command_store.append_command(
+            session.session_id,
+            "batch_complete",
+            {"request_id": "batch_complete:batch:1", "batch_id": "batch:1"},
+            request_id="batch_complete:batch:1",
+        )
+
+        result = asyncio.run(loop.run_until_idle(session_id=session.session_id, trigger="test", max_commands=2))
+
+        self.assertEqual(result["status"], "idle")
+        self.assertEqual(result["processed_count"], 1)
+        self.assertEqual(runtime.processed, [(session.session_id, 1, "runtime_wakeup", 39, None)])
+        self.assertEqual(command_store.load_consumer_offset("runtime_wakeup", session.session_id), 1)
+
     def test_session_loop_owns_command_lifecycle_without_runtime_process_adapter(self) -> None:
         command_store, sessions, session = _build_session(seed=37)
         runtime = _RuntimeLifecycleBoundaryStub(command_store=command_store)

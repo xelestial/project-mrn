@@ -45,6 +45,7 @@ class PromptService:
         prompt_store=None,
         command_store=None,
         command_inbox: CommandInbox | None = None,
+        batch_collector=None,
     ) -> None:
         self._pending: dict[str, PendingPrompt] = {}
         self._resolved: dict[str, tuple[int, str, str]] = {}
@@ -58,6 +59,7 @@ class PromptService:
         self._command_inbox = command_inbox or (
             CommandInbox(command_store=command_store) if command_store is not None else None
         )
+        self._batch_collector = batch_collector
 
     def create_prompt(self, session_id: str, prompt: dict) -> PendingPrompt:
         superseded_waiters: list[threading.Event] = []
@@ -273,7 +275,23 @@ class PromptService:
                     "session_id": pending.session_id,
                 }
                 accepted_command: dict | None = None
-                if self._command_inbox is not None and self._command_inbox.supports_atomic_prompt_decision(self._prompt_store):
+                batch_result = None
+                if _is_simultaneous_batch_prompt(pending.payload) and self._batch_collector is not None:
+                    batch_result = self._record_batch_response(
+                        pending=pending,
+                        response=command_payload,
+                        server_time_ms=now,
+                    )
+                    accepted_command = batch_result.command
+                    self._delete_pending(request_id, session_id=pending.session_id)
+                    self._set_decision(request_id, decision_payload, session_id=pending.session_id)
+                    self._record_resolved(
+                        request_id=request_id,
+                        reason="accepted",
+                        now_ms=now,
+                        session_id=pending.session_id,
+                    )
+                elif self._command_inbox is not None and self._command_inbox.supports_atomic_prompt_decision(self._prompt_store):
                     accepted_command = self._command_inbox.accept_prompt_decision(
                         prompt_store=self._prompt_store,
                         session_id=pending.session_id,
@@ -340,6 +358,9 @@ class PromptService:
                     "session_id": pending.session_id,
                     "command_seq": _command_seq(accepted_command),
                 }
+                if batch_result is not None:
+                    result["batch_status"] = batch_result.status
+                    result["remaining_player_ids"] = list(batch_result.remaining_player_ids)
         if waiter is not None:
             waiter.set()
         return result
@@ -465,6 +486,8 @@ class PromptService:
             "player_id": int(pending.player_id),
             "request_type": str(pending.payload.get("request_type") or ""),
             "choice_id": fallback_choice_id,
+            "choice_payload": {},
+            "provider": "timeout_fallback",
             "decision": decision_payload,
             "submitted_at_ms": now,
             "source": "timeout_fallback",
@@ -483,7 +506,15 @@ class PromptService:
                 now_ms=now,
             )
             command_ref = None
-            if self._command_inbox is not None:
+            batch_result = None
+            if _is_simultaneous_batch_prompt(pending.payload) and self._batch_collector is not None:
+                batch_result = self._record_batch_response(
+                    pending=pending,
+                    response=command_payload,
+                    server_time_ms=now,
+                )
+                command_ref = batch_result.command
+            elif self._command_inbox is not None:
                 command_ref = self._command_inbox.append_decision_command(
                     session_id=pending.session_id,
                     command_payload=command_payload,
@@ -494,7 +525,31 @@ class PromptService:
                 decision_payload["status"] = "accepted"
                 decision_payload["session_id"] = pending.session_id
                 decision_payload["command_seq"] = command_ref.get("seq")
+            if batch_result is not None:
+                decision_payload["status"] = "accepted"
+                decision_payload["session_id"] = pending.session_id
+                decision_payload["command_seq"] = _command_seq(command_ref)
+                decision_payload["batch_status"] = batch_result.status
+                decision_payload["remaining_player_ids"] = list(batch_result.remaining_player_ids)
         return decision_payload
+
+    def _record_batch_response(self, *, pending: PendingPrompt, response: dict, server_time_ms: int):
+        batch_id = str(pending.payload.get("batch_id") or "").strip()
+        expected_player_ids = [
+            int(raw)
+            for raw in pending.payload.get("missing_player_ids", [])
+            if _int_or_none(raw) is not None
+        ]
+        if not expected_player_ids:
+            expected_player_ids = [int(pending.player_id)]
+        return self._batch_collector.record_response(
+            session_id=pending.session_id,
+            batch_id=batch_id,
+            player_id=int(pending.player_id),
+            response=response,
+            expected_player_ids=expected_player_ids,
+            server_time_ms=server_time_ms,
+        )
 
     def wait_for_decision(self, request_id: str, timeout_ms: int, session_id: str | None = None) -> dict | None:
         with self._lock:
@@ -1075,6 +1130,15 @@ def _derive_batch_id_from_request_id(request_id: str) -> str:
     if not player_suffix.isdigit():
         return ""
     return batch_id
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _compact_prompt_lifecycle_payload(prompt: dict) -> dict[str, Any]:

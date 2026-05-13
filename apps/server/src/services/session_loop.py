@@ -210,7 +210,7 @@ class SessionLoop:
                 observed_count += 1
                 continue
 
-            if command_type != "decision_submitted":
+            if command_type not in {"decision_submitted", "batch_complete"}:
                 return self._result(
                     "blocked",
                     session_id=session_id,
