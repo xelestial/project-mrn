@@ -318,6 +318,38 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(lifecycle["reason"], "external_ai_invalid_choice")
         self.assertEqual(len(self.service.list_prompt_lifecycle(session_id="s1")), 1)
 
+    def test_expire_prompt_resolves_public_request_id_alias(self) -> None:
+        pending = self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "s1:r2:t3:p1:movement:10",
+                "request_type": "movement",
+                "player_id": 1,
+                "prompt_instance_id": 10,
+                "timeout_ms": 30000,
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        expired = self.service.expire_prompt(
+            public_request_id,
+            reason="manual_cleanup",
+            session_id="s1",
+        )
+
+        self.assertIsNotNone(expired)
+        assert expired is not None
+        self.assertEqual(expired.request_id, pending.request_id)
+        self.assertIsNone(self.service.get_pending_prompt(pending.request_id, session_id="s1"))
+        self.assertIsNone(self.service.get_pending_prompt(public_request_id, session_id="s1"))
+        lifecycle = self.service.get_prompt_lifecycle(public_request_id, session_id="s1")
+        self.assertIsNotNone(lifecycle)
+        assert lifecycle is not None
+        self.assertEqual(lifecycle["request_id"], pending.request_id)
+        self.assertEqual(lifecycle["state"], "expired")
+        self.assertEqual(lifecycle["reason"], "manual_cleanup")
+        self.assertEqual(len(self.service.list_prompt_lifecycle(session_id="s1")), 1)
+
     def test_module_decision_command_carries_prompt_instance_id_for_public_request_alias(self) -> None:
         command_store = CapturingCommandStore()
         service = PromptService(command_store=command_store)

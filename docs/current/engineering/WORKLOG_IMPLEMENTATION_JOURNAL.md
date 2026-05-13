@@ -39,9 +39,10 @@ in the active plans, status index, tests, or canonical contract documents.
   completed prompts do not reappear as pending through lifecycle metadata.
 - `PromptService.mark_prompt_delivered()` and
   `record_external_decision_result()` now resolve submitted public request
-  aliases before lifecycle writes, so delivered/external-result states update
-  the same legacy-key lifecycle record instead of creating a parallel public-key
-  record.
+  aliases before lifecycle writes, and `PromptService.expire_prompt()` resolves
+  active pending aliases before deletion/resolution. Delivered, external-result,
+  and expired states therefore update the same legacy-key lifecycle record
+  instead of creating or missing a parallel public-key record.
 - Decision command materialization now copies prompt player identity companions
   (`public_player_id`, `seat_id`, `viewer_id`, and display aliases) into normal
   decision commands, simultaneous batch collector responses, and timeout

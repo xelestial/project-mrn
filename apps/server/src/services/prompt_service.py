@@ -666,21 +666,25 @@ class PromptService:
     def expire_prompt(self, request_id: str, reason: str = "prompt_timeout", session_id: str | None = None) -> PendingPrompt | None:
         waiter: threading.Event | None = None
         with self._lock:
-            pending = self._get_pending(request_id, session_id=session_id)
+            normalized_request_id = str(request_id).strip()
+            resolved_request_id = self._resolve_pending_request_alias(normalized_request_id, session_id=session_id)
+            if not resolved_request_id:
+                resolved_request_id = normalized_request_id
+            pending = self._get_pending(resolved_request_id, session_id=session_id)
             if pending is None:
                 return None
             storage_key = _scoped_request_key(pending.session_id, pending.request_id)
-            self._delete_pending(request_id, session_id=pending.session_id)
-            self._record_resolved(request_id=request_id, reason=reason, session_id=pending.session_id)
+            self._delete_pending(resolved_request_id, session_id=pending.session_id)
+            self._record_resolved(request_id=resolved_request_id, reason=reason, session_id=pending.session_id)
             self._record_lifecycle(
-                request_id=request_id,
+                request_id=resolved_request_id,
                 state="expired",
                 session_id=pending.session_id,
                 player_id=pending.player_id,
                 prompt=pending.payload,
                 reason=reason,
             )
-            self._delete_decision(request_id, session_id=pending.session_id)
+            self._delete_decision(resolved_request_id, session_id=pending.session_id)
             waiter = self._waiters.pop(storage_key, None)
         if waiter is not None:
             waiter.set()
