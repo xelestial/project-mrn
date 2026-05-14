@@ -26,6 +26,12 @@ in the active plans, status index, tests, or canonical contract documents.
   This keeps the numeric bridge at the server adapter boundary while preventing
   a conflicting legacy alias from silently overriding a public/protocol primary
   identity.
+- `PromptService.submit_decision()` now performs the same fail-closed identity
+  consistency check at decision acceptance. A decision whose public player,
+  seat, viewer, legacy, or primary identity companions contradict the pending
+  prompt is rejected before command materialization. The accepted command still
+  carries numeric `player_id` as the engine bridge, but that bridge can no
+  longer overwrite a contradictory public/protocol identity.
 
 ## 2026-05-14 Runtime Protocol Identity Continuation
 

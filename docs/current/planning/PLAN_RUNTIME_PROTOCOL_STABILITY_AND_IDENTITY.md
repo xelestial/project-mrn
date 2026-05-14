@@ -951,6 +951,10 @@ Acceptance evidence status, 2026-05-15:
 - `apps/server/tests/test_stream_api.py::test_seat_decision_rejects_conflicting_protocol_identity_fields`
   verifies that the WebSocket decision route turns a contradictory public/protocol player id plus numeric
   legacy alias into the existing `PLAYER_MISMATCH` path rather than accepting the legacy numeric alias.
+- `apps/server/tests/test_prompt_service.py::test_submit_decision_rejects_conflicting_prompt_player_identity_fields`
+  verifies that `PromptService.submit_decision()` itself rejects decision payload identity companions that
+  contradict the pending prompt before lifecycle records or command payloads are accepted, keeping this
+  fail-closed rule at the service acceptance boundary as well as the route adapter boundary.
 - `apps/web/src/domain/stream/decisionProtocol.spec.ts` and
   `apps/web/src/headless/HeadlessGameClient.spec.ts` verify that frontend/headless decision construction can
   send a public string `player_id` with explicit `primary_player_id`, `primary_player_id_source`,

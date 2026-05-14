@@ -275,6 +275,18 @@ class PromptService:
                         now_ms=now,
                     )
                     return {"status": "rejected", "reason": "choice_not_legal"}
+                if _prompt_player_identity_mismatch(pending.payload, payload):
+                    self._record_lifecycle(
+                        request_id=request_id,
+                        state="rejected",
+                        session_id=pending.session_id,
+                        player_id=pending.player_id,
+                        prompt=pending.payload,
+                        decision=payload,
+                        reason="player_identity_mismatch",
+                        now_ms=now,
+                    )
+                    return {"status": "rejected", "reason": "player_identity_mismatch"}
                 if _is_module_prompt(pending.payload):
                     mismatch = _module_decision_mismatch(pending.payload, payload)
                     if mismatch:
@@ -1360,6 +1372,32 @@ def _module_decision_mismatch(prompt: dict, decision: dict) -> str:
         if expected and actual and actual != expected:
             return reason
     return ""
+
+
+def _prompt_player_identity_mismatch(prompt: dict, decision: dict) -> bool:
+    for field in ("public_player_id", "seat_id", "viewer_id"):
+        expected = str(prompt.get(field) or "").strip()
+        actual = str(decision.get(field) or "").strip()
+        if expected and actual and actual != expected:
+            return True
+
+    expected_legacy = _int_or_none(prompt.get("legacy_player_id"))
+    if expected_legacy is None:
+        expected_legacy = _int_or_none(prompt.get("player_id"))
+    actual_legacy = _int_or_none(decision.get("legacy_player_id"))
+    if expected_legacy is not None and actual_legacy is not None and actual_legacy != expected_legacy:
+        return True
+
+    expected_primary = str(prompt.get("primary_player_id") or "").strip()
+    actual_primary = str(decision.get("primary_player_id") or "").strip()
+    expected_source = str(prompt.get("primary_player_id_source") or "").strip()
+    actual_source = str(decision.get("primary_player_id_source") or "").strip()
+    if expected_primary and actual_primary and expected_source and actual_source:
+        if actual_source != expected_source:
+            return True
+        if actual_primary != expected_primary:
+            return True
+    return False
 
 
 def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
