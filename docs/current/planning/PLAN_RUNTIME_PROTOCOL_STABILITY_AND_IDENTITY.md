@@ -189,8 +189,11 @@ move to the string public identity contract. 2026-05-14 frontend/headless progre
 is reduced to the optional legacy display/engine bridge and `PromptIdentityViewModel` exposes
 public/protocol/legacy prompt target identity separately from that numeric bridge.
 The React UI `sendDecision` path now extracts the same protocol identity companions from the
-active prompt before serialization. `useGameStream` duplicate-flight keys now prefer public/protocol
-identity and only fall back to numeric identity for legacy prompts. Rendered UI prompt actionability
+active prompt before serialization, including explicit `PromptViewModel.primaryPlayerId` plus
+`primaryPlayerIdSource` so browser decision messages and duplicate-flight keys do not have to
+recompute primary identity from a numeric top-level alias. `useGameStream` duplicate-flight keys now
+prefer explicit prompt primary identity, then public/protocol identity, and only fall back to numeric
+identity for legacy prompts. Rendered UI prompt actionability
 now compares `LocalViewerIdentity` public/protocol/viewer/seat identity against
 `PromptViewModel.identity` before legacy fallback, while queued burden-exchange suppression stays on
 the prompt primary identity helper. Headless trace events now expose top-level
@@ -913,10 +916,12 @@ Acceptance evidence status, 2026-05-14:
   send a public string `player_id` with explicit `primary_player_id`, `primary_player_id_source`,
   `legacy_player_id`, `public_player_id`, `seat_id`, `viewer_id`, and `public_prompt_instance_id`
   companions while preserving the existing numeric-only decision path, marking top-level numeric
-  `player_id` as a legacy compatibility alias, and keeping the numeric prompt lifecycle alias.
+  `player_id` as a legacy compatibility alias, preferring explicit prompt primary identity over a
+  numeric top-level alias, and keeping the numeric prompt lifecycle alias.
 - `apps/web/src/hooks/useGameStream.spec.ts` verifies that rendered UI decision submission can use a public
-  protocol `player_id` and build duplicate-flight keys from public identity without requiring a numeric
-  legacy bridge; numeric-only prompt decisions remain supported as the legacy fallback.
+  protocol `player_id` and build duplicate-flight keys from explicit prompt primary or public identity
+  without requiring a numeric legacy bridge; numeric-only prompt decisions remain supported as the legacy
+  fallback.
 - `apps/web/src/domain/selectors/promptSelectors.spec.ts` verifies that prompt selection projects public
   prompt identity into `PromptViewModel.identity.primaryPlayerId` and top-level
   `PromptViewModel.primaryPlayerId`, and can build an actionable prompt view model before the UI can

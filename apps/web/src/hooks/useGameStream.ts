@@ -4,7 +4,7 @@ import type {
   InboundMessage,
   ProtocolPlayerId,
 } from "../core/contracts/stream";
-import type { PromptContinuationViewModel } from "../domain/selectors/promptSelectors";
+import type { PromptContinuationViewModel, PromptIdentitySource } from "../domain/selectors/promptSelectors";
 import {
   buildDecisionFlightKey,
   buildDecisionMessage,
@@ -30,6 +30,8 @@ export { buildDecisionFlightKey };
 export type StreamDecisionArgs = {
   requestId: string;
   playerId: ProtocolPlayerId;
+  primaryPlayerId?: ProtocolPlayerId | null;
+  primaryPlayerIdSource?: PromptIdentitySource | null;
   legacyPlayerId?: number | null;
   publicPlayerId?: string | null;
   seatId?: string | null;
@@ -42,13 +44,15 @@ export type StreamDecisionArgs = {
 
 export type StreamDecisionFlightIdentity = {
   playerId: ProtocolPlayerId;
-  source: "public" | "protocol" | "legacy";
+  source: PromptIdentitySource;
   legacyPlayerId: number | null;
   publicPlayerId: string | null;
 };
 
 export function resolveDecisionFlightIdentity(args: {
   playerId: ProtocolPlayerId;
+  primaryPlayerId?: ProtocolPlayerId | null;
+  primaryPlayerIdSource?: PromptIdentitySource | null;
   legacyPlayerId?: number | null;
   publicPlayerId?: string | null;
 }): StreamDecisionFlightIdentity | null {
@@ -57,6 +61,14 @@ export function resolveDecisionFlightIdentity(args: {
     typeof args.legacyPlayerId === "number" && Number.isFinite(args.legacyPlayerId)
       ? Math.floor(args.legacyPlayerId)
       : null;
+  const explicitPrimary = explicitDecisionFlightIdentity(args.primaryPlayerId, args.primaryPlayerIdSource);
+  if (explicitPrimary !== null) {
+    return {
+      ...explicitPrimary,
+      legacyPlayerId,
+      publicPlayerId,
+    };
+  }
   if (publicPlayerId !== null) {
     return {
       playerId: publicPlayerId,
@@ -87,6 +99,28 @@ export function resolveDecisionFlightIdentity(args: {
       source: "legacy",
       legacyPlayerId,
       publicPlayerId: null,
+    };
+  }
+  return null;
+}
+
+function explicitDecisionFlightIdentity(
+  playerId: ProtocolPlayerId | null | undefined,
+  source: PromptIdentitySource | null | undefined,
+): Pick<StreamDecisionFlightIdentity, "playerId" | "source"> | null {
+  if (source !== "public" && source !== "protocol" && source !== "legacy") {
+    return null;
+  }
+  if (typeof playerId === "number" && Number.isFinite(playerId)) {
+    return {
+      playerId: Math.floor(playerId),
+      source,
+    };
+  }
+  if (typeof playerId === "string" && playerId.trim()) {
+    return {
+      playerId: playerId.trim(),
+      source,
     };
   }
   return null;
@@ -194,6 +228,8 @@ export function useGameStream({
     const streamKey = activeStreamKeyRef.current;
     const flightIdentity = resolveDecisionFlightIdentity({
       playerId: args.playerId,
+      primaryPlayerId: args.primaryPlayerId,
+      primaryPlayerIdSource: args.primaryPlayerIdSource,
       legacyPlayerId: args.legacyPlayerId,
       publicPlayerId: args.publicPlayerId,
     });
@@ -275,6 +311,8 @@ export function useGameStream({
       buildDecisionMessage({
         requestId: args.requestId,
         playerId: args.playerId,
+        primaryPlayerId: args.primaryPlayerId,
+        primaryPlayerIdSource: args.primaryPlayerIdSource,
         legacyPlayerId: args.legacyPlayerId,
         publicPlayerId: args.publicPlayerId,
         seatId: args.seatId,

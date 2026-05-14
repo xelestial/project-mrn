@@ -1,5 +1,5 @@
 import type { OutboundMessage, ProtocolPlayerId } from "../../core/contracts/stream";
-import type { PromptContinuationViewModel } from "../selectors/promptSelectors";
+import type { PromptContinuationViewModel, PromptIdentitySource } from "../selectors/promptSelectors";
 
 export function buildGameStreamKey(sessionId: string, token?: string): string {
   return `${sessionId.trim()}\n${token ?? ""}`;
@@ -147,14 +147,20 @@ function decisionFlightPlayerKey(playerId: ProtocolPlayerId): string {
 
 type PrimaryPlayerIdentity = {
   playerId: ProtocolPlayerId;
-  source: "public" | "protocol" | "legacy";
+  source: PromptIdentitySource;
 };
 
 function primaryPlayerIdentity(args: {
   playerId: ProtocolPlayerId;
+  primaryPlayerId?: ProtocolPlayerId | null;
+  primaryPlayerIdSource?: PromptIdentitySource | null;
   legacyPlayerId: number | null;
   publicPlayerId: string | null;
 }): PrimaryPlayerIdentity {
+  const explicitPrimary = explicitPrimaryPlayerIdentity(args.primaryPlayerId, args.primaryPlayerIdSource);
+  if (explicitPrimary !== null) {
+    return explicitPrimary;
+  }
   if (args.publicPlayerId) {
     return { playerId: args.publicPlayerId, source: "public" };
   }
@@ -167,6 +173,22 @@ function primaryPlayerIdentity(args: {
   };
 }
 
+function explicitPrimaryPlayerIdentity(
+  playerId: ProtocolPlayerId | null | undefined,
+  source: PromptIdentitySource | null | undefined,
+): PrimaryPlayerIdentity | null {
+  if (source !== "public" && source !== "protocol" && source !== "legacy") {
+    return null;
+  }
+  if (typeof playerId === "number" && Number.isFinite(playerId)) {
+    return { playerId: Math.floor(playerId), source };
+  }
+  if (typeof playerId === "string" && playerId.trim()) {
+    return { playerId: playerId.trim(), source };
+  }
+  return null;
+}
+
 function numericProtocolPlayerId(playerId: ProtocolPlayerId): number | null {
   if (typeof playerId === "number" && Number.isFinite(playerId)) {
     return Math.floor(playerId);
@@ -177,6 +199,8 @@ function numericProtocolPlayerId(playerId: ProtocolPlayerId): number | null {
 export function buildDecisionMessage(args: {
   requestId: string;
   playerId: ProtocolPlayerId;
+  primaryPlayerId?: ProtocolPlayerId | null;
+  primaryPlayerIdSource?: PromptIdentitySource | null;
   legacyPlayerId?: number | null;
   publicPlayerId?: string | null;
   seatId?: string | null;
@@ -195,6 +219,8 @@ export function buildDecisionMessage(args: {
   const publicPlayerId = optionalString(args.publicPlayerId);
   const primaryPlayer = primaryPlayerIdentity({
     playerId: args.playerId,
+    primaryPlayerId: args.primaryPlayerId,
+    primaryPlayerIdSource: args.primaryPlayerIdSource,
     legacyPlayerId,
     publicPlayerId,
   });

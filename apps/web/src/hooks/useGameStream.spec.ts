@@ -184,6 +184,44 @@ describe("useGameStream authoritative commit helpers", () => {
     ).toBe("player:player_public_2\nprompt:sha256:prompt-93\naction:purchase");
   });
 
+  it("uses explicit primary identity for decision flights when the top-level id is a numeric alias", () => {
+    const flightIdentity = resolveDecisionFlightIdentity({
+      playerId: 2,
+      legacyPlayerId: 2,
+      publicPlayerId: null,
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+    });
+
+    expect(flightIdentity).toEqual({
+      playerId: "player_public_2",
+      source: "public",
+      legacyPlayerId: 2,
+      publicPlayerId: null,
+    });
+    if (flightIdentity === null) {
+      throw new Error("expected explicit primary decision flight identity");
+    }
+    expect(
+      buildDecisionFlightKey({
+        requestId: "req_explicit_primary_prompt",
+        playerId: flightIdentity.playerId,
+        requestType: "purchase",
+        continuation: {
+          promptInstanceId: 94,
+          promptFingerprint: "sha256:prompt-94",
+          promptFingerprintVersion: "prompt-fingerprint-v1",
+          resumeToken: "resume-94",
+          frameId: "turn:3:p2",
+          moduleId: "mod:purchase:94",
+          moduleType: "PurchaseModule",
+          moduleCursor: "purchase:await_choice",
+          batchId: null,
+        },
+      }),
+    ).toBe("player:player_public_2\nprompt:sha256:prompt-94\naction:purchase");
+  });
+
   it("blocks a different request id while the same prompt flight is still active", () => {
     const ledger = createDecisionRequestLedger();
     const streamKey = buildGameStreamKey("sess_single_flight", "seat-1");

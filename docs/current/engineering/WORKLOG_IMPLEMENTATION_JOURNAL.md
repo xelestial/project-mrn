@@ -145,6 +145,11 @@ in the active plans, status index, tests, or canonical contract documents.
   `useGameStream` now resolves duplicate-flight keys through public/protocol
   identity when present and falls back to numeric identity only for legacy
   prompts.
+- The same React UI path now preserves explicit `PromptViewModel.primaryPlayerId`
+  plus `primaryPlayerIdSource` through `App.tsx`, `useGameStream`, and
+  `buildDecisionMessage()`. Browser decision messages and duplicate-flight keys
+  prefer that server-issued prompt primary identity before recomputing from
+  public, protocol, or legacy fallback fields.
 - `promptSelectors` now exposes an explicit `PromptIdentityViewModel` on
   `PromptViewModel.identity`. The selector can parse public prompt identity
   before the UI resolves it to a legacy engine seat; later prompt display work

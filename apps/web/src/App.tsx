@@ -134,7 +134,13 @@ function buildMatchHash(sessionId: string, token?: string): string {
 
 type PromptDecisionIdentity = Pick<
   StreamDecisionArgs,
-  "playerId" | "legacyPlayerId" | "publicPlayerId" | "seatId" | "viewerId"
+  | "playerId"
+  | "primaryPlayerId"
+  | "primaryPlayerIdSource"
+  | "legacyPlayerId"
+  | "publicPlayerId"
+  | "seatId"
+  | "viewerId"
 >;
 
 function promptDecisionIdentity(prompt: PromptViewModel): PromptDecisionIdentity {
@@ -145,6 +151,8 @@ function promptDecisionIdentity(prompt: PromptViewModel): PromptDecisionIdentity
   const legacyPlayerId = typeof prompt.legacyPlayerId === "number" ? prompt.legacyPlayerId : prompt.playerId;
   return {
     playerId: protocolPlayerId,
+    primaryPlayerId: prompt.primaryPlayerId,
+    primaryPlayerIdSource: prompt.primaryPlayerIdSource,
     ...(typeof protocolPlayerId === "string" && typeof legacyPlayerId === "number" ? { legacyPlayerId } : {}),
     ...(publicPlayerId ? { publicPlayerId } : {}),
     ...(seatId ? { seatId } : {}),
