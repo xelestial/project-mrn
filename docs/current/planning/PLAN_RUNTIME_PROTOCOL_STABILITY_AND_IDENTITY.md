@@ -212,6 +212,10 @@ the numeric legacy seat bridge is absent.
 Headless active/raw prompt routing now compares latest
 `view_commit.viewer` identity against `PromptViewModel.identity` through the shared prompt selector
 helper, with numeric seat fallback limited to legacy-only prompts.
+Headless decision construction now also consumes `PromptViewModel.identity.primaryPlayerId`
+and source directly, so a numeric top-level active-prompt `player_id` can remain only a
+legacy compatibility alias while outbound decisions, policy context, and decision traces keep the
+explicit public primary identity.
 Headless HTTP policy requests now consume `HeadlessDecisionContext.identity` as the single primary
 identity source instead of reinterpreting prompt fields, while keeping top-level numeric `player_id`
 labeled as a legacy compatibility alias.

@@ -144,6 +144,8 @@ type HeadlessTraceIdentityFields = {
 
 type PromptDecisionIdentity = {
   playerId: ProtocolPlayerId;
+  primaryPlayerId?: ProtocolPlayerId;
+  primaryPlayerIdSource?: "public" | "protocol" | "legacy";
   legacyPlayerId?: number;
   publicPlayerId?: string;
   seatId?: string;
@@ -155,9 +157,12 @@ const DEFAULT_UNACKED_DECISION_RETRY_LIMIT = 2;
 
 function promptDecisionIdentity(prompt: PromptViewModel, fallbackPlayerId: number): PromptDecisionIdentity {
   const identity = headlessDecisionIdentity(prompt, fallbackPlayerId);
-  const needsLegacyAlias = typeof identity.protocolPlayerId === "string";
+  const needsLegacyAlias =
+    typeof identity.protocolPlayerId === "string" || identity.primaryPlayerIdSource !== "legacy";
   return {
     playerId: identity.protocolPlayerId,
+    primaryPlayerId: identity.primaryPlayerId,
+    primaryPlayerIdSource: identity.primaryPlayerIdSource,
     ...(needsLegacyAlias ? { legacyPlayerId: identity.legacyPlayerId } : {}),
     ...(identity.publicPlayerId ? { publicPlayerId: identity.publicPlayerId } : {}),
     ...(identity.seatId ? { seatId: identity.seatId } : {}),
@@ -173,14 +178,9 @@ function headlessDecisionIdentity(prompt: PromptViewModel, fallbackPlayerId: num
   const publicPlayerId = optionalIdentityString(prompt.publicPlayerId);
   const seatId = optionalIdentityString(prompt.seatId);
   const viewerId = optionalIdentityString(prompt.viewerId);
-  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId;
-  const primaryPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId;
-  const primaryPlayerIdSource =
-    publicPlayerId !== null
-      ? "public"
-      : typeof prompt.protocolPlayerId === "string"
-        ? "protocol"
-        : "legacy";
+  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? prompt.identity.protocolPlayerId;
+  const primaryPlayerId = prompt.identity.primaryPlayerId;
+  const primaryPlayerIdSource = prompt.identity.primaryPlayerIdSource;
   return {
     primaryPlayerId,
     primaryPlayerIdSource,
@@ -809,10 +809,18 @@ export class HeadlessGameClient {
         policyDecision.choicePayload ?? selectedChoice.value ?? undefined,
       );
       this.metrics.outboundDecisionCount += 1;
+      const decisionTraceIdentity = compactPromptIdentity(prompt);
       this.recordTrace({
         event: retryingStalePrompt ? "decision_retry_sent" : "decision_sent",
         session_id: this.sessionId,
         player_id: this.playerId,
+        primary_player_id: decisionTraceIdentity.primaryPlayerId,
+        primary_player_id_source: decisionTraceIdentity.primaryPlayerIdSource,
+        protocol_player_id: decisionTraceIdentity.protocolPlayerId,
+        legacy_player_id: decisionTraceIdentity.legacyPlayerId ?? undefined,
+        public_player_id: decisionTraceIdentity.publicPlayerId,
+        seat_id: decisionTraceIdentity.seatId,
+        viewer_id: decisionTraceIdentity.viewerId,
         commit_seq: this.stateValue.lastCommitSeq,
         request_id: prompt.requestId,
         choice_id: selectedChoice.choiceId,
@@ -1448,14 +1456,12 @@ function compactPromptIdentity(prompt: PromptViewModel): {
       ? Math.floor(prompt.legacyPlayerId)
       : typeof prompt.playerId === "number" && Number.isFinite(prompt.playerId)
         ? Math.floor(prompt.playerId)
-        : null;
+        : prompt.identity.legacyPlayerId;
   const publicPlayerId = optionalIdentityString(prompt.publicPlayerId);
-  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.identity.protocolPlayerId;
-  const primaryPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.identity.primaryPlayerId;
-  const primaryPlayerIdSource =
-    publicPlayerId !== null
-      ? "public"
-      : prompt.identity.primaryPlayerIdSource;
+  const protocolPlayerId =
+    publicPlayerId ?? prompt.protocolPlayerId ?? prompt.identity.protocolPlayerId ?? legacyPlayerId;
+  const primaryPlayerId = prompt.identity.primaryPlayerId;
+  const primaryPlayerIdSource = prompt.identity.primaryPlayerIdSource;
   return {
     primaryPlayerId,
     primaryPlayerIdSource,

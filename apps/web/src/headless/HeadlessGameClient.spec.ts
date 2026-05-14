@@ -15,6 +15,8 @@ function viewCommitMessage(args: {
   choiceId?: string;
   choicePayload?: Record<string, unknown>;
   publicPlayerId?: string;
+  primaryPlayerId?: string | number;
+  primaryPlayerIdSource?: "public" | "protocol" | "legacy";
   legacyPlayerId?: number;
   seatId?: string;
   viewerId?: string;
@@ -65,6 +67,8 @@ function viewCommitMessage(args: {
             request_id: args.requestId,
             request_type: args.requestType ?? "purchase_tile",
             player_id: args.publicPlayerId ?? args.playerId,
+            ...(args.primaryPlayerId !== undefined ? { primary_player_id: args.primaryPlayerId } : {}),
+            ...(args.primaryPlayerIdSource ? { primary_player_id_source: args.primaryPlayerIdSource } : {}),
             ...(args.legacyPlayerId !== undefined ? { legacy_player_id: args.legacyPlayerId } : {}),
             ...(args.publicPlayerId ? { public_player_id: args.publicPlayerId } : {}),
             ...(args.seatId ? { seat_id: args.seatId } : {}),
@@ -335,6 +339,57 @@ describe("HeadlessGameClient", () => {
       viewer_id: "viewer_public_2",
       choice_id: "buy",
       choice_payload: { tile_index: 8, buy: true },
+    });
+  });
+
+  it("prefers explicit prompt primary identity over a numeric active prompt alias", async () => {
+    let observedPolicyIdentity: unknown = null;
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_explicit_primary",
+      token: "seat-2",
+      playerId: 2,
+      policy: (context) => {
+        observedPolicyIdentity = context.identity;
+        return baselineDecisionPolicy(context);
+      },
+    });
+
+    const outbound = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 15,
+        requestId: "req_explicit_primary_15",
+        playerId: 2,
+        legacyPlayerId: 2,
+        primaryPlayerId: "player_public_2",
+        primaryPlayerIdSource: "public",
+        choicePayload: { tile_index: 10, buy: true },
+      }),
+    );
+
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]).toMatchObject({
+      type: "decision",
+      request_id: "req_explicit_primary_15",
+      player_id: 2,
+      player_id_alias_role: "legacy_compatibility_alias",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      legacy_player_id: 2,
+      choice_id: "buy",
+      choice_payload: { tile_index: 10, buy: true },
+    });
+    expect(client.trace.find((event) => event.event === "decision_sent")).toMatchObject({
+      player_id: 2,
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      protocol_player_id: 2,
+      legacy_player_id: 2,
+    });
+    expect(observedPolicyIdentity).toMatchObject({
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: 2,
+      legacyPlayerId: 2,
     });
   });
 

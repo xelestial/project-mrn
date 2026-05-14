@@ -722,6 +722,27 @@ prompt reinterpretation to the already-resolved headless decision context.
 External policy compatibility remains intact because the legacy numeric aliases
 were not removed; their role is still labeled in the request.
 
+## 2026-05-14 Headless Decision Primary Identity
+
+- Added headless coverage for the mixed migration case where an active prompt
+  still carries numeric top-level `player_id` as a legacy alias but also carries
+  explicit public `primary_player_id`.
+- `HeadlessGameClient` decision construction now passes
+  `PromptViewModel.identity.primaryPlayerId` and `primaryPlayerIdSource` into
+  `buildDecisionMessage()` instead of recomputing primary identity from the
+  numeric alias.
+- Numeric top-level `player_id` remains as the compatibility alias, but the
+  decision now also carries `legacy_player_id` when the primary identity is not
+  legacy so receivers do not have to infer the bridge from the alias.
+- Decision trace top-level identity fields now use the prompt identity for
+  decision events, while the generic trace default still uses the latest viewer
+  identity for non-prompt events.
+
+Responsibility result: headless decision primary identity ownership moved from
+local fallback inference into the prompt selector's `PromptViewModel.identity`.
+Numeric aliases remain only as compatibility fields until the protocol removal
+gates close.
+
 ## 2026-05-14 Headless Trace Primary Identity
 
 - Added headless trace coverage for both legacy-only and public-player decision
