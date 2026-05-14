@@ -19,8 +19,25 @@
       "minLength": 1
     },
     "player_id": {
+      "type": ["integer", "string"],
+      "minimum": 1,
+      "minLength": 1
+    },
+    "legacy_player_id": {
       "type": "integer",
       "minimum": 1
+    },
+    "public_player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seat_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "viewer_id": {
+      "type": "string",
+      "minLength": 1
     },
     "choice_id": {
       "type": "string",
@@ -37,4 +54,3 @@
   },
   "additionalProperties": true
 }
-

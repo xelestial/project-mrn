@@ -98,6 +98,50 @@ class RuntimeContractExampleTests(unittest.TestCase):
             example = _load_json(examples / example_name)
             _validate_subset(example, schema, path=f"$<{example_name}>")
 
+    def test_ws_identity_schemas_accept_public_player_id_with_legacy_alias(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schemas = root / "schemas"
+
+        outbound_decision_schema = _load_json(schemas / "outbound.decision.schema.json")
+        _validate_subset(
+            {
+                "type": "decision",
+                "request_id": "req_public_1",
+                "player_id": "player_public_1",
+                "legacy_player_id": 1,
+                "public_player_id": "player_public_1",
+                "seat_id": "seat_1",
+                "viewer_id": "viewer_1",
+                "choice_id": "roll",
+                "client_seq": 12,
+            },
+            outbound_decision_schema,
+            path="$<outbound.decision.public_identity>",
+        )
+
+        inbound_prompt_schema = _load_json(schemas / "inbound.prompt.schema.json")
+        _validate_subset(
+            {
+                "type": "prompt",
+                "seq": 4,
+                "session_id": "sess_public_identity",
+                "payload": {
+                    "request_id": "req_public_1",
+                    "request_type": "movement",
+                    "player_id": "player_public_1",
+                    "legacy_player_id": 1,
+                    "public_player_id": "player_public_1",
+                    "seat_id": "seat_1",
+                    "viewer_id": "viewer_1",
+                    "timeout_ms": 30000,
+                    "legal_choices": [{"choice_id": "roll"}],
+                    "public_context": {},
+                },
+            },
+            inbound_prompt_schema,
+            path="$<inbound.prompt.public_identity>",
+        )
+
     def test_ws_decision_event_sequences_validate_and_keep_order(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
         event_schema = _load_json(root / "schemas" / "inbound.event.schema.json")
@@ -246,6 +290,33 @@ class RuntimeContractExampleTests(unittest.TestCase):
             schema = _load_json(schemas / schema_name)
             example = _load_json(examples / example_name)
             _validate_subset(example, schema, path=f"$<{example_name}>")
+
+    def test_external_ai_request_schema_accepts_public_player_id_with_legacy_alias(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
+        schema = _load_json(root / "schemas" / "request.schema.json")
+
+        _validate_subset(
+            {
+                "request_id": "req_public_1",
+                "session_id": "sess_public_identity",
+                "seat": 1,
+                "player_id": "player_public_1",
+                "legacy_player_id": 1,
+                "public_player_id": "player_public_1",
+                "seat_id": "seat_1",
+                "viewer_id": "viewer_1",
+                "decision_name": "movement",
+                "request_type": "movement",
+                "fallback_policy": "ai",
+                "public_context": {},
+                "legal_choices": [{"choice_id": "roll"}],
+                "transport": "http",
+                "worker_contract_version": "v1",
+                "required_capabilities": [],
+            },
+            schema,
+            path="$<external-ai.request.public_identity>",
+        )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,17 @@ in the active plans, status index, tests, or canonical contract documents.
 
 ## 2026-05-14 Runtime Protocol Identity Continuation
 
+- Added `PROTOCOL_IDENTITY_CONSUMER_INVENTORY.md` to classify the remaining
+  numeric `player_id` consumers before alias removal. The inventory separates
+  display-only uses, the current engine bridge, compatibility aliases, and
+  protocol violations; current protocol violation entries are none found. The
+  explicit removal rule is that numeric aliases stay until the inventory has no
+  `compat alias` entries.
+- Runtime contract schemas for WebSocket outbound decisions, WebSocket inbound
+  prompts, and external-AI decision requests now accept public string
+  `player_id` plus explicit `legacy_player_id`, `public_player_id`, `seat_id`,
+  and `viewer_id` companions. Existing numeric `player_id` examples remain
+  valid; this only removes the schema-level integer-only blocker.
 - Runtime fanout and session bootstrap identity helpers now keep explicit
   prefixed/list legacy companions for protocol player-id fields. Examples:
   `acting_legacy_player_id`, `owner_legacy_player_id`,

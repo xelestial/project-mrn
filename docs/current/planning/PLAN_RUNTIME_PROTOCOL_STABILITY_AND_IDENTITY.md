@@ -853,6 +853,13 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
 
 Acceptance evidence status, 2026-05-14:
 
+- `docs/current/engineering/PROTOCOL_IDENTITY_CONSUMER_INVENTORY.md` classifies the remaining numeric
+  `player_id` consumers as `display`, `engine bridge`, `compat alias`, or `protocol violation`, and makes
+  the future numeric alias removal gate explicit: do not remove numeric aliases until the inventory has no
+  `compat alias` entries. Current protocol violation entries are none found.
+- Runtime contract schemas for WebSocket outbound decisions, WebSocket inbound prompts, and external-AI
+  decision requests accept public string `player_id` with explicit `legacy_player_id`, `public_player_id`,
+  `seat_id`, and `viewer_id` companions while preserving existing numeric `player_id` examples.
 - `apps/server/tests/test_session_service.py` verifies `seat_index` and `player_label` stay aligned with `P1` through `P4`.
 - `apps/server/tests/test_session_service.py::test_new_protocol_identity_fields_never_serialize_numeric_player_ids`
   verifies that `public_player_id`, `seat_id`, and `viewer_id` serialize as string IDs, while numeric
