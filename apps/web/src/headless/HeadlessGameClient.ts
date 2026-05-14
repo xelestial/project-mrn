@@ -1361,14 +1361,12 @@ function compactPromptIdentity(prompt: PromptViewModel): {
         ? Math.floor(prompt.playerId)
         : null;
   const publicPlayerId = optionalIdentityString(prompt.publicPlayerId);
-  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.playerId;
-  const primaryPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.playerId;
+  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.identity.protocolPlayerId;
+  const primaryPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.identity.primaryPlayerId;
   const primaryPlayerIdSource =
     publicPlayerId !== null
       ? "public"
-      : typeof prompt.protocolPlayerId === "string"
-        ? "protocol"
-        : "legacy";
+      : prompt.identity.primaryPlayerIdSource;
   return {
     primaryPlayerId,
     primaryPlayerIdSource,

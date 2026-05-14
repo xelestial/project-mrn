@@ -504,6 +504,33 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     });
   });
 
+  it("builds a prompt view model from public identity before resolving the legacy seat bridge", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_public_only",
+      request_type: "movement",
+      player_id: "player_public_3",
+      public_player_id: "player_public_3",
+      seat_id: "seat:3",
+      viewer_id: "viewer:session:3",
+      choices: [{ choice_id: "roll", title: "Roll" }],
+    });
+
+    expect(prompt).not.toBeNull();
+    expect(prompt?.playerId).toBeNull();
+    expect(prompt?.legacyPlayerId).toBeNull();
+    expect(prompt?.protocolPlayerId).toBe("player_public_3");
+    expect(prompt?.identity).toEqual({
+      primaryPlayerId: "player_public_3",
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: "player_public_3",
+      legacyPlayerId: null,
+      publicPlayerId: "player_public_3",
+      seatId: "seat:3",
+      viewerId: "viewer:session:3",
+    });
+    expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual(["roll"]);
+  });
+
   it("checks prompt ownership through explicit identity instead of the top-level legacy player alias", () => {
     const prompt = promptViewModelFromActivePromptPayload({
       request_id: "req_public_prompt_owner",

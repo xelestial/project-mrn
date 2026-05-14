@@ -185,9 +185,9 @@ This does not close the full protocol `player_id` migration: numeric `player_id`
 move to the string public identity contract. 2026-05-14 frontend/headless progress:
 `buildDecisionMessage()` can now emit a public string `player_id` while carrying `legacy_player_id`,
 `public_player_id`, `seat_id`, and `viewer_id`; active prompt selection accepts string protocol
-`player_id` only when a numeric `legacy_player_id` is also present for the engine/seat bridge, while
-`PromptIdentityViewModel` now exposes public/protocol/legacy prompt target identity separately from the
-legacy numeric render bridge.
+`player_id` even when no numeric `legacy_player_id` bridge is present, while `PromptViewModel.playerId`
+is reduced to the optional legacy display/engine bridge and `PromptIdentityViewModel` exposes
+public/protocol/legacy prompt target identity separately from that numeric bridge.
 The React UI `sendDecision` path now extracts the same protocol identity companions from the
 active prompt before serialization. `useGameStream` duplicate-flight keys now prefer public/protocol
 identity and only fall back to numeric identity for legacy prompts. Rendered UI prompt actionability
@@ -893,9 +893,8 @@ Acceptance evidence status, 2026-05-14:
   protocol `player_id` and build duplicate-flight keys from public identity without requiring a numeric
   legacy bridge; numeric-only prompt decisions remain supported as the legacy fallback.
 - `apps/web/src/domain/selectors/promptSelectors.spec.ts` verifies that prompt selection projects public
-  prompt identity into `PromptViewModel.identity.primaryPlayerId` while preserving the numeric
-  `legacy_player_id` bridge for current actionable rendering. It also verifies that public prompt identity
-  can be parsed before the UI can resolve that identity to a legacy engine seat, and that rendered UI
+  prompt identity into `PromptViewModel.identity.primaryPlayerId` and can build an actionable prompt view
+  model before the UI can resolve that identity to a legacy engine seat. It also verifies that rendered UI
   ownership/queued target helpers read `PromptViewModel.identity` instead of the top-level legacy
   `PromptViewModel.playerId` alias.
 - `apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event`,

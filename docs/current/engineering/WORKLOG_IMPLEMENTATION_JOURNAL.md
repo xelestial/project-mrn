@@ -618,6 +618,28 @@ Responsibility result: no prompt lifecycle ownership moved. The numeric
 decision boundary now owns preserving the already-created public companion
 instead of silently dropping it before submit, policy input, or trace export.
 
+## 2026-05-14 Actionable Prompt Without Legacy Seat Bridge
+
+- Added selector coverage for public prompt identity that has `player_id`,
+  `public_player_id`, `seat_id`, and `viewer_id` but no numeric
+  `legacy_player_id`.
+- `promptViewModelFromActivePromptPayload()` now builds an actionable prompt
+  view model from that public/protocol identity instead of returning `null`
+  until the numeric engine bridge is available.
+- `PromptViewModel.playerId` is now nullable and means only the optional legacy
+  display/engine bridge. The primary prompt target remains
+  `PromptViewModel.identity.primaryPlayerId`.
+- React decision serialization now uses public/protocol prompt identity first
+  and includes `legacy_player_id` only when a numeric bridge is actually
+  present.
+- Prompt display strings render `P?` when only public/protocol identity is
+  available, preserving current compact UI instead of pretending a numeric seat
+  exists.
+
+Responsibility result: actionable prompt construction moved off the numeric
+legacy seat bridge. Numeric `PromptViewModel.playerId` intentionally remains as
+display/headless compatibility data until those remaining consumers are migrated.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

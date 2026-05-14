@@ -19,8 +19,8 @@ export const enLocale = {
     myTurnWaitingDescription: (beatLabel: string, beatDetail: string) =>
       enLocale.app.inlineSummary(["Loading your next decision", beatLabel, beatDetail]),
     passivePromptTitle: "Another player is choosing",
-    passivePromptSummary: (playerId: number, promptLabel: string, secondsLeft: number | null) =>
-      `P${playerId} / ${promptLabel} / ${secondsLeft ?? "-"}s left`,
+    passivePromptSummary: (playerId: number | null, promptLabel: string, secondsLeft: number | null) =>
+      `${playerId === null ? "P?" : `P${playerId}`} / ${promptLabel} / ${secondsLeft ?? "-"}s left`,
     spectatorTitle: (playerId: number) => `P${playerId} in progress`,
     spectatorDescription: "Shows the public flow while another player is acting.",
     spectatorHeadline: "Spectator Panel",
@@ -778,14 +778,17 @@ export const enLocale = {
     collapse: "Collapse",
     expand: "Expand",
     secondaryChoiceBadge: "Secondary",
-    requestMetaPills: (playerId: number, timeoutMs: number, secondsLeft: number | null) => [
-      `Actor P${playerId}`,
+    requestMetaPills: (playerId: number | null, timeoutMs: number, secondsLeft: number | null) => [
+      `Actor ${playerId === null ? "P?" : `P${playerId}`}`,
       `Limit ${Math.ceil(timeoutMs / 1000)}s`,
       `${secondsLeft ?? "-"}s left`,
     ],
-    requestCompactMetaPills: (playerId: number, secondsLeft: number | null) => [`P${playerId}`, `${secondsLeft ?? "-"}s left`],
-    requestMeta: (_requestId: string, playerId: number, timeoutMs: number, secondsLeft: number | null) =>
-      `Actor P${playerId} / limit ${Math.ceil(timeoutMs / 1000)}s / ${secondsLeft ?? "-"}s left`,
+    requestCompactMetaPills: (playerId: number | null, secondsLeft: number | null) => [
+      playerId === null ? "P?" : `P${playerId}`,
+      `${secondsLeft ?? "-"}s left`,
+    ],
+    requestMeta: (_requestId: string, playerId: number | null, timeoutMs: number, secondsLeft: number | null) =>
+      `Actor ${playerId === null ? "P?" : `P${playerId}`} / limit ${Math.ceil(timeoutMs / 1000)}s / ${secondsLeft ?? "-"}s left`,
     context: {
       currentPosition: "Current position",
       usableCards: "Usable cards",

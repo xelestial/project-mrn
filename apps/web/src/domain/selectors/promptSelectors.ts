@@ -58,7 +58,7 @@ export type PromptIdentityViewModel = {
 export type PromptViewModel = {
   requestId: string;
   requestType: string;
-  playerId: number;
+  playerId: number | null;
   identity: PromptIdentityViewModel;
   protocolPlayerId?: ProtocolPlayerId;
   legacyPlayerId?: number | null;
@@ -983,8 +983,7 @@ export function promptViewModelFromActivePromptPayload(active: Record<string, un
     !requestId.trim() ||
     typeof requestType !== "string" ||
     identity === null ||
-    protocolPlayerId === null ||
-    legacyPlayerId === null
+    protocolPlayerId === null
   ) {
     return null;
   }

@@ -19,8 +19,8 @@ export const koLocale = {
     myTurnWaitingDescription: (beatLabel: string, beatDetail: string) =>
       koLocale.app.inlineSummary(["선택 요청을 불러오는 중", beatLabel, beatDetail]),
     passivePromptTitle: "다른 플레이어 선택 진행 중",
-    passivePromptSummary: (playerId: number, promptLabel: string, secondsLeft: number | null) =>
-      `P${playerId} / ${promptLabel} / 남은 시간 ${secondsLeft ?? "-"}초`,
+    passivePromptSummary: (playerId: number | null, promptLabel: string, secondsLeft: number | null) =>
+      `${playerId === null ? "P?" : `P${playerId}`} / ${promptLabel} / 남은 시간 ${secondsLeft ?? "-"}초`,
     spectatorTitle: (playerId: number) => `P${playerId}의 진행 중`,
     spectatorDescription: "다른 플레이어가 행동하는 동안 공개된 진행 흐름을 계속 보여줍니다.",
     spectatorHeadline: "관전자 패널",
@@ -783,14 +783,17 @@ export const koLocale = {
     collapse: "접기",
     expand: "펼치기",
     secondaryChoiceBadge: "보조 선택",
-    requestMetaPills: (playerId: number, timeoutMs: number, secondsLeft: number | null) => [
-      `행동자 P${playerId}`,
+    requestMetaPills: (playerId: number | null, timeoutMs: number, secondsLeft: number | null) => [
+      `행동자 ${playerId === null ? "P?" : `P${playerId}`}`,
       `제한 ${Math.ceil(timeoutMs / 1000)}초`,
       `남은 시간 ${secondsLeft ?? "-"}초`,
     ],
-    requestCompactMetaPills: (playerId: number, secondsLeft: number | null) => [`P${playerId}`, `남은 ${secondsLeft ?? "-"}초`],
-    requestMeta: (requestId: string, playerId: number, timeoutMs: number, secondsLeft: number | null) =>
-      `요청 ID ${requestId} / 행동자 P${playerId} / 제한 시간 ${Math.ceil(timeoutMs / 1000)}초 / 남은 시간 ${secondsLeft ?? "-"}초`,
+    requestCompactMetaPills: (playerId: number | null, secondsLeft: number | null) => [
+      playerId === null ? "P?" : `P${playerId}`,
+      `남은 ${secondsLeft ?? "-"}초`,
+    ],
+    requestMeta: (requestId: string, playerId: number | null, timeoutMs: number, secondsLeft: number | null) =>
+      `요청 ID ${requestId} / 행동자 ${playerId === null ? "P?" : `P${playerId}`} / 제한 시간 ${Math.ceil(timeoutMs / 1000)}초 / 남은 시간 ${secondsLeft ?? "-"}초`,
     context: {
       currentPosition: "현재 위치",
       usableCards: "사용 가능 카드",

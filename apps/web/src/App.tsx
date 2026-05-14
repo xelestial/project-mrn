@@ -141,11 +141,11 @@ function promptDecisionIdentity(prompt: PromptViewModel): PromptDecisionIdentity
   const publicPlayerId = optionalPromptIdentityString(prompt.publicPlayerId);
   const seatId = optionalPromptIdentityString(prompt.seatId);
   const viewerId = optionalPromptIdentityString(prompt.viewerId);
-  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? prompt.playerId;
+  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? prompt.identity.protocolPlayerId;
   const legacyPlayerId = typeof prompt.legacyPlayerId === "number" ? prompt.legacyPlayerId : prompt.playerId;
   return {
     playerId: protocolPlayerId,
-    ...(typeof protocolPlayerId === "string" ? { legacyPlayerId } : {}),
+    ...(typeof protocolPlayerId === "string" && typeof legacyPlayerId === "number" ? { legacyPlayerId } : {}),
     ...(publicPlayerId ? { publicPlayerId } : {}),
     ...(seatId ? { seatId } : {}),
     ...(viewerId ? { viewerId } : {}),
