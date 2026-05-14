@@ -5,7 +5,7 @@ import {
   buildGameStreamKey,
   createDecisionRequestLedger,
 } from "../domain/stream/decisionProtocol";
-import { resolveDecisionFlightPlayerId } from "./useGameStream";
+import { resolveDecisionFlightIdentity, resolveDecisionFlightPlayerId } from "./useGameStream";
 
 describe("useGameStream authoritative commit helpers", () => {
   it("builds the active stream key from the normalized session and token", () => {
@@ -140,6 +140,42 @@ describe("useGameStream authoritative commit helpers", () => {
         },
       }),
     ).toBe("player:2\nprompt:sha256:prompt-93\naction:purchase");
+  });
+
+  it("uses public protocol identity for decision flights without requiring a legacy numeric bridge", () => {
+    const flightIdentity = resolveDecisionFlightIdentity({
+      playerId: "player_public_2",
+      publicPlayerId: "player_public_2",
+      legacyPlayerId: null,
+    });
+
+    expect(flightIdentity).toEqual({
+      playerId: "player_public_2",
+      source: "public",
+      legacyPlayerId: null,
+      publicPlayerId: "player_public_2",
+    });
+    if (flightIdentity === null) {
+      throw new Error("expected public decision flight identity");
+    }
+    expect(
+      buildDecisionFlightKey({
+        requestId: "req_public_prompt",
+        playerId: flightIdentity.playerId,
+        requestType: "purchase",
+        continuation: {
+          promptInstanceId: 93,
+          promptFingerprint: "sha256:prompt-93",
+          promptFingerprintVersion: "prompt-fingerprint-v1",
+          resumeToken: "resume-93",
+          frameId: "turn:3:p2",
+          moduleId: "mod:purchase:93",
+          moduleType: "PurchaseModule",
+          moduleCursor: "purchase:await_choice",
+          batchId: null,
+        },
+      }),
+    ).toBe("player:player_public_2\nprompt:sha256:prompt-93\naction:purchase");
   });
 
   it("blocks a different request id while the same prompt flight is still active", () => {

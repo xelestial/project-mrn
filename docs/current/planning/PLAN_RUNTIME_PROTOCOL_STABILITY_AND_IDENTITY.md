@@ -187,8 +187,9 @@ move to the string public identity contract. 2026-05-14 frontend/headless progre
 `public_player_id`, `seat_id`, and `viewer_id`; active prompt selection accepts string protocol
 `player_id` only when a numeric `legacy_player_id` is also present for the engine/seat bridge.
 The React UI `sendDecision` path now extracts the same protocol identity companions from the
-active prompt before serialization, while keeping numeric UI ownership and duplicate-flight checks
-on the legacy player bridge. The web prompt selector, frontend decision protocol, headless HTTP
+active prompt before serialization. `useGameStream` duplicate-flight keys now prefer public/protocol
+identity and only fall back to numeric identity for legacy prompts, while numeric UI ownership
+checks remain on the active-prompt bridge. The web prompt selector, frontend decision protocol, headless HTTP
 policy input, and compact headless decision trace now also preserve `public_prompt_instance_id`
 alongside the numeric `prompt_instance_id`; the numeric value remains the lifecycle bridge.
 
@@ -882,7 +883,8 @@ Acceptance evidence status, 2026-05-14:
   `viewer_id`, and `public_prompt_instance_id` companions while preserving the existing numeric-only
   decision path and numeric prompt lifecycle alias.
 - `apps/web/src/hooks/useGameStream.spec.ts` verifies that rendered UI decision submission can use a public
-  protocol `player_id` while resolving the duplicate-flight key through the numeric legacy player bridge.
+  protocol `player_id` and build duplicate-flight keys from public identity without requiring a numeric
+  legacy bridge; numeric-only prompt decisions remain supported as the legacy fallback.
 - `apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event`,
   `test_resume_resends_pending_prompt_created_without_stream_event`, and
   `test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history` verify that repaired pending prompt

@@ -40,6 +40,13 @@ export type StreamDecisionArgs = {
   continuation?: PromptContinuationViewModel;
 };
 
+export type StreamDecisionFlightIdentity = {
+  playerId: ProtocolPlayerId;
+  source: "public" | "protocol" | "legacy";
+  legacyPlayerId: number | null;
+  publicPlayerId: string | null;
+};
+
 export function resolveDecisionFlightPlayerId(args: {
   playerId: ProtocolPlayerId;
   legacyPlayerId?: number | null;
@@ -51,6 +58,55 @@ export function resolveDecisionFlightPlayerId(args: {
     return Math.floor(args.legacyPlayerId);
   }
   return null;
+}
+
+export function resolveDecisionFlightIdentity(args: {
+  playerId: ProtocolPlayerId;
+  legacyPlayerId?: number | null;
+  publicPlayerId?: string | null;
+}): StreamDecisionFlightIdentity | null {
+  const publicPlayerId = optionalDecisionIdentityString(args.publicPlayerId);
+  const legacyPlayerId =
+    typeof args.legacyPlayerId === "number" && Number.isFinite(args.legacyPlayerId)
+      ? Math.floor(args.legacyPlayerId)
+      : null;
+  if (publicPlayerId !== null) {
+    return {
+      playerId: publicPlayerId,
+      source: "public",
+      legacyPlayerId,
+      publicPlayerId,
+    };
+  }
+  if (typeof args.playerId === "string" && args.playerId.trim()) {
+    return {
+      playerId: args.playerId.trim(),
+      source: "protocol",
+      legacyPlayerId,
+      publicPlayerId: null,
+    };
+  }
+  if (typeof args.playerId === "number" && Number.isFinite(args.playerId)) {
+    return {
+      playerId: Math.floor(args.playerId),
+      source: "legacy",
+      legacyPlayerId: Math.floor(args.playerId),
+      publicPlayerId: null,
+    };
+  }
+  if (legacyPlayerId !== null) {
+    return {
+      playerId: legacyPlayerId,
+      source: "legacy",
+      legacyPlayerId,
+      publicPlayerId: null,
+    };
+  }
+  return null;
+}
+
+function optionalDecisionIdentityString(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export function useGameStream({
@@ -149,11 +205,12 @@ export function useGameStream({
   const sendDecision = (args: StreamDecisionArgs): boolean => {
     const continuation = args.continuation;
     const streamKey = activeStreamKeyRef.current;
-    const flightPlayerId = resolveDecisionFlightPlayerId({
+    const flightIdentity = resolveDecisionFlightIdentity({
       playerId: args.playerId,
       legacyPlayerId: args.legacyPlayerId,
+      publicPlayerId: args.publicPlayerId,
     });
-    if (flightPlayerId === null) {
+    if (flightIdentity === null) {
       logFrontendDebugEvent({
         event: "decision_suppressed_invalid_player_identity",
         sessionId: sessionId.trim(),
@@ -169,7 +226,7 @@ export function useGameStream({
     }
     const flightKey = buildDecisionFlightKey({
       requestId: args.requestId,
-      playerId: flightPlayerId,
+      playerId: flightIdentity.playerId,
       requestType: args.requestType,
       continuation,
     });
@@ -184,6 +241,8 @@ export function useGameStream({
           payload: {
             request_id: args.requestId,
             player_id: args.playerId,
+            primary_player_id: flightIdentity.playerId,
+            primary_player_id_source: flightIdentity.source,
             choice_id: args.choiceId,
             flight_key: flightKey,
           },
@@ -200,6 +259,8 @@ export function useGameStream({
             request_id: args.requestId,
             active_request_id: flight.requestId,
             player_id: args.playerId,
+            primary_player_id: flightIdentity.playerId,
+            primary_player_id_source: flightIdentity.source,
             choice_id: args.choiceId,
             flight_key: flightKey,
           },
@@ -216,6 +277,8 @@ export function useGameStream({
         payload: {
           request_id: args.requestId,
           player_id: args.playerId,
+          primary_player_id: flightIdentity.playerId,
+          primary_player_id_source: flightIdentity.source,
           choice_id: args.choiceId,
         },
       });
@@ -251,6 +314,8 @@ export function useGameStream({
         payload: {
           request_id: args.requestId,
           player_id: args.playerId,
+          primary_player_id: flightIdentity.playerId,
+          primary_player_id_source: flightIdentity.source,
           legacy_player_id: args.legacyPlayerId,
           public_player_id: args.publicPlayerId,
           seat_id: args.seatId,

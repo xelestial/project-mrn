@@ -122,9 +122,9 @@ in the active plans, status index, tests, or canonical contract documents.
 - The rendered React UI prompt submission path now uses the same active-prompt
   protocol identity extraction as headless. `App.tsx` passes public player,
   legacy player, seat, and viewer companions into `useGameStream.sendDecision()`;
-  `useGameStream` still resolves duplicate-flight keys through the numeric
-  legacy bridge, so UI ownership checks and repeated-submit suppression remain
-  numeric while the outbound wire identity can be public.
+  `useGameStream` now resolves duplicate-flight keys through public/protocol
+  identity when present and falls back to numeric identity only for legacy
+  prompts. UI ownership checks still use the numeric active-prompt bridge.
 - Headless external-policy and replay exports now preserve public player,
   seat, viewer, and legacy player companions. HTTP decision policy requests
   keep numeric `player_id` for existing policy consumers while adding

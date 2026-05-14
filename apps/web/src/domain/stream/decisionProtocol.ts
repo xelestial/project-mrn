@@ -33,7 +33,7 @@ export type DecisionFlightResult =
 
 export function buildDecisionFlightKey(args: {
   requestId: string;
-  playerId: number;
+  playerId: ProtocolPlayerId;
   requestType?: string | null;
   continuation?: PromptContinuationViewModel;
 }): string {
@@ -50,7 +50,7 @@ export function buildDecisionFlightKey(args: {
     args.requestId,
   ]);
   const actionKey = firstNonEmpty([args.requestType, continuation?.moduleType, "decision"]);
-  return `player:${Math.floor(args.playerId)}\nprompt:${promptKey}\naction:${actionKey}`;
+  return `player:${decisionFlightPlayerKey(args.playerId)}\nprompt:${promptKey}\naction:${actionKey}`;
 }
 
 export function createDecisionRequestLedger(): {
@@ -131,6 +131,16 @@ function firstNonEmpty(values: Array<string | null | undefined>): string {
     if (typeof value === "string" && value.trim()) {
       return value.trim();
     }
+  }
+  return "unknown";
+}
+
+function decisionFlightPlayerKey(playerId: ProtocolPlayerId): string {
+  if (typeof playerId === "number" && Number.isFinite(playerId)) {
+    return String(Math.floor(playerId));
+  }
+  if (typeof playerId === "string" && playerId.trim()) {
+    return playerId.trim();
   }
   return "unknown";
 }
