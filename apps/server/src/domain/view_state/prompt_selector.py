@@ -59,16 +59,26 @@ def _legacy_prompt_player_id(active_prompt: dict[str, Any]) -> int | None:
     return _number(active_prompt.get("legacy_player_id")) or _number(active_prompt.get("player_id"))
 
 
-def _active_prompt_primary_identity(active_prompt: dict[str, Any]) -> tuple[int | str, str, bool] | None:
+def _protocol_prompt_player_id(active_prompt: dict[str, Any]) -> int | str | None:
+    player_id = active_prompt.get("player_id")
+    public_player_id = _string(active_prompt.get("public_player_id"))
+    if public_player_id:
+        return public_player_id
+    if isinstance(player_id, str) and player_id.strip():
+        return player_id.strip()
+    return _legacy_prompt_player_id(active_prompt)
+
+
+def _active_prompt_primary_identity(active_prompt: dict[str, Any]) -> tuple[int | str, str] | None:
     player_id = active_prompt.get("player_id")
     public_player_id = _string(active_prompt.get("public_player_id"))
     legacy_player_id = _legacy_prompt_player_id(active_prompt)
     if public_player_id:
-        return public_player_id, "public", legacy_player_id is not None
+        return public_player_id, "public"
     if isinstance(player_id, str) and player_id.strip():
-        return player_id.strip(), "protocol", False
+        return player_id.strip(), "protocol"
     if legacy_player_id is not None:
-        return legacy_player_id, "legacy", True
+        return legacy_player_id, "legacy"
     return None
 
 
@@ -794,7 +804,7 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
     if active_prompt:
         request_id = _string(active_prompt.get("request_id"))
         request_type = _string(active_prompt.get("request_type")) or "-"
-        player_id = _legacy_prompt_player_id(active_prompt) or 0
+        player_id = _protocol_prompt_player_id(active_prompt) or 0
         timeout_ms = _number(active_prompt.get("timeout_ms")) or 30000
         public_context = _record(active_prompt.get("public_context")) or {}
         active: ActivePromptViewState = {
@@ -809,10 +819,10 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
         }
         primary_identity = _active_prompt_primary_identity(active_prompt)
         if primary_identity is not None:
-            primary_player_id, primary_player_id_source, player_id_is_legacy_alias = primary_identity
+            primary_player_id, primary_player_id_source = primary_identity
             active["primary_player_id"] = primary_player_id
             active["primary_player_id_source"] = primary_player_id_source
-            if player_id_is_legacy_alias:
+            if isinstance(player_id, int):
                 active["player_id_alias_role"] = "legacy_compatibility_alias"
         legacy_player_id = _number(active_prompt.get("legacy_player_id"))
         if legacy_player_id is not None:

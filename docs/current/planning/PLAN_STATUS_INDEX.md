@@ -164,7 +164,9 @@ Those themes should reopen only if a concrete regression or rollout need appears
    residual migration boundaries rather than hidden completion. Runtime
    contracts now require numeric `player_id` aliases to carry
    `legacy_player_id` in addition to alias role and primary identity metadata,
-   which narrows but does not remove the compatibility bridge. The current
+   and server active prompt view-state now preserves public/protocol top-level
+   `player_id` when available instead of forcing it through the numeric bridge.
+   This narrows but does not remove the compatibility bridge. The current
    local evidence pass includes server identity/lifecycle/outbox tests, frontend
    headless protocol tests, the smoke workflow gate, the live protocol gate,
    bounded UI full-game progress, and the full-stack live RL smoke artifact at

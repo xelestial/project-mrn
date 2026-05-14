@@ -184,12 +184,13 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         active = view_state["active"]
         self.assertEqual(active["legacy_request_id"], "legacy_move_1")
         self.assertEqual(active["public_request_id"], "req_public_move_1")
+        self.assertEqual(active["player_id"], "ply_1")
         self.assertEqual(active["public_player_id"], "ply_1")
         self.assertEqual(active["seat_id"], "seat_1")
         self.assertEqual(active["viewer_id"], "view_1")
         self.assertEqual(active["primary_player_id"], "ply_1")
         self.assertEqual(active["primary_player_id_source"], "public")
-        self.assertEqual(active["player_id_alias_role"], "legacy_compatibility_alias")
+        self.assertNotIn("player_id_alias_role", active)
         self.assertEqual(active["runner_kind"], "module")
         self.assertEqual(active["prompt_instance_id"], 42)
         self.assertEqual(active["public_prompt_instance_id"], "pin_move_42")
@@ -260,11 +261,11 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         )
 
         active = view_state["active"]
-        self.assertEqual(active["player_id"], 2)
+        self.assertEqual(active["player_id"], "ply_2")
         self.assertEqual(active["legacy_player_id"], 2)
         self.assertEqual(active["primary_player_id"], "ply_2")
         self.assertEqual(active["primary_player_id_source"], "public")
-        self.assertEqual(active["player_id_alias_role"], "legacy_compatibility_alias")
+        self.assertNotIn("player_id_alias_role", active)
         self.assertEqual(active["public_player_id"], "ply_2")
         self.assertEqual(active["seat_id"], "seat_2")
         self.assertEqual(active["viewer_id"], "view_2")

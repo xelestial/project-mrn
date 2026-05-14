@@ -43,11 +43,12 @@ in the active plans, status index, tests, or canonical contract documents.
   frontend prompt selector consumes those explicit primary fields first, then
   keeps the existing public/protocol/legacy fallback path for mixed migration
   payloads.
-- Server active prompt view-state now preserves `legacy_player_id` and uses it
-  as the numeric compatibility bridge when the source prompt has public/protocol
-  top-level `player_id`. This prevents mixed migration prompts from projecting
-  a fabricated `player_id: 0` while keeping public `primary_player_id` as the
-  prompt target identity.
+- Server active prompt view-state now preserves public/protocol top-level
+  `player_id` when the source prompt exposes `public_player_id` or string
+  protocol `player_id`, while keeping `legacy_player_id` as the explicit numeric
+  bridge. `player_id_alias_role` is emitted only for legacy-only numeric
+  top-level prompts, so the public prompt target is no longer serialized through
+  the numeric active-prompt bridge.
 - `PromptService.submit_decision()` now preserves the same primary identity trio
   from the pending prompt into lifecycle decision records, command payloads, and
   nested command decision payloads. This keeps the command boundary from
