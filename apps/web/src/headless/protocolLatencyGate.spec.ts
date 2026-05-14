@@ -8,6 +8,8 @@ describe("protocolLatencyGate", () => {
       commands: [
         {
           requestId: "req_fast",
+          primaryPlayerId: 1,
+          primaryPlayerIdSource: "legacy",
           playerId: 1,
           requestType: "movement",
           promptToDecisionMs: 20,
@@ -17,6 +19,8 @@ describe("protocolLatencyGate", () => {
         },
         {
           requestId: "req_slow_ack",
+          primaryPlayerId: 2,
+          primaryPlayerIdSource: "legacy",
           playerId: 2,
           requestType: "burden_exchange",
           promptToDecisionMs: 9,
@@ -39,6 +43,8 @@ describe("protocolLatencyGate", () => {
     expect(
       protocolCommandLatencyMs({
         requestId: "req_ack_only",
+        primaryPlayerId: 3,
+        primaryPlayerIdSource: "legacy",
         playerId: 3,
         requestType: "purchase_tile",
         promptToDecisionMs: null,
@@ -54,6 +60,8 @@ describe("protocolLatencyGate", () => {
       commands: [
         {
           requestId: "req_slow",
+          primaryPlayerId: 1,
+          primaryPlayerIdSource: "legacy",
           playerId: 1,
           requestType: "movement",
           promptToDecisionMs: 0,

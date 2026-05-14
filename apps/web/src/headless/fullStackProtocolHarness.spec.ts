@@ -629,6 +629,118 @@ describe("fullStackProtocolHarness", () => {
     });
   });
 
+  it("keeps public active prompt identity in pace and repetition diagnostics", () => {
+    const traces = [
+      {
+        event: "view_commit_seen",
+        ts_ms: 10_000,
+        session_id: "sess_public",
+        player_id: 2,
+        commit_seq: 9,
+        payload: {
+          runtime_status: "waiting_input",
+          round_index: 1,
+          turn_index: 2,
+          active_module_id: "module:public:prompt",
+          active_module_type: "PurchaseModule",
+          active_prompt_request_id: "req_public_1",
+          active_prompt_primary_player_id: "player_public_2",
+          active_prompt_primary_player_id_source: "public",
+          active_prompt_player_id: 2,
+          active_prompt_legacy_player_id: 2,
+          active_prompt_public_player_id: "player_public_2",
+          active_prompt_seat_id: "seat_public_2",
+          active_prompt_viewer_id: "viewer_public_2",
+          active_prompt_request_type: "purchase_tile",
+        },
+      },
+      {
+        event: "decision_sent",
+        ts_ms: 12_000,
+        session_id: "sess_public",
+        player_id: 2,
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
+        request_id: "req_public_1",
+        payload: {
+          request_type: "purchase_tile",
+        },
+      },
+      {
+        event: "decision_ack",
+        ts_ms: 12_500,
+        session_id: "sess_public",
+        player_id: 2,
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
+        request_id: "req_public_1",
+        status: "accepted",
+      },
+      {
+        event: "view_commit_seen",
+        ts_ms: 13_000,
+        session_id: "sess_public",
+        player_id: 2,
+        commit_seq: 10,
+        payload: {
+          runtime_status: "waiting_input",
+          round_index: 1,
+          turn_index: 2,
+          active_module_id: "module:public:prompt",
+          active_module_type: "PurchaseModule",
+          active_prompt_request_id: "req_public_2",
+          active_prompt_primary_player_id: "player_public_2",
+          active_prompt_primary_player_id_source: "public",
+          active_prompt_player_id: 2,
+          active_prompt_legacy_player_id: 2,
+          active_prompt_public_player_id: "player_public_2",
+          active_prompt_seat_id: "seat_public_2",
+          active_prompt_viewer_id: "viewer_public_2",
+          active_prompt_request_type: "purchase_tile",
+        },
+      },
+    ] as const;
+
+    const pace = buildProtocolPaceDiagnostic({
+      runtimeStatus: "waiting_input",
+      elapsedMs: 10_000,
+      clients: [clientRuntime("seat:2", { lastCommitSeq: 10 })],
+      traces: [...traces],
+    });
+    const repeated = summarizeProtocolPromptRepetitions([...traces], 1);
+
+    expect(pace).toMatchObject({
+      activePromptRequestId: "req_public_2",
+      activePromptPrimaryPlayerId: "player_public_2",
+      activePromptPrimaryPlayerIdSource: "public",
+      activePromptPlayerId: 2,
+    });
+    expect(pace.slowestCommandLatencies[0]).toMatchObject({
+      requestId: "req_public_1",
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      playerId: 2,
+      requestType: "purchase_tile",
+    });
+    expect(repeated[0]).toMatchObject({
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      playerId: 2,
+      count: 2,
+    });
+    expect(repeated[0].signature).toContain("player=player_public_2");
+  });
+
   it("keeps missing active prompt fields null in progress diagnostics", () => {
     const pace = buildProtocolPaceDiagnostic({
       runtimeStatus: "running",

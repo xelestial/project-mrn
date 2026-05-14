@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { cpus } from "node:os";
-import type { ConnectionStatus } from "../core/contracts/stream";
+import type { ConnectionStatus, ProtocolPlayerId } from "../core/contracts/stream";
 import {
   baselineDecisionPolicy,
   HeadlessGameClient,
@@ -67,6 +67,8 @@ export type ProtocolPaceDiagnostic = {
   latestTurnIndex: number | null;
   latestRuntimeStatus: string | null;
   activePromptRequestId: string | null;
+  activePromptPrimaryPlayerId: ProtocolPlayerId | null;
+  activePromptPrimaryPlayerIdSource: ProtocolTraceIdentitySource | null;
   activePromptPlayerId: number | null;
   activePromptRequestType: string | null;
   waitingOnActivePrompt: boolean;
@@ -83,7 +85,9 @@ export type ProtocolPaceDiagnostic = {
 
 export type ProtocolCommandLatencyDiagnostic = {
   requestId: string;
-  playerId: number;
+  primaryPlayerId: ProtocolPlayerId | null;
+  primaryPlayerIdSource: ProtocolTraceIdentitySource | null;
+  playerId: number | null;
   requestType: string | null;
   promptToDecisionMs: number | null;
   decisionToAckMs: number | null;
@@ -93,7 +97,9 @@ export type ProtocolCommandLatencyDiagnostic = {
 
 export type ProtocolPendingDecisionDiagnostic = {
   requestId: string;
-  playerId: number;
+  primaryPlayerId: ProtocolPlayerId | null;
+  primaryPlayerIdSource: ProtocolTraceIdentitySource | null;
+  playerId: number | null;
   requestType: string | null;
   ageMs: number;
 };
@@ -251,7 +257,9 @@ export type ProtocolThroughputSummary = {
 export type ProtocolPromptRepetitionDiagnostic = {
   signature: string;
   count: number;
-  playerId: number;
+  primaryPlayerId: ProtocolPlayerId;
+  primaryPlayerIdSource: ProtocolTraceIdentitySource;
+  playerId: number | null;
   requestType: string;
   activeModuleId: string;
   activeModuleType: string | null;
@@ -260,6 +268,14 @@ export type ProtocolPromptRepetitionDiagnostic = {
   firstCommitSeq: number | null;
   lastCommitSeq: number | null;
   requestIds: string[];
+};
+
+type ProtocolTraceIdentitySource = "public" | "protocol" | "legacy";
+
+type ProtocolTraceIdentity = {
+  primaryPlayerId: ProtocolPlayerId | null;
+  primaryPlayerIdSource: ProtocolTraceIdentitySource | null;
+  playerId: number | null;
 };
 
 export type ProtocolSeatJoin = {
@@ -846,7 +862,9 @@ export function summarizeProtocolPromptRepetitions(
   const bySignature = new Map<
     string,
     {
-      playerId: number;
+      primaryPlayerId: ProtocolPlayerId;
+      primaryPlayerIdSource: ProtocolTraceIdentitySource;
+      playerId: number | null;
       requestType: string;
       activeModuleId: string;
       activeModuleType: string | null;
@@ -862,17 +880,17 @@ export function summarizeProtocolPromptRepetitions(
       continue;
     }
     const requestId = stringValue(trace.payload["active_prompt_request_id"]);
-    const playerId = numberValue(trace.payload["active_prompt_player_id"]);
+    const identity = activePromptTraceIdentity(trace.payload);
     const requestType = stringValue(trace.payload["active_prompt_request_type"]);
     const activeModuleId = stringValue(trace.payload["active_module_id"]);
-    if (!requestId || playerId === null || !requestType || !activeModuleId) {
+    if (!requestId || identity.primaryPlayerId === null || !requestType || !activeModuleId) {
       continue;
     }
     const activeModuleType = stringValue(trace.payload["active_module_type"]);
     const roundIndex = numberValue(trace.payload["round_index"]);
     const turnIndex = numberValue(trace.payload["turn_index"]);
     const signature = [
-      `player=${playerId}`,
+      `player=${formatProtocolPlayerId(identity.primaryPlayerId)}`,
       `request_type=${requestType}`,
       `module_id=${activeModuleId}`,
       `module_type=${activeModuleType ?? "unknown"}`,
@@ -882,7 +900,9 @@ export function summarizeProtocolPromptRepetitions(
     let item = bySignature.get(signature);
     if (!item) {
       item = {
-        playerId,
+        primaryPlayerId: identity.primaryPlayerId,
+        primaryPlayerIdSource: identity.primaryPlayerIdSource ?? "legacy",
+        playerId: identity.playerId,
         requestType,
         activeModuleId,
         activeModuleType,
@@ -905,6 +925,8 @@ export function summarizeProtocolPromptRepetitions(
     .map(([signature, item]) => ({
       signature,
       count: item.requestIds.size,
+      primaryPlayerId: item.primaryPlayerId,
+      primaryPlayerIdSource: item.primaryPlayerIdSource,
       playerId: item.playerId,
       requestType: item.requestType,
       activeModuleId: item.activeModuleId,
@@ -1334,7 +1356,7 @@ export function buildProtocolPaceDiagnostic(args: {
   const commandLatency = buildCommandLatencyDiagnostics(args.traces);
   const payload = isRecord(latestViewCommit?.payload) ? latestViewCommit.payload : {};
   const activePromptRequestId = stringValue(payload["active_prompt_request_id"]);
-  const activePromptPlayerId = numberValue(payload["active_prompt_player_id"]);
+  const activePromptIdentity = activePromptTraceIdentity(payload);
   const activePromptRequestType = stringValue(payload["active_prompt_request_type"]);
   const latestRuntimeStatus = stringValue(payload["runtime_status"]) ?? args.runtimeStatus;
   return {
@@ -1343,7 +1365,9 @@ export function buildProtocolPaceDiagnostic(args: {
     latestTurnIndex: numberValue(payload["turn_index"]),
     latestRuntimeStatus,
     activePromptRequestId,
-    activePromptPlayerId,
+    activePromptPrimaryPlayerId: activePromptIdentity.primaryPlayerId,
+    activePromptPrimaryPlayerIdSource: activePromptIdentity.primaryPlayerIdSource,
+    activePromptPlayerId: activePromptIdentity.playerId,
     activePromptRequestType,
     waitingOnActivePrompt: args.runtimeStatus === "waiting_input" && activePromptRequestId !== null,
     latestTraceEvent: latestTrace?.event ?? null,
@@ -1366,7 +1390,9 @@ function buildCommandLatencyDiagnostics(traces: HeadlessTraceEvent[]): {
     string,
     {
       requestId: string;
-      playerId: number;
+      primaryPlayerId: ProtocolPlayerId | null;
+      primaryPlayerIdSource: ProtocolTraceIdentitySource | null;
+      playerId: number | null;
       requestType: string | null;
       firstActivePromptTs: number | null;
       firstDecisionTs: number | null;
@@ -1382,11 +1408,11 @@ function buildCommandLatencyDiagnostics(traces: HeadlessTraceEvent[]): {
     }
     if (trace.event === "view_commit_seen" && isRecord(trace.payload)) {
       const requestId = stringValue(trace.payload["active_prompt_request_id"]);
-      const playerId = numberValue(trace.payload["active_prompt_player_id"]);
-      if (!requestId || playerId === null) {
+      const identity = activePromptTraceIdentity(trace.payload);
+      if (!requestId || identity.primaryPlayerId === null) {
         continue;
       }
-      const item = commandLatencyItem(byRequestId, requestId, playerId);
+      const item = commandLatencyItem(byRequestId, requestId, identity);
       item.requestType = item.requestType ?? stringValue(trace.payload["active_prompt_request_type"]);
       item.firstActivePromptTs = item.firstActivePromptTs ?? ts;
       continue;
@@ -1396,7 +1422,7 @@ function buildCommandLatencyDiagnostics(traces: HeadlessTraceEvent[]): {
       if (!requestId) {
         continue;
       }
-      const item = commandLatencyItem(byRequestId, requestId, trace.player_id);
+      const item = commandLatencyItem(byRequestId, requestId, traceIdentity(trace));
       item.requestType = item.requestType ?? stringValue(trace.payload?.["request_type"]);
       item.firstDecisionTs = item.firstDecisionTs ?? ts;
       continue;
@@ -1406,7 +1432,7 @@ function buildCommandLatencyDiagnostics(traces: HeadlessTraceEvent[]): {
       if (!requestId) {
         continue;
       }
-      const item = commandLatencyItem(byRequestId, requestId, trace.player_id);
+      const item = commandLatencyItem(byRequestId, requestId, traceIdentity(trace));
       if (item.firstAckTs === null) {
         item.firstAckTs = ts;
         item.status = trace.status ?? item.status;
@@ -1430,6 +1456,8 @@ function buildCommandLatencyDiagnostics(traces: HeadlessTraceEvent[]): {
         : null;
     return {
       requestId: item.requestId,
+      primaryPlayerId: item.primaryPlayerId,
+      primaryPlayerIdSource: item.primaryPlayerIdSource,
       playerId: item.playerId,
       requestType: item.requestType,
       promptToDecisionMs,
@@ -1446,6 +1474,8 @@ function buildCommandLatencyDiagnostics(traces: HeadlessTraceEvent[]): {
     .filter((item) => item.firstDecisionTs !== null && item.firstAckTs === null)
     .map((item) => ({
       requestId: item.requestId,
+      primaryPlayerId: item.primaryPlayerId,
+      primaryPlayerIdSource: item.primaryPlayerIdSource,
       playerId: item.playerId,
       requestType: item.requestType,
       ageMs: Math.max(0, traceNowMs - (item.firstDecisionTs ?? traceNowMs)),
@@ -1460,7 +1490,9 @@ function commandLatencyItem(
     string,
     {
       requestId: string;
-      playerId: number;
+      primaryPlayerId: ProtocolPlayerId | null;
+      primaryPlayerIdSource: ProtocolTraceIdentitySource | null;
+      playerId: number | null;
       requestType: string | null;
       firstActivePromptTs: number | null;
       firstDecisionTs: number | null;
@@ -1469,13 +1501,15 @@ function commandLatencyItem(
     }
   >,
   requestId: string,
-  playerId: number,
+  identity: ProtocolTraceIdentity,
 ) {
   let item = byRequestId.get(requestId);
   if (!item) {
     item = {
       requestId,
-      playerId,
+      primaryPlayerId: identity.primaryPlayerId,
+      primaryPlayerIdSource: identity.primaryPlayerIdSource,
+      playerId: identity.playerId,
       requestType: null,
       firstActivePromptTs: null,
       firstDecisionTs: null,
@@ -1483,6 +1517,10 @@ function commandLatencyItem(
       status: null,
     };
     byRequestId.set(requestId, item);
+  } else {
+    item.primaryPlayerId = item.primaryPlayerId ?? identity.primaryPlayerId;
+    item.primaryPlayerIdSource = item.primaryPlayerIdSource ?? identity.primaryPlayerIdSource;
+    item.playerId = item.playerId ?? identity.playerId;
   }
   return item;
 }
@@ -1755,6 +1793,62 @@ function requireString(value: unknown, message: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function activePromptTraceIdentity(payload: Record<string, unknown>): ProtocolTraceIdentity {
+  const publicPlayerId = stringValue(payload["active_prompt_public_player_id"]);
+  const explicitPrimaryPlayerId = protocolPlayerIdValue(payload["active_prompt_primary_player_id"]);
+  const protocolPlayerId = protocolPlayerIdValue(payload["active_prompt_protocol_player_id"]);
+  const legacyPlayerId = numberValue(payload["active_prompt_legacy_player_id"]) ?? numberValue(payload["active_prompt_player_id"]);
+  const primaryPlayerId = explicitPrimaryPlayerId ?? publicPlayerId ?? protocolPlayerId ?? legacyPlayerId;
+  return {
+    primaryPlayerId,
+    primaryPlayerIdSource: protocolIdentitySourceValue(payload["active_prompt_primary_player_id_source"], primaryPlayerId),
+    playerId: legacyPlayerId,
+  };
+}
+
+function traceIdentity(trace: HeadlessTraceEvent): ProtocolTraceIdentity {
+  const publicPlayerId = stringValue(trace.public_player_id);
+  const primaryPlayerId =
+    protocolPlayerIdValue(trace.primary_player_id) ??
+    publicPlayerId ??
+    protocolPlayerIdValue(trace.protocol_player_id) ??
+    numberValue(trace.legacy_player_id) ??
+    numberValue(trace.player_id);
+  return {
+    primaryPlayerId,
+    primaryPlayerIdSource: protocolIdentitySourceValue(trace.primary_player_id_source, primaryPlayerId),
+    playerId: numberValue(trace.legacy_player_id) ?? numberValue(trace.player_id),
+  };
+}
+
+function protocolPlayerIdValue(value: unknown): ProtocolPlayerId | null {
+  const string = stringValue(value);
+  if (string !== null) {
+    return string;
+  }
+  return numberValue(value);
+}
+
+function protocolIdentitySourceValue(
+  value: unknown,
+  primaryPlayerId: ProtocolPlayerId | null,
+): ProtocolTraceIdentitySource | null {
+  if (value === "public" || value === "protocol" || value === "legacy") {
+    return value;
+  }
+  if (typeof primaryPlayerId === "string") {
+    return "protocol";
+  }
+  if (typeof primaryPlayerId === "number") {
+    return "legacy";
+  }
+  return null;
+}
+
+function formatProtocolPlayerId(playerId: ProtocolPlayerId): string {
+  return typeof playerId === "number" ? String(playerId) : playerId;
 }
 
 function stringValue(value: unknown): string | null {

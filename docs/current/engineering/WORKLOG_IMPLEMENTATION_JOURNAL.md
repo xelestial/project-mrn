@@ -693,6 +693,20 @@ Responsibility result: trace identity interpretation moved off the numeric
 and display/debug grouping, but it is no longer the only top-level player
 identity available to trace consumers.
 
+## 2026-05-14 Protocol Harness Primary Identity Diagnostics
+
+- Added harness coverage for public active-prompt identity in pace,
+  command-latency, and repeated-prompt diagnostics.
+- `ProtocolPaceDiagnostic` now exposes `activePromptPrimaryPlayerId` and source
+  while keeping `activePromptPlayerId` as the legacy numeric alias.
+- Repeated-prompt signatures and command-latency rows now prefer
+  `active_prompt_primary_player_id` or trace `primary_player_id` before falling
+  back to legacy numeric player ids.
+
+Responsibility result: protocol-gate operator diagnostics no longer interpret
+numeric active-prompt `player_id` as the primary identity. Seat numbers remain
+available for display and legacy grouping only.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
