@@ -155,6 +155,8 @@ describe("httpDecisionPolicy", () => {
       protocol_version: 1,
       session_id: "sess_http_policy",
       player_id: 2,
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
       protocol_player_id: "player_public_2",
       legacy_player_id: 2,
       public_player_id: "player_public_2",
@@ -218,6 +220,8 @@ describe("httpDecisionPolicy", () => {
 
     expect(request).toMatchObject({
       player_id: 2,
+      primary_player_id: 2,
+      primary_player_id_source: "legacy",
       protocol_player_id: 2,
       legacy_player_id: 2,
       public_player_id: null,

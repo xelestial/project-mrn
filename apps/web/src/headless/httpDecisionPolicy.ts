@@ -13,6 +13,8 @@ export type HttpDecisionPolicyRequest = {
   protocol_version: 1;
   session_id: string;
   player_id: number;
+  primary_player_id: ProtocolPlayerId;
+  primary_player_id_source: "public" | "protocol" | "legacy";
   protocol_player_id: ProtocolPlayerId;
   legacy_player_id: number;
   public_player_id: string | null;
@@ -104,6 +106,8 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     protocol_version: 1,
     session_id: context.sessionId,
     player_id: context.playerId,
+    primary_player_id: identity.primaryPlayerId,
+    primary_player_id_source: identity.primaryPlayerIdSource,
     protocol_player_id: identity.protocolPlayerId,
     legacy_player_id: identity.legacyPlayerId,
     public_player_id: identity.publicPlayerId,

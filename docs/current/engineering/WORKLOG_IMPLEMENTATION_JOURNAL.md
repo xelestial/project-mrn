@@ -658,6 +658,22 @@ Responsibility result: headless prompt target ownership moved from direct
 identity selector. Duplicate/retry ledgers and top-level trace seat keys
 intentionally remain numeric compatibility surfaces.
 
+## 2026-05-14 HTTP Decision Policy Primary Identity
+
+- Added HTTP policy request coverage that fails when public primary player
+  identity is only available inside the nested `identity` object.
+- `HttpDecisionPolicyRequest` now carries top-level `primary_player_id` and
+  `primary_player_id_source` while preserving existing numeric `player_id` and
+  `legacy_player_id` compatibility fields.
+- Numeric-only prompt requests still serialize `primary_player_id: 2` with
+  `primary_player_id_source: "legacy"`, making the fallback explicit instead
+  of pretending numeric `player_id` is the general primary identity.
+
+Responsibility result: HTTP policy primary identity ownership moved from an
+ambiguous top-level numeric alias to explicit primary identity fields. External
+policy compatibility remains intact because the legacy numeric aliases were not
+removed.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
