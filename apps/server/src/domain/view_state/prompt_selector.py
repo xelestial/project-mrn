@@ -55,6 +55,27 @@ def _number(value: Any) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _target_player_identity_companions(value: dict[str, Any]) -> dict[str, int | str]:
+    companions: dict[str, int | str] = {}
+    legacy_player_id = _number(value.get("target_legacy_player_id"))
+    if legacy_player_id is None:
+        legacy_player_id = _number(value.get("legacy_player_id"))
+    if legacy_player_id is None:
+        legacy_player_id = _number(value.get("target_player_id"))
+    if legacy_player_id is not None:
+        companions["target_legacy_player_id"] = legacy_player_id
+    public_player_id = _string(value.get("target_public_player_id")) or _string(value.get("public_player_id"))
+    if public_player_id:
+        companions["target_public_player_id"] = public_player_id
+    seat_id = _string(value.get("target_seat_id")) or _string(value.get("seat_id"))
+    if seat_id:
+        companions["target_seat_id"] = seat_id
+    viewer_id = _string(value.get("target_viewer_id")) or _string(value.get("viewer_id"))
+    if viewer_id:
+        companions["target_viewer_id"] = viewer_id
+    return companions
+
+
 def _legacy_prompt_player_id(active_prompt: dict[str, Any]) -> int | None:
     return _number(active_prompt.get("legacy_player_id")) or _number(active_prompt.get("player_id"))
 
@@ -271,6 +292,7 @@ def _mark_target_surface(public_context: dict[str, Any], raw_choices: Any) -> Pr
                 "target_character": target_character,
                 "target_card_no": _number(value.get("target_card_no")),
                 "target_player_id": _number(value.get("target_player_id")),
+                **_target_player_identity_companions(value),
             }
         )
     return {
@@ -472,6 +494,7 @@ def _doctrine_relief_surface(public_context: dict[str, Any], raw_choices: Any) -
             {
                 "choice_id": choice_id,
                 "target_player_id": _number(value.get("target_player_id")),
+                **_target_player_identity_companions(value),
                 "burden_count": _number(value.get("burden_count")),
                 "title": _string(choice.get("title", choice.get("label"))) or choice_id,
                 "description": _choice_description(choice, _choice_value(choice)),

@@ -752,6 +752,55 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         view_state = build_prompt_view_state(fixture["messages"])
         self.assertEqual(view_state["active"]["surface"], fixture["expected"]["prompt"]["active"]["surface"])
 
+    def test_build_prompt_view_state_preserves_mark_target_identity_companions(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_mark_1",
+                        "request_type": "mark_target",
+                        "player_id": 1,
+                        "timeout_ms": 30000,
+                        "legal_choices": [
+                            {
+                                "choice_id": "target_p2",
+                                "title": "P2",
+                                "value": {
+                                    "target_character": "만신",
+                                    "target_card_no": 6,
+                                    "target_player_id": 2,
+                                    "target_public_player_id": "player_public_2",
+                                    "target_seat_id": "seat:2",
+                                    "target_viewer_id": "viewer:session:2",
+                                },
+                            }
+                        ],
+                        "public_context": {"actor_name": "산적"},
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(
+            view_state["active"]["surface"]["mark_target"]["candidates"],
+            [
+                {
+                    "choice_id": "target_p2",
+                    "target_character": "만신",
+                    "target_card_no": 6,
+                    "target_player_id": 2,
+                    "target_legacy_player_id": 2,
+                    "target_public_player_id": "player_public_2",
+                    "target_seat_id": "seat:2",
+                    "target_viewer_id": "viewer:session:2",
+                }
+            ],
+        )
+
     def test_build_prompt_view_state_matches_shared_active_flip_surface_fixture(self) -> None:
         fixture = _load_selector_prompt_fixture("selector.prompt.active_flip_surface.json")
         view_state = build_prompt_view_state(fixture["messages"])
@@ -785,7 +834,13 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                                 "choice_id": "2",
                                 "title": "P2",
                                 "description": "Remove 1 burden from P2.",
-                                "value": {"target_player_id": 2, "burden_count": 1},
+                                "value": {
+                                    "target_player_id": 2,
+                                    "target_public_player_id": "player_public_2",
+                                    "target_seat_id": "seat:2",
+                                    "target_viewer_id": "viewer:session:2",
+                                    "burden_count": 1,
+                                },
                             }
                         ],
                         "public_context": {"candidate_count": 1},
@@ -802,6 +857,10 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                     {
                         "choice_id": "2",
                         "target_player_id": 2,
+                        "target_legacy_player_id": 2,
+                        "target_public_player_id": "player_public_2",
+                        "target_seat_id": "seat:2",
+                        "target_viewer_id": "viewer:session:2",
                         "burden_count": 1,
                         "title": "P2",
                         "description": "Remove 1 burden from P2.",

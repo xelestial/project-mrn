@@ -184,6 +184,10 @@ class PromptSurfaceMarkTargetCandidateViewState(TypedDict):
     target_character: str
     target_card_no: int | None
     target_player_id: int | None
+    target_legacy_player_id: NotRequired[int]
+    target_public_player_id: NotRequired[str]
+    target_seat_id: NotRequired[str]
+    target_viewer_id: NotRequired[str]
 
 
 class PromptSurfaceMarkTargetViewState(TypedDict):
@@ -258,6 +262,10 @@ class PromptSurfaceCoinPlacementViewState(TypedDict):
 class PromptSurfaceDoctrineReliefOptionViewState(TypedDict):
     choice_id: str
     target_player_id: int | None
+    target_legacy_player_id: NotRequired[int]
+    target_public_player_id: NotRequired[str]
+    target_seat_id: NotRequired[str]
+    target_viewer_id: NotRequired[str]
     burden_count: int | None
     title: str
     description: str

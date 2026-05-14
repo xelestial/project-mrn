@@ -11,6 +11,18 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Prompt Choice Target Identity Surface
+
+- `mark_target` and `doctrine_relief` prompt surfaces now preserve target
+  identity companions (`target_legacy_player_id`, `target_public_player_id`,
+  `target_seat_id`, `target_viewer_id`) in server view-state projection and
+  frontend selector parsing. The legacy numeric `target_player_id` remains as
+  the engine bridge, and raw choice `value` payloads are not rewritten.
+- Shared selector fixture coverage for `doctrine_relief` now exercises the
+  target companion contract. Targeted server and frontend selector tests verify
+  both choice surfaces keep the public/seat/viewer companions available to
+  display/protocol consumers.
+
 ## 2026-05-15 Runtime Contract Primary Identity Guard
 
 - Runtime contract schemas now reject numeric `primary_player_id` when

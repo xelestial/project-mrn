@@ -977,13 +977,20 @@ Acceptance evidence status, 2026-05-15:
   resolve that identity to a legacy engine seat, and accepts complete public-player batch continuation
   companion maps without requiring numeric continuation maps in the selector input. It also verifies
   that rendered UI ownership/queued target helpers read `PromptViewModel.identity` instead of the
-  top-level legacy `PromptViewModel.playerId` alias.
+  top-level legacy `PromptViewModel.playerId` alias, and that `mark_target`/`doctrine_relief` choice
+  surfaces preserve explicit target legacy/public/seat/viewer companions for display/protocol consumers
+  while raw choice payloads remain the engine bridge.
 - `apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_preserves_companion_only_batch_continuation`
   verifies that server active prompt view-state projection preserves complete public-player, seat, and
   viewer continuation companion maps without inventing numeric `missing_player_ids`,
   `resume_tokens_by_player_id`, or `prompt_instance_id` aliases when the source prompt omits them.
   This narrows the remaining numeric continuation dependency to runtime resume validation and
   lifecycle compatibility rather than view-state projection itself.
+- `apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_preserves_mark_target_identity_companions`
+  and `test_build_prompt_view_state_projects_doctrine_relief_surface` verify that server prompt surface
+  projection carries target legacy/public/seat/viewer companions next to the numeric target bridge for
+  choice-target display. This keeps target readability at the projection boundary without changing the
+  numeric engine command payload.
 - `apps/server/tests/test_module_continuation_contract.py` verifies that the shared module-continuation
   contract treats simultaneous batch companion maps as protocol/projection companions only and still
   requires numeric `missing_player_ids` plus `resume_tokens_by_player_id` before runtime module

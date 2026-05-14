@@ -22,6 +22,9 @@
             "description": "Remove 1 burden from P2.",
             "value": {
               "target_player_id": 2,
+              "target_public_player_id": "player_public_2",
+              "target_seat_id": "seat:2",
+              "target_viewer_id": "viewer:session:2",
               "burden_count": 1
             }
           }
@@ -44,6 +47,10 @@
               {
                 "choice_id": "2",
                 "target_player_id": 2,
+                "target_legacy_player_id": 2,
+                "target_public_player_id": "player_public_2",
+                "target_seat_id": "seat:2",
+                "target_viewer_id": "viewer:session:2",
                 "burden_count": 1,
                 "title": "P2",
                 "description": "Remove 1 burden from P2."

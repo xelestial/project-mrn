@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { InboundMessage, ViewCommitPayload } from "../../core/contracts/stream";
+import type {
+  InboundMessage,
+  ViewCommitPayload,
+} from "../../core/contracts/stream";
 import {
   isPromptPrimaryTarget,
   isPromptTargetedToLegacyPlayer,
@@ -13,7 +16,10 @@ import {
   selectPromptInteractionState,
 } from "./promptSelectors";
 
-function viewCommit(commitSeq: number, viewState: Record<string, unknown>): InboundMessage {
+function viewCommit(
+  commitSeq: number,
+  viewState: Record<string, unknown>,
+): InboundMessage {
   const payload: ViewCommitPayload = {
     schema_version: 1,
     commit_seq: commitSeq,
@@ -86,8 +92,12 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     };
 
     expect(selectActivePrompt([rawPrompt, rawEvent])).toBeNull();
-    expect(selectLatestDecisionAck([rawPrompt, rawEvent], "raw_projected_prompt")).toBeNull();
-    expect(selectCurrentHandTrayCards([rawPrompt, rawEvent], "ko", 1)).toEqual([]);
+    expect(
+      selectLatestDecisionAck([rawPrompt, rawEvent], "raw_projected_prompt"),
+    ).toBeNull();
+    expect(selectCurrentHandTrayCards([rawPrompt, rawEvent], "ko", 1)).toEqual(
+      [],
+    );
   });
 
   it("renders the active prompt only from latest ViewCommit.view_state.prompt.active", () => {
@@ -115,7 +125,11 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
                 choice_id: "target_p1",
                 title: "박수",
                 description: "박수를 지목합니다.",
-                value: { target_player_id: 1, target_character: "박수", target_card_no: 3 },
+                value: {
+                  target_player_id: 1,
+                  target_character: "박수",
+                  target_card_no: 3,
+                },
               },
               {
                 choice_id: "none",
@@ -145,6 +159,10 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
                     target_character: "박수",
                     target_card_no: 3,
                     target_player_id: 1,
+                    target_legacy_player_id: 1,
+                    target_public_player_id: "player_public_1",
+                    target_seat_id: "seat:1",
+                    target_viewer_id: "viewer:session:1",
                   },
                 ],
               },
@@ -183,7 +201,10 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(prompt?.requestId).toBe("req_mark");
     expect(prompt?.requestType).toBe("mark_target");
     expect(prompt?.playerId).toBe(2);
-    expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual(["target_p1", "none"]);
+    expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual([
+      "target_p1",
+      "none",
+    ]);
     expect(prompt?.continuation).toEqual({
       promptInstanceId: 17,
       publicPromptInstanceId: "prompt_public_mark_17",
@@ -208,6 +229,10 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         targetCharacter: "박수",
         targetCardNo: 3,
         targetPlayerId: 1,
+        targetLegacyPlayerId: 1,
+        targetPublicPlayerId: "player_public_1",
+        targetSeatId: "seat:1",
+        targetViewerId: "viewer:session:1",
       },
     ]);
     expect(prompt?.effectContext).toEqual({
@@ -223,6 +248,51 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
       sourceName: "산적",
       resourceDelta: { cash: -3 },
     });
+  });
+
+  it("preserves target identity companions on doctrine relief surface options", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_doctrine_relief",
+      request_type: "doctrine_relief",
+      player_id: "player_public_1",
+      legacy_player_id: 1,
+      public_player_id: "player_public_1",
+      choices: [{ choice_id: "target_p2", title: "P2" }],
+      surface: {
+        kind: "doctrine_relief",
+        blocks_public_events: true,
+        doctrine_relief: {
+          candidate_count: 1,
+          options: [
+            {
+              choice_id: "target_p2",
+              target_player_id: 2,
+              target_legacy_player_id: 2,
+              target_public_player_id: "player_public_2",
+              target_seat_id: "seat:2",
+              target_viewer_id: "viewer:session:2",
+              burden_count: 1,
+              title: "P2",
+              description: "Remove burden.",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(prompt?.surface.doctrineRelief?.options).toEqual([
+      {
+        choiceId: "target_p2",
+        targetPlayerId: 2,
+        targetLegacyPlayerId: 2,
+        targetPublicPlayerId: "player_public_2",
+        targetSeatId: "seat:2",
+        targetViewerId: "viewer:session:2",
+        burdenCount: 1,
+        title: "P2",
+        description: "Remove burden.",
+      },
+    ]);
   });
 
   it("does not expose a module prompt unless the ViewCommit contains complete continuation data", () => {
@@ -259,7 +329,9 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     });
 
     expect(selectActivePrompt([incomplete])).toBeNull();
-    expect(selectActivePrompt([complete])?.continuation.moduleCursor).toBe("movement:await_choice");
+    expect(selectActivePrompt([complete])?.continuation.moduleCursor).toBe(
+      "movement:await_choice",
+    );
   });
 
   it("preserves every serial prompt request type from the runtime decision contract", () => {
@@ -436,7 +508,9 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         player_public_1: "resume_p1",
         player_public_3: "resume_p3",
       },
-      legal_choices: [{ choice_id: "no", title: "교환 안 함", secondary: true }],
+      legal_choices: [
+        { choice_id: "no", title: "교환 안 함", secondary: true },
+      ],
     });
 
     expect(prompt).not.toBeNull();
@@ -454,7 +528,8 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
 
   it("parses a raw prompt payload with the same active-prompt contract for headless clients", () => {
     const prompt = promptViewModelFromActivePromptPayload({
-      request_id: "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p2",
+      request_id:
+        "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p2",
       request_type: "burden_exchange",
       player_id: 3,
       runner_kind: "module",
@@ -474,7 +549,9 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         "3": "resume_p3",
         "4": "resume_p4",
       },
-      legal_choices: [{ choice_id: "no", title: "교환 안 함", secondary: true }],
+      legal_choices: [
+        { choice_id: "no", title: "교환 안 함", secondary: true },
+      ],
     });
 
     expect(prompt?.requestId).toContain("resupply");
@@ -663,7 +740,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         publicPlayerId: "player_public_2",
         seatId: "seat:2",
         viewerId: "viewer:session:2",
-      })
+      }),
     ).toBe(true);
     expect(
       isPromptTargetedToIdentity(prompt, {
@@ -672,7 +749,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         publicPlayerId: "player_public_other",
         seatId: "seat:other",
         viewerId: "viewer:session:other",
-      })
+      }),
     ).toBe(false);
     expect(
       isPromptTargetedToIdentity(prompt, {
@@ -681,7 +758,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         publicPlayerId: null,
         seatId: null,
         viewerId: null,
-      })
+      }),
     ).toBe(true);
   });
 
@@ -706,7 +783,11 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         type: "decision_ack",
         seq: 1,
         session_id: "s1",
-        payload: { request_id: "req_hand", status: "accepted", reason: "raw ack" },
+        payload: {
+          request_id: "req_hand",
+          status: "accepted",
+          reason: "raw ack",
+        },
       } satisfies InboundMessage,
       viewCommit(3, {
         prompt: {
@@ -780,7 +861,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         expiresAtMs: 10_000,
         nowMs: 5_000,
         streamStatus: "connected",
-      })
+      }),
     ).toMatchObject({
       requestId: "req_move",
       shouldReleaseSubmission: true,
@@ -804,7 +885,11 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         type: "decision_ack",
         seq: 4,
         session_id: "s1",
-        payload: { request_id: "req_stale", status: "stale", reason: "request_not_pending" },
+        payload: {
+          request_id: "req_stale",
+          status: "stale",
+          reason: "request_not_pending",
+        },
       } satisfies InboundMessage,
     ];
 
@@ -817,7 +902,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         expiresAtMs: 10_000,
         nowMs: 5_000,
         streamStatus: "connected",
-      })
+      }),
     ).toMatchObject({
       requestId: "req_stale",
       busy: false,
