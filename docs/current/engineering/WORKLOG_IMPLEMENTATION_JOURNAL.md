@@ -905,6 +905,21 @@ active prompt top-level alias" to "submit explicit public/protocol primary
 identity when available." Internal headless seat/debug identity and legacy-only
 fallback routing intentionally remain numeric compatibility surfaces.
 
+## 2026-05-14 React Submitted Decision Public Identity Coverage
+
+- Added `useGameStream.spec.ts` coverage for the UI decision boundary where the
+  active prompt still carries numeric top-level `playerId` but explicit
+  `primaryPlayerId` is public.
+- No production hook change was required: `useGameStream` already delegates
+  decision payload serialization to `buildDecisionMessage()`, and that shared
+  builder now owns submitted top-level `player_id` selection.
+- The legacy numeric-only decision test remains in the same suite and continues
+  to require `player_id_alias_role: "legacy_compatibility_alias"`.
+
+Responsibility result: no new runtime responsibility moved. This locks the UI
+submission boundary to the shared decision-protocol builder instead of adding a
+parallel identity rule in the hook.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

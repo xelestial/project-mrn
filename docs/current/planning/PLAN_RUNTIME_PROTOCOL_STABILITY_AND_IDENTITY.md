@@ -936,9 +936,9 @@ Acceptance evidence status, 2026-05-14:
   instead of a numeric top-level active-prompt alias when available, and keeping the numeric prompt
   lifecycle alias.
 - `apps/web/src/hooks/useGameStream.spec.ts` verifies that rendered UI decision submission can use a public
-  protocol `player_id` and build duplicate-flight keys from explicit prompt primary or public identity
-  without requiring a numeric legacy bridge; numeric-only prompt decisions remain supported as the legacy
-  fallback.
+  protocol `player_id`, submits explicit public/protocol primary identity instead of a numeric active-prompt
+  alias, and builds duplicate-flight keys from explicit prompt primary or public identity without requiring a
+  numeric legacy bridge; numeric-only prompt decisions remain supported as the legacy fallback.
 - `apps/web/src/domain/selectors/promptSelectors.spec.ts` verifies that prompt selection projects public
   prompt identity into `PromptViewModel.identity.primaryPlayerId` and top-level
   `PromptViewModel.primaryPlayerId`, and can build an actionable prompt view model before the UI can

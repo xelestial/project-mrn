@@ -222,6 +222,53 @@ describe("useGameStream authoritative commit helpers", () => {
     ).toBe("player:player_public_2\nprompt:sha256:prompt-94\naction:purchase");
   });
 
+  it("builds UI decision messages from explicit primary identity instead of numeric prompt alias", () => {
+    const message = buildDecisionMessage({
+      requestId: "req_ui_explicit_primary",
+      playerId: 2,
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      legacyPlayerId: 2,
+      choiceId: "roll",
+      choicePayload: { dice: 5 },
+      continuation: {
+        promptInstanceId: 95,
+        promptFingerprint: "sha256:prompt-95",
+        promptFingerprintVersion: "prompt-fingerprint-v1",
+        resumeToken: "resume-95",
+        frameId: "turn:3:p2",
+        moduleId: "mod:dice:95",
+        moduleType: "DiceRollModule",
+        moduleCursor: "dice:await_choice",
+        batchId: null,
+      },
+      viewCommitSeqSeen: 43,
+      clientSeq: 43,
+    });
+
+    expect(message).toMatchObject({
+      type: "decision",
+      request_id: "req_ui_explicit_primary",
+      player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      legacy_player_id: 2,
+      choice_id: "roll",
+      choice_payload: { dice: 5 },
+      resume_token: "resume-95",
+      prompt_fingerprint: "sha256:prompt-95",
+      prompt_fingerprint_version: "prompt-fingerprint-v1",
+      frame_id: "turn:3:p2",
+      module_id: "mod:dice:95",
+      module_type: "DiceRollModule",
+      module_cursor: "dice:await_choice",
+      prompt_instance_id: 95,
+      view_commit_seq_seen: 43,
+      client_seq: 43,
+    });
+    expect(message).not.toHaveProperty("player_id_alias_role");
+  });
+
   it("blocks a different request id while the same prompt flight is still active", () => {
     const ledger = createDecisionRequestLedger();
     const streamKey = buildGameStreamKey("sess_single_flight", "seat-1");
