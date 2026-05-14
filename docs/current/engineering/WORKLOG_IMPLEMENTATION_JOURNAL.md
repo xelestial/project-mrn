@@ -128,7 +128,10 @@ in the active plans, status index, tests, or canonical contract documents.
 - Headless external-policy and replay exports now preserve public player,
   seat, viewer, and legacy player companions. HTTP decision policy requests
   keep numeric `player_id` for existing policy consumers while adding
-  `protocol_player_id` and public companions; compact trace payloads and replay
+  `protocol_player_id` and public companions. They now also expose an
+  `identity.primary_player_id` block with `primary_player_id_source`, so HTTP
+  policy consumers have a clear public-primary identity field instead of using
+  top-level numeric `player_id` by default. Compact trace payloads and replay
   rows carry the same companions without changing reward calculation's numeric
   actor-index bridge.
 - Session bootstrap identity was aligned with the runtime protocol identity

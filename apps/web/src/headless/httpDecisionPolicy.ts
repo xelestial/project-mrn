@@ -18,6 +18,15 @@ export type HttpDecisionPolicyRequest = {
   public_player_id: string | null;
   seat_id: string | null;
   viewer_id: string | null;
+  identity: {
+    primary_player_id: ProtocolPlayerId;
+    primary_player_id_source: "public" | "protocol" | "legacy";
+    protocol_player_id: ProtocolPlayerId;
+    legacy_player_id: number;
+    public_player_id: string | null;
+    seat_id: string | null;
+    viewer_id: string | null;
+  };
   commit_seq: number;
   runtime: {
     status: string | null;
@@ -100,6 +109,15 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     public_player_id: identity.publicPlayerId,
     seat_id: identity.seatId,
     viewer_id: identity.viewerId,
+    identity: {
+      primary_player_id: identity.primaryPlayerId,
+      primary_player_id_source: identity.primaryPlayerIdSource,
+      protocol_player_id: identity.protocolPlayerId,
+      legacy_player_id: identity.legacyPlayerId,
+      public_player_id: identity.publicPlayerId,
+      seat_id: identity.seatId,
+      viewer_id: identity.viewerId,
+    },
     commit_seq: context.lastCommitSeq,
     runtime: {
       status: runtime?.status ?? null,
@@ -122,6 +140,8 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
 
 function decisionPolicyIdentity(context: HeadlessDecisionContext): {
   protocolPlayerId: ProtocolPlayerId;
+  primaryPlayerId: ProtocolPlayerId;
+  primaryPlayerIdSource: "public" | "protocol" | "legacy";
   legacyPlayerId: number;
   publicPlayerId: string | null;
   seatId: string | null;
@@ -133,8 +153,17 @@ function decisionPolicyIdentity(context: HeadlessDecisionContext): {
       : Math.floor(context.playerId);
   const publicPlayerId = stringValue(context.prompt.publicPlayerId);
   const protocolPlayerId = publicPlayerId ?? context.prompt.protocolPlayerId ?? legacyPlayerId;
+  const primaryPlayerId = publicPlayerId ?? context.prompt.protocolPlayerId ?? legacyPlayerId;
+  const primaryPlayerIdSource =
+    publicPlayerId !== null
+      ? "public"
+      : typeof context.prompt.protocolPlayerId === "string"
+        ? "protocol"
+        : "legacy";
   return {
     protocolPlayerId,
+    primaryPlayerId,
+    primaryPlayerIdSource,
     legacyPlayerId,
     publicPlayerId,
     seatId: stringValue(context.prompt.seatId),

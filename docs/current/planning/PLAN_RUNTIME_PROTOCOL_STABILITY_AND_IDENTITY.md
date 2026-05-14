@@ -928,7 +928,9 @@ Acceptance evidence status, 2026-05-14:
   `HeadlessGameClient.spec.ts` verify that headless external policy input, compact trace payloads, and replay
   rows preserve public player, seat, viewer, legacy player, and public prompt-instance companions while
   retaining numeric `player_id` and `prompt_instance_id` aliases for existing policy consumers, lifecycle
-  bridging, and reward calculation.
+  bridging, and reward calculation. The HTTP policy request now also includes `identity.primary_player_id`
+  plus `primary_player_id_source`, proving public identity is the primary policy input when present while
+  numeric-only prompts remain explicit legacy fallback.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`
   and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_instance_from_resume_does_not_parse_legacy_request_id`
   verify that prompt sequence recovery and bridge advancement no longer parse legacy request-id suffixes when

@@ -142,6 +142,15 @@ describe("httpDecisionPolicy", () => {
       public_player_id: "player_public_2",
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
+      identity: {
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
+      },
       commit_seq: 42,
       runtime: {
         status: "waiting_input",
@@ -172,6 +181,40 @@ describe("httpDecisionPolicy", () => {
     expect(request.legal_choices.map((choice) => choice.choice_id)).toEqual(["buy", "pass"]);
     expect(JSON.stringify(request)).not.toContain("messages");
     expect(JSON.stringify(request)).not.toContain("hidden_trick_count");
+  });
+
+  it("keeps numeric-only prompts as explicit legacy policy identity", () => {
+    const baseContext = context();
+    const request = buildHttpDecisionPolicyRequest({
+      ...baseContext,
+      prompt: {
+        ...baseContext.prompt,
+        protocolPlayerId: 2,
+        legacyPlayerId: null,
+        publicPlayerId: null,
+        seatId: null,
+        viewerId: null,
+      },
+      legalChoices: baseContext.prompt.choices,
+    });
+
+    expect(request).toMatchObject({
+      player_id: 2,
+      protocol_player_id: 2,
+      legacy_player_id: 2,
+      public_player_id: null,
+      seat_id: null,
+      viewer_id: null,
+      identity: {
+        primary_player_id: 2,
+        primary_player_id_source: "legacy",
+        protocol_player_id: 2,
+        legacy_player_id: 2,
+        public_player_id: null,
+        seat_id: null,
+        viewer_id: null,
+      },
+    });
   });
 
   it("uses the HTTP response as the policy decision", async () => {
