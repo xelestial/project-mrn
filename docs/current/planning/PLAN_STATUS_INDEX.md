@@ -144,7 +144,10 @@ Those themes should reopen only if a concrete regression or rollout need appears
    the platform smoke runner with `--require-external-topology`, and capturing
    smoke evidence from the actual external topology. The 2026-05-04 evidence
    pass confirmed that the local manifest validates and that
-   `--require-external-topology` correctly rejects local-only evidence. See
+   `--require-external-topology` correctly rejects local-only evidence. The
+   2026-05-14 guard update also rejects renamed local manifests that keep local
+   preflight or Docker Compose runtime commands, so external evidence now must
+   be both externally labeled and externally operated. See
    `docs/current/engineering/PLAN_REDIS_AUTHORITATIVE_GAME_STATE.md`.
 2. Runtime protocol and contract stabilization. The current baseline is guarded
    by `docs/current/planning/PLAN_RUNTIME_PROTOCOL_STABILITY_AND_IDENTITY.md`,
@@ -158,7 +161,10 @@ Those themes should reopen only if a concrete regression or rollout need appears
    coverage, and read-mode viewer outbox delivery are implemented. Numeric
    protocol compatibility aliases, including numeric `player_id` payload
    aliases and numeric `prompt_instance_id` lifecycle keys, remain explicit
-   residual migration boundaries rather than hidden completion. The current
+   residual migration boundaries rather than hidden completion. Runtime
+   contracts now require numeric `player_id` aliases to carry
+   `legacy_player_id` in addition to alias role and primary identity metadata,
+   which narrows but does not remove the compatibility bridge. The current
    local evidence pass includes server identity/lifecycle/outbox tests, frontend
    headless protocol tests, the smoke workflow gate, the live protocol gate,
    bounded UI full-game progress, and the full-stack live RL smoke artifact at

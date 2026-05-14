@@ -29,7 +29,8 @@
         "required": [
           "player_id_alias_role",
           "primary_player_id",
-          "primary_player_id_source"
+          "primary_player_id_source",
+          "legacy_player_id"
         ]
       }
     }

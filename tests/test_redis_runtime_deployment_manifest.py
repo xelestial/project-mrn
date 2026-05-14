@@ -249,6 +249,21 @@ def test_platform_smoke_script_classifies_filled_external_manifest() -> None:
     assert validation["preflight_down_command"] == ""
 
 
+def test_platform_smoke_script_rejects_local_runtime_commands_as_external_evidence() -> None:
+    module = _load_platform_smoke_script()
+    manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)
+    manifest["name"] = "project-mrn-render-staging"
+    manifest["target_topology"] = "render-staging"
+
+    try:
+        module.validate_manifest(manifest, contract_path=PROCESS_CONTRACT, require_external_topology=True)
+    except ValueError as exc:
+        assert "external platform manifest must not include local runtime preflight" in str(exc)
+        assert "external platform commands must not use local Docker compose runtime commands" in str(exc)
+    else:
+        raise AssertionError("local Docker runtime commands must not satisfy external topology validation")
+
+
 def test_platform_smoke_script_rejects_generic_placeholder_commands() -> None:
     module = _load_platform_smoke_script()
     manifest = module.load_manifest(LOCAL_PLATFORM_SMOKE)

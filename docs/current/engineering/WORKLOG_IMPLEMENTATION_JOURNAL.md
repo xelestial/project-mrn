@@ -945,6 +945,23 @@ Responsibility result: no new runtime responsibility moved. This locks the UI
 submission boundary to the shared decision-protocol builder instead of adding a
 parallel identity rule in the hook.
 
+## 2026-05-14 External Topology Guard and Numeric Alias Companion Contract
+
+- Redis platform smoke validation now rejects external-required manifests that
+  retain local runtime preflight or local Docker Compose runtime commands, even
+  if the manifest's `target_topology` is renamed to an external-looking value.
+- Actual external Redis evidence remains open: it still requires a filled
+  platform manifest with non-local restart and worker exec commands.
+- WS decision, inbound prompt, inbound decision ACK, and external-AI request
+  schemas now require `legacy_player_id` whenever top-level `player_id` remains
+  numeric. Existing public string identity paths are unchanged.
+
+Responsibility result: external-evidence classification moved from topology
+name alone to manifest operation validation. Numeric player alias contracts now
+make the legacy bridge explicit instead of requiring consumers to infer it from
+the alias value. Numeric aliases intentionally remain during the compatibility
+window.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

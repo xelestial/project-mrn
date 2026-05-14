@@ -106,6 +106,10 @@ def validate_manifest(
     preflight_down = preflight.get("down_command")
     if preflight and (not _is_filled_command(preflight_up) or not _is_filled_command(preflight_down)):
         errors.append("preflight up_command and down_command must be concrete commands when preflight is present")
+    if require_external_topology and preflight:
+        errors.append("external platform manifest must not include local runtime preflight")
+    if require_external_topology and _contains_local_runtime_command(manifest):
+        errors.append("external platform commands must not use local Docker compose runtime commands")
 
     if errors:
         raise ValueError("; ".join(errors))
@@ -318,6 +322,45 @@ def _filled_command_list(value: object) -> bool:
     if not isinstance(value, list) or not value:
         return False
     return all(_is_filled_command(item) for item in value)
+
+
+def _contains_local_runtime_command(manifest: dict[str, Any]) -> bool:
+    return any(_is_local_runtime_command(command) for command in _manifest_command_values(manifest))
+
+
+def _manifest_command_values(manifest: dict[str, Any]) -> list[str]:
+    commands: list[str] = []
+    for role in manifest.get("roles") or []:
+        if not isinstance(role, dict):
+            continue
+        for key in ("restart_command", "smoke_health_command"):
+            value = role.get(key)
+            if isinstance(value, str):
+                commands.append(value)
+    smoke = manifest.get("rollout_smoke") or {}
+    if isinstance(smoke, dict):
+        for key in ("restart_commands", "worker_health_commands"):
+            values = smoke.get(key) or []
+            if isinstance(values, list):
+                commands.extend(value for value in values if isinstance(value, str))
+    preflight = manifest.get("preflight") or {}
+    if isinstance(preflight, dict):
+        for key in ("up_command", "down_command"):
+            value = preflight.get(key)
+            if isinstance(value, str):
+                commands.append(value)
+    return commands
+
+
+def _is_local_runtime_command(command: str) -> bool:
+    lowered = command.lower()
+    return (
+        "docker compose" in lowered
+        and (
+            "deploy/redis-runtime/docker-compose.runtime.yml" in lowered
+            or "project-mrn-runtime-platform" in lowered
+        )
+    )
 
 
 def _target_topology_kind(value: object) -> str:

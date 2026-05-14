@@ -274,6 +274,70 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 path="$<inbound.decision_ack.numeric_alias_without_primary>",
             )
 
+    def test_ws_identity_schemas_require_legacy_companion_for_numeric_player_alias(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schemas = root / "schemas"
+
+        outbound_decision_schema = _load_json(schemas / "outbound.decision.schema.json")
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "decision",
+                    "request_id": "req_numeric_alias_without_legacy",
+                    "player_id": 1,
+                    "player_id_alias_role": "legacy_compatibility_alias",
+                    "primary_player_id": "player_public_1",
+                    "primary_player_id_source": "public",
+                    "choice_id": "roll",
+                    "client_seq": 12,
+                },
+                outbound_decision_schema,
+                path="$<outbound.decision.numeric_alias_without_legacy>",
+            )
+
+        inbound_prompt_schema = _load_json(schemas / "inbound.prompt.schema.json")
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "prompt",
+                    "seq": 4,
+                    "session_id": "sess_numeric_alias_without_legacy",
+                    "payload": {
+                        "request_id": "req_numeric_alias_without_legacy",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "player_id_alias_role": "legacy_compatibility_alias",
+                        "primary_player_id": "player_public_1",
+                        "primary_player_id_source": "public",
+                        "timeout_ms": 30000,
+                        "legal_choices": [{"choice_id": "roll"}],
+                        "public_context": {},
+                    },
+                },
+                inbound_prompt_schema,
+                path="$<inbound.prompt.numeric_alias_without_legacy>",
+            )
+
+        inbound_decision_ack_schema = _load_json(schemas / "inbound.decision_ack.schema.json")
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "decision_ack",
+                    "seq": 9,
+                    "session_id": "sess_numeric_alias_without_legacy",
+                    "payload": {
+                        "request_id": "req_numeric_alias_without_legacy",
+                        "status": "accepted",
+                        "player_id": 1,
+                        "player_id_alias_role": "legacy_compatibility_alias",
+                        "primary_player_id": "player_public_1",
+                        "primary_player_id_source": "public",
+                    },
+                },
+                inbound_decision_ack_schema,
+                path="$<inbound.decision_ack.numeric_alias_without_legacy>",
+            )
+
     def test_ws_decision_event_sequences_validate_and_keep_order(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
         event_schema = _load_json(root / "schemas" / "inbound.event.schema.json")
@@ -520,6 +584,33 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 },
                 schema,
                 path="$<external-ai.request.numeric_alias_without_primary>",
+            )
+
+    def test_external_ai_request_schema_requires_legacy_companion_for_numeric_player_alias(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
+        schema = _load_json(root / "schemas" / "request.schema.json")
+
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "request_id": "req_numeric_alias_without_legacy",
+                    "session_id": "sess_numeric_alias_without_legacy",
+                    "seat": 1,
+                    "player_id": 1,
+                    "player_id_alias_role": "legacy_compatibility_alias",
+                    "primary_player_id": "player_public_1",
+                    "primary_player_id_source": "public",
+                    "decision_name": "movement",
+                    "request_type": "movement",
+                    "fallback_policy": "ai",
+                    "public_context": {},
+                    "legal_choices": [{"choice_id": "roll"}],
+                    "transport": "http",
+                    "worker_contract_version": "v1",
+                    "required_capabilities": [],
+                },
+                schema,
+                path="$<external-ai.request.numeric_alias_without_legacy>",
             )
 
 

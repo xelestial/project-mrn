@@ -47,6 +47,11 @@ Outcome:
 
 - failed as expected with:
   `external platform manifest is required; local smoke manifests only prove the contract locally`
+- 2026-05-14 guard hardening also rejects copied local manifests that only
+  rename `target_topology` to an external-looking value while retaining local
+  preflight or Docker Compose runtime commands:
+  `external platform manifest must not include local runtime preflight` and
+  `external platform commands must not use local Docker compose runtime commands`
 
 Repository manifests present:
 
@@ -58,6 +63,8 @@ Conclusion:
 
 - the local platform-managed smoke manifest cannot be mistaken for production or
   staging evidence
+- local Docker Compose restart/worker commands cannot be repackaged as external
+  platform evidence by only changing the manifest topology name
 - actual external Redis topology verification requires a filled manifest copied
   from `platform-managed.manifest.template.json` with the target platform's
   restart and worker exec commands

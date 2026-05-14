@@ -103,10 +103,11 @@ identity, validation summary, generated smoke command, and final
 
 Use `--require-external-topology` for actual staging/production rollout checks.
 That mode rejects the repository-local `local-platform-managed.smoke.json`
-profile and requires a filled external platform manifest. Validation and
-evidence artifacts expose `target_topology_kind`, `external_topology_ready`, and
-`rollout_scope` so local contract proof cannot be mistaken for external
-deployment evidence.
+profile, rejects local preflight setup, rejects Docker Compose runtime commands
+from external-required manifests, and requires a filled external platform
+manifest. Validation and evidence artifacts expose `target_topology_kind`,
+`external_topology_ready`, and `rollout_scope` so local contract proof cannot be
+mistaken for external deployment evidence.
 
 Passing evidence must include:
 
@@ -177,6 +178,17 @@ deployment still must replace the placeholder restart and worker exec commands i
 `platform-managed.manifest.template.json` with the target platform's native
 commands, run the wrapper with `--require-external-topology`, and capture fresh
 passing smoke evidence before live routing.
+
+Latest checked external-topology guard evidence:
+
+- checked `2026-05-14`
+- local smoke manifests are rejected by `--require-external-topology`
+- manifests that rename the target topology to an external-looking value are
+  still rejected if they contain local preflight or Docker Compose runtime
+  commands such as `deploy/redis-runtime/docker-compose.runtime.yml` or
+  `project-mrn-runtime-platform`
+- actual external Redis topology evidence remains open until a platform-filled
+  manifest supplies non-local restart and worker exec commands
 
 ## 4. Failure Rules
 
