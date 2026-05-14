@@ -26,6 +26,7 @@ REQUIRED_CONSUMER_ENTRIES = {
     "packages/runtime-contracts/ws/schemas/inbound.prompt.schema.json": "compat alias",
     "packages/runtime-contracts/ws/schemas/inbound.decision_ack.schema.json": "compat alias",
     "packages/runtime-contracts/external-ai/schemas/request.schema.json": "compat alias",
+    "apps/server/src/domain/view_state/prompt_selector.py": "compat alias",
     "tools/scripts/external_ai_full_stack_smoke.py": "compat alias",
     "tools/scripts/redis_restart_smoke.py": "compat alias",
     "tools/scripts/game_debug_log_audit.py": "display",

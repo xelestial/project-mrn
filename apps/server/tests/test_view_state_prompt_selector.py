@@ -233,6 +233,78 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         self.assertEqual(active["primary_player_id_source"], "legacy")
         self.assertEqual(active["player_id_alias_role"], "legacy_compatibility_alias")
 
+    def test_build_prompt_view_state_preserves_public_primary_identity_and_legacy_bridge(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_public_move",
+                        "request_type": "movement",
+                        "player_id": "ply_2",
+                        "primary_player_id": "ply_2",
+                        "primary_player_id_source": "public",
+                        "legacy_player_id": 2,
+                        "public_player_id": "ply_2",
+                        "seat_id": "seat_2",
+                        "viewer_id": "view_2",
+                        "timeout_ms": 30000,
+                        "legal_choices": [{"choice_id": "roll", "title": "Roll"}],
+                        "public_context": {},
+                    },
+                }
+            ]
+        )
+
+        active = view_state["active"]
+        self.assertEqual(active["player_id"], 2)
+        self.assertEqual(active["legacy_player_id"], 2)
+        self.assertEqual(active["primary_player_id"], "ply_2")
+        self.assertEqual(active["primary_player_id_source"], "public")
+        self.assertEqual(active["player_id_alias_role"], "legacy_compatibility_alias")
+        self.assertEqual(active["public_player_id"], "ply_2")
+        self.assertEqual(active["seat_id"], "seat_2")
+        self.assertEqual(active["viewer_id"], "view_2")
+
+    def test_build_prompt_view_state_closes_public_prompt_by_legacy_bridge_phase_event(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_public_trick",
+                        "request_type": "trick_to_use",
+                        "player_id": "ply_2",
+                        "primary_player_id": "ply_2",
+                        "primary_player_id_source": "public",
+                        "legacy_player_id": 2,
+                        "public_player_id": "ply_2",
+                        "timeout_ms": 30000,
+                        "legal_choices": [{"choice_id": "none", "title": "Pass"}],
+                        "public_context": {},
+                    },
+                },
+                {
+                    "type": "event",
+                    "seq": 2,
+                    "session_id": "s1",
+                    "server_time_ms": 2,
+                    "payload": {
+                        "event_type": "trick_used",
+                        "player_id": 2,
+                    },
+                },
+            ]
+        )
+
+        self.assertIsNone(view_state)
+
     def test_build_prompt_view_state_projects_effect_context(self) -> None:
         view_state = build_prompt_view_state(
             [

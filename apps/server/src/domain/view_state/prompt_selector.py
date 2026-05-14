@@ -55,12 +55,16 @@ def _number(value: Any) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _legacy_prompt_player_id(active_prompt: dict[str, Any]) -> int | None:
+    return _number(active_prompt.get("legacy_player_id")) or _number(active_prompt.get("player_id"))
+
+
 def _active_prompt_primary_identity(active_prompt: dict[str, Any]) -> tuple[int | str, str, bool] | None:
     player_id = active_prompt.get("player_id")
     public_player_id = _string(active_prompt.get("public_player_id"))
-    legacy_player_id = _number(active_prompt.get("legacy_player_id")) or _number(player_id)
+    legacy_player_id = _legacy_prompt_player_id(active_prompt)
     if public_player_id:
-        return public_player_id, "public", _number(player_id) is not None
+        return public_player_id, "public", legacy_player_id is not None
     if isinstance(player_id, str) and player_id.strip():
         return player_id.strip(), "protocol", False
     if legacy_player_id is not None:
@@ -633,7 +637,7 @@ def _prompt_behavior(payload: dict[str, Any], public_context: dict[str, Any]) ->
         "auto_continue": False,
     }
     if request_type == "burden_exchange":
-        player_id = _number(payload.get("player_id")) or 0
+        player_id = _legacy_prompt_player_id(payload) or 0
         current_f = _number(public_context.get("current_f_value"))
         current_deck_index = _number(public_context.get("card_deck_index"))
         burden_count = _number(public_context.get("burden_card_count")) or 0
@@ -738,7 +742,7 @@ def latest_active_prompt(messages: list[dict[str, Any]]) -> dict[str, Any] | Non
         if not request_id:
             continue
         request_type = _string(payload.get("request_type"))
-        player_id = _number(payload.get("player_id")) or 0
+        player_id = _legacy_prompt_player_id(payload) or 0
         if _is_prompt_closed(messages, index, request_id, request_type, player_id):
             continue
         return payload
@@ -790,7 +794,7 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
     if active_prompt:
         request_id = _string(active_prompt.get("request_id"))
         request_type = _string(active_prompt.get("request_type")) or "-"
-        player_id = _number(active_prompt.get("player_id")) or 0
+        player_id = _legacy_prompt_player_id(active_prompt) or 0
         timeout_ms = _number(active_prompt.get("timeout_ms")) or 30000
         public_context = _record(active_prompt.get("public_context")) or {}
         active: ActivePromptViewState = {
@@ -810,6 +814,9 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
             active["primary_player_id_source"] = primary_player_id_source
             if player_id_is_legacy_alias:
                 active["player_id_alias_role"] = "legacy_compatibility_alias"
+        legacy_player_id = _number(active_prompt.get("legacy_player_id"))
+        if legacy_player_id is not None:
+            active["legacy_player_id"] = legacy_player_id
         for field in (
             "legacy_request_id",
             "public_request_id",
