@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { InboundMessage, ViewCommitPayload } from "../../core/contracts/stream";
 import {
+  isPromptPrimaryTarget,
+  isPromptTargetedToLegacyPlayer,
+  promptPrimaryTargetId,
   promptIdentityFromActivePromptPayload,
   promptViewModelFromActivePromptPayload,
   selectActivePrompt,
@@ -498,6 +501,38 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
       seatId: "seat:3",
       viewerId: "viewer:session:3",
     });
+  });
+
+  it("checks prompt ownership through explicit identity instead of the top-level legacy player alias", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_public_prompt_owner",
+      request_type: "movement",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      choices: [{ choice_id: "roll", title: "Roll" }],
+    });
+
+    expect(prompt).not.toBeNull();
+    const driftedLegacyAlias = { ...prompt!, playerId: 99 };
+
+    expect(isPromptTargetedToLegacyPlayer(driftedLegacyAlias, 2)).toBe(true);
+    expect(isPromptTargetedToLegacyPlayer(driftedLegacyAlias, 99)).toBe(false);
+  });
+
+  it("compares queued prompt targets with the primary public identity when present", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_public_prompt_queue",
+      request_type: "burden_exchange",
+      player_id: "player_public_4",
+      legacy_player_id: 4,
+      public_player_id: "player_public_4",
+      choices: [{ choice_id: "no", title: "No", secondary: true }],
+    });
+
+    expect(promptPrimaryTargetId(prompt)).toBe("player_public_4");
+    expect(isPromptPrimaryTarget(prompt, "player_public_4")).toBe(true);
+    expect(isPromptPrimaryTarget(prompt, 4)).toBe(false);
   });
 
   it("prefers ViewCommit prompt feedback while falling back to raw decision_ack", () => {

@@ -6,11 +6,15 @@ import {
 } from "./domain/labels/manifestLabelCatalog";
 import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
 import {
+  isPromptPrimaryTarget,
+  isPromptTargetedToLegacyPlayer,
+  promptPrimaryTargetId,
   type PromptViewModel,
   selectActivePrompt,
   selectCurrentHandTrayCards,
   selectPromptInteractionState,
 } from "./domain/selectors/promptSelectors";
+import type { ProtocolPlayerId } from "./core/contracts/stream";
 import {
   type CurrentTurnRevealItem,
   selectActiveCharacterSlots,
@@ -774,7 +778,7 @@ export function App() {
   const [promptExpiresAtMs, setPromptExpiresAtMs] = useState<number | null>(null);
   const [promptFeedback, setPromptFeedback] = useState("");
   const [burdenExchangeQueuedDeckIndexes, setBurdenExchangeQueuedDeckIndexes] = useState<number[]>([]);
-  const [burdenExchangeQueuedPlayerId, setBurdenExchangeQueuedPlayerId] = useState<number | null>(null);
+  const [burdenExchangeQueuedPromptTargetId, setBurdenExchangeQueuedPromptTargetId] = useState<ProtocolPlayerId | null>(null);
   const [spectatorPanelOffset, setSpectatorPanelOffset] = useState({ x: 0, y: 0 });
   const [spectatorPanelMode, setSpectatorPanelMode] = useState<SpectatorPanelMode>("current");
   const [spectatorPanelWidthPercent, setSpectatorPanelWidthPercent] = useState<SpectatorPanelWidthPercent>(75);
@@ -1003,15 +1007,15 @@ export function App() {
 
   const activePrompt = selectActivePrompt(stream.messages);
   const activePromptLabel = activePrompt ? promptLabelForType(activePrompt.requestType) : null;
-  const canActOnPrompt = Boolean(activePrompt && token && effectivePlayerId !== null && activePrompt.playerId === effectivePlayerId);
+  const canActOnPrompt = Boolean(token && isPromptTargetedToLegacyPlayer(activePrompt, effectivePlayerId));
   const actionablePrompt = canActOnPrompt ? activePrompt : null;
   const actionablePromptBehavior = actionablePrompt?.behavior ?? null;
   const suppressQueuedBurdenPrompt = Boolean(
     actionablePrompt &&
       actionablePromptBehavior?.normalizedRequestType === "burden_exchange_batch" &&
       actionablePromptBehavior.singleSurface &&
-      burdenExchangeQueuedPlayerId !== null &&
-      actionablePrompt.playerId === burdenExchangeQueuedPlayerId
+      burdenExchangeQueuedPromptTargetId !== null &&
+      isPromptPrimaryTarget(actionablePrompt, burdenExchangeQueuedPromptTargetId)
   );
   const visibleActionablePrompt = suppressQueuedBurdenPrompt ? null : actionablePrompt;
   const passivePrompt = activePrompt && !canActOnPrompt ? activePrompt : null;
@@ -1517,7 +1521,7 @@ export function App() {
       setPromptExpiresAtMs(null);
       setPromptFeedback("");
       setBurdenExchangeQueuedDeckIndexes([]);
-      setBurdenExchangeQueuedPlayerId(null);
+      setBurdenExchangeQueuedPromptTargetId(null);
       promptSubmitRequestIdRef.current = null;
       return;
     }
@@ -1536,26 +1540,26 @@ export function App() {
       return;
     }
     const keepBurdenExchangeQueue =
-      burdenExchangeQueuedPlayerId !== null &&
+      burdenExchangeQueuedPromptTargetId !== null &&
       actionablePromptBehavior?.normalizedRequestType === "burden_exchange_batch" &&
       actionablePromptBehavior.autoContinue === true &&
-      actionablePrompt?.playerId === burdenExchangeQueuedPlayerId;
+      isPromptPrimaryTarget(actionablePrompt, burdenExchangeQueuedPromptTargetId);
     setPromptBusy(false);
     if (!keepBurdenExchangeQueue) {
       setBurdenExchangeQueuedDeckIndexes([]);
-      setBurdenExchangeQueuedPlayerId(null);
+      setBurdenExchangeQueuedPromptTargetId(null);
     }
     promptSubmitRequestIdRef.current = null;
   }, [
     actionablePrompt,
     actionablePromptBehavior,
-    burdenExchangeQueuedPlayerId,
+    burdenExchangeQueuedPromptTargetId,
     promptBusy,
     promptInteraction.shouldReleaseSubmission,
   ]);
 
   useEffect(() => {
-    if (burdenExchangeQueuedPlayerId === null) {
+    if (burdenExchangeQueuedPromptTargetId === null) {
       return;
     }
     if (promptUiBusy) {
@@ -1563,17 +1567,17 @@ export function App() {
     }
     if (!actionablePrompt) {
       setBurdenExchangeQueuedDeckIndexes([]);
-      setBurdenExchangeQueuedPlayerId(null);
+      setBurdenExchangeQueuedPromptTargetId(null);
       return;
     }
     if (
       actionablePromptBehavior?.normalizedRequestType !== "burden_exchange_batch" ||
-      actionablePrompt.playerId !== burdenExchangeQueuedPlayerId
+      !isPromptPrimaryTarget(actionablePrompt, burdenExchangeQueuedPromptTargetId)
     ) {
       setBurdenExchangeQueuedDeckIndexes([]);
-      setBurdenExchangeQueuedPlayerId(null);
+      setBurdenExchangeQueuedPromptTargetId(null);
     }
-  }, [actionablePrompt, actionablePromptBehavior, burdenExchangeQueuedPlayerId, promptUiBusy]);
+  }, [actionablePrompt, actionablePromptBehavior, burdenExchangeQueuedPromptTargetId, promptUiBusy]);
 
   useEffect(() => {
     if (
@@ -1581,8 +1585,8 @@ export function App() {
       promptUiBusy ||
       actionablePromptBehavior?.normalizedRequestType !== "burden_exchange_batch" ||
       actionablePromptBehavior.autoContinue !== true ||
-      burdenExchangeQueuedPlayerId === null ||
-      actionablePrompt.playerId !== burdenExchangeQueuedPlayerId
+      burdenExchangeQueuedPromptTargetId === null ||
+      !isPromptPrimaryTarget(actionablePrompt, burdenExchangeQueuedPromptTargetId)
     ) {
       return;
     }
@@ -1609,7 +1613,7 @@ export function App() {
       promptSubmitRequestIdRef.current = null;
       setPromptFeedback(app.errors.sendPrompt);
       setBurdenExchangeQueuedDeckIndexes([]);
-      setBurdenExchangeQueuedPlayerId(null);
+      setBurdenExchangeQueuedPromptTargetId(null);
       return;
     }
     setBurdenExchangeQueuedDeckIndexes((prev) =>
@@ -1620,7 +1624,7 @@ export function App() {
     actionablePrompt,
     actionablePromptBehavior,
     burdenExchangeQueuedDeckIndexes,
-    burdenExchangeQueuedPlayerId,
+    burdenExchangeQueuedPromptTargetId,
     promptUiBusy,
     stream,
     app.errors,
@@ -2496,7 +2500,7 @@ export function App() {
     if (!markPromptSubmissionStarted(actionablePrompt.requestId)) {
       return;
     }
-    if (!actionablePrompt.playerId) {
+    if (promptPrimaryTargetId(actionablePrompt) === null) {
       releasePromptSubmissionForRetry(actionablePrompt.requestId);
       setError(app.errors.invalidPromptPlayer);
       return;
@@ -2558,7 +2562,7 @@ export function App() {
         setPromptFeedback(app.errors.sendPrompt);
         return;
       }
-      setBurdenExchangeQueuedPlayerId(actionablePrompt.playerId);
+      setBurdenExchangeQueuedPromptTargetId(promptPrimaryTargetId(actionablePrompt));
       setBurdenExchangeQueuedDeckIndexes(
         currentDeckIndex === null ? requestedDeckIndexes : requestedDeckIndexes.filter((item) => item !== currentDeckIndex)
       );
@@ -2567,7 +2571,7 @@ export function App() {
     }
     setPromptFeedback("");
     setBurdenExchangeQueuedDeckIndexes([]);
-    setBurdenExchangeQueuedPlayerId(null);
+    setBurdenExchangeQueuedPromptTargetId(null);
     const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
       ...promptDecisionIdentity(actionablePrompt),

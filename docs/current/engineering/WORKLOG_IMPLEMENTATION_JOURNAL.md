@@ -129,6 +129,10 @@ in the active plans, status index, tests, or canonical contract documents.
   `PromptViewModel.identity`. The selector can parse public prompt identity
   before the UI resolves it to a legacy engine seat, but actionable prompt
   rendering still requires the numeric `legacy_player_id` bridge.
+- `App.tsx` prompt actionability and queued burden-exchange suppression now
+  call `promptSelectors` identity helpers instead of comparing top-level
+  `PromptViewModel.playerId` directly. The remaining numeric requirement is
+  the local viewer-to-legacy-seat bridge, not prompt ownership logic.
 - Headless external-policy and replay exports now preserve public player,
   seat, viewer, and legacy player companions. HTTP decision policy requests
   keep numeric `player_id` for existing policy consumers while adding

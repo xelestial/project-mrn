@@ -355,6 +355,23 @@ export function promptIdentityFromActivePromptPayload(active: Record<string, unk
   };
 }
 
+export function promptPrimaryTargetId(prompt: PromptViewModel | null): ProtocolPlayerId | null {
+  return prompt?.identity.primaryPlayerId ?? null;
+}
+
+export function isPromptPrimaryTarget(prompt: PromptViewModel | null, targetId: ProtocolPlayerId | null): boolean {
+  return promptPrimaryTargetId(prompt) === targetId;
+}
+
+export function isPromptTargetedToLegacyPlayer(prompt: PromptViewModel | null, legacyPlayerId: number | null): boolean {
+  return (
+    prompt !== null &&
+    typeof legacyPlayerId === "number" &&
+    Number.isFinite(legacyPlayerId) &&
+    prompt.identity.legacyPlayerId === Math.floor(legacyPlayerId)
+  );
+}
+
 function stringArrayOrNull(value: unknown): string[] | null {
   if (!Array.isArray(value)) {
     return null;

@@ -190,10 +190,13 @@ move to the string public identity contract. 2026-05-14 frontend/headless progre
 legacy numeric render bridge.
 The React UI `sendDecision` path now extracts the same protocol identity companions from the
 active prompt before serialization. `useGameStream` duplicate-flight keys now prefer public/protocol
-identity and only fall back to numeric identity for legacy prompts, while numeric UI ownership
-checks remain on the active-prompt bridge. The web prompt selector, frontend decision protocol, headless HTTP
-policy input, and compact headless decision trace now also preserve `public_prompt_instance_id`
-alongside the numeric `prompt_instance_id`; the numeric value remains the lifecycle bridge.
+identity and only fall back to numeric identity for legacy prompts. Rendered UI prompt actionability
+and queued burden-exchange suppression now compare through `PromptViewModel.identity` helpers instead
+of direct top-level `PromptViewModel.playerId` equality, while the local viewer side still uses the
+numeric legacy seat bridge until viewer identity migration is complete. The web prompt selector,
+frontend decision protocol, headless HTTP policy input, and compact headless decision trace now also
+preserve `public_prompt_instance_id` alongside the numeric `prompt_instance_id`; the numeric value
+remains the lifecycle bridge.
 
 ## Problem 2. Numeric Sequences Are Doing Too Much
 
@@ -890,7 +893,9 @@ Acceptance evidence status, 2026-05-14:
 - `apps/web/src/domain/selectors/promptSelectors.spec.ts` verifies that prompt selection projects public
   prompt identity into `PromptViewModel.identity.primaryPlayerId` while preserving the numeric
   `legacy_player_id` bridge for current actionable rendering. It also verifies that public prompt identity
-  can be parsed before the UI can resolve that identity to a legacy engine seat.
+  can be parsed before the UI can resolve that identity to a legacy engine seat, and that rendered UI
+  ownership/queued target helpers read `PromptViewModel.identity` instead of the top-level legacy
+  `PromptViewModel.playerId` alias.
 - `apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event`,
   `test_resume_resends_pending_prompt_created_without_stream_event`, and
   `test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history` verify that repaired pending prompt
