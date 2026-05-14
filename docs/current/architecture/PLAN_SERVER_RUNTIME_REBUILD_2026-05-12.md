@@ -618,14 +618,14 @@ commit signal
 
 - 완료: `apps/server/src/domain/protocol_ids.py`에 `stable_prompt_request_id()`와 `legacy_prompt_request_id()`를 추가했다.
 - 완료: `DecisionGateway._stable_prompt_request_id()`는 더 이상 round/turn-only 문자열을 직접 만들지 않고 shared protocol id helper를 호출한다.
-- 완료: `_LocalHumanDecisionClient._attach_active_module_continuation()`은 module prompt의 `frame_id`, `module_id`, `module_cursor`, `runtime_module`을 request id 생성 전에 envelope에 넣는다.
+- 완료: `PromptBoundaryBuilder`가 module prompt의 `frame_id`, `module_id`, `module_cursor`, `runtime_module`을 request id 생성 전에 envelope에 넣는다. `_LocalHumanDecisionClient`는 builder가 만든 envelope를 `DecisionGateway`로 넘기는 transport adapter로 축소됐다.
 - 완료: boundary id는 `frame_id`, `module_id`, `module_cursor`, optional `batch_id`, `player_id`, `request_type`, `prompt_instance_id`를 포함한다. 따라서 같은 round/turn/player/request_type이라도 module boundary가 다르면 충돌하지 않는다.
 - 완료: boundary 없는 prompt는 기존 `session:rX:tY:pZ:type:N` 형식을 유지한다. 이것이 old id shape adapter다.
 - 완료: `DecisionGateway`의 process-local request id retry fallback을 제거했다. blocking human prompt가 같은 deterministic `request_id`의 pending prompt를 다시 만나면 새 id를 만들지 않고 기존 prompt payload를 publish/wait 대상으로 재사용한다.
 - 완료: `DecisionGateway.resolve_ai_decision()`은 process-local counter/random id를 쓰지 않고 request type, player id, public context fingerprint로 stable protocol id를 만든다. 이 값은 AI 이벤트 상관관계용 id이다. 당시 외부 AI callback 분리는 Phase 7의 남은 작업이었고, HTTP external AI path는 2026-05-13에 provider=`ai` pending prompt와 callback command boundary로 분리됐다.
 - 완료: runtime recovery prompt sequence seed 계산은 `apps/server/src/domain/prompt_sequence.py`로 이동했다.
-- 완료: 서버 `_LocalHumanDecisionClient`는 더 이상 engine `HumanHttpPolicy._prompt_seq` private field를 prompt sequence source로 읽거나 쓰지 않는다. 서버 adapter가 checkpoint seed에서 이어받은 `_prompt_seq`를 자체 보유한다.
-- 남음: process-local prompt sequence source 자체는 아직 완전히 제거하지 않았다. 이를 제거하려면 session loop 또는 prompt boundary service가 prompt boundary 생성을 완전히 소유해야 한다. engine 독립 실행용 `HumanHttpPolicy._prompt_seq`도 이 단계에서는 유지한다.
+- 완료: 서버 `_LocalHumanDecisionClient`는 더 이상 engine `HumanHttpPolicy._prompt_seq` private field나 자체 prompt sequence state를 prompt sequence source로 읽거나 쓰지 않는다. `_ServerDecisionPolicyBridge`가 `PromptBoundaryBuilder`를 소유하고 checkpoint seed에서 이어받은 prompt sequence를 builder에 주입한다.
+- 남음: engine 독립 실행용 `HumanHttpPolicy._prompt_seq`는 이 단계에서 유지한다. bridge-owned `PromptBoundaryBuilder`를 `SessionCommandExecutor`나 UnitOfWork-style boundary로 더 올릴지는 command/prompt atomicity 재설계 때 판단한다.
 
 ### Phase 9 - RuntimeService 축소와 legacy worker 제거
 

@@ -78,9 +78,11 @@ Read and maintain these:
   now owns command lifecycle control flow through `SessionCommandExecutor` and
   no longer falls back to `RuntimeService.process_command_once()`;
   `DecisionGateway` no longer owns process-local/random request id fallback for
-  human prompt retry or AI decision events; `_LocalHumanDecisionClient` no
-  longer uses engine `HumanHttpPolicy._prompt_seq` as its private prompt
-  sequence source; prompt replay probing is now nonblocking on the live
+  human prompt retry or AI decision events; `_ServerDecisionPolicyBridge` now
+  owns prompt boundary construction through `PromptBoundaryBuilder`, and
+  `_LocalHumanDecisionClient` no longer owns prompt sequence state or uses
+  engine `HumanHttpPolicy._prompt_seq` as its private prompt sequence source;
+  prompt replay probing is now nonblocking on the live
   prompt-creation path; HTTP external AI now stops at a provider=`ai` pending
   prompt boundary and callback decisions re-enter through
   `PromptService`/`CommandInbox` before `CommandRouter` wakeup;

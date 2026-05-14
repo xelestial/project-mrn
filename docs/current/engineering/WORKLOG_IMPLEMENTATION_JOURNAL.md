@@ -28,31 +28,28 @@ in the active plans, status index, tests, or canonical contract documents.
 - Module decision commands now carry explicit `prompt_instance_id`, and runtime
   resume matching and prompt sequence seeding now use that explicit field
   without parsing legacy request-id suffixes for prompt instance recovery.
-- Prompt instance sequence increment/restore now lives in
-  `domain.prompt_sequence.PromptInstanceSequencer` instead of a raw
-  `_LocalHumanDecisionClient` integer field. This is a bounded ownership move:
-  the bridge still allocates numeric `prompt_instance_id` values during
-  compatibility mode, but the local counter rule is now a tested domain helper
-  rather than ad hoc runtime-client state.
+- Prompt instance sequence increment/restore now lives behind
+  `services.prompt_boundary_builder.PromptBoundaryBuilder`, which uses
+  `domain.prompt_sequence.PromptInstanceSequencer` for the numeric rule.
+  `_ServerDecisionPolicyBridge` owns the builder and recovery seed API;
+  `_LocalHumanDecisionClient` no longer exposes prompt sequence state or
+  increments prompt instances itself.
 - Pending prompt boundary state recording and clearing now also live in
   `domain.prompt_sequence` helpers. `RuntimeService` still detects the
   `PromptRequired` boundary, but the checkpoint fields for pending request,
   prompt type, player, instance id, and sequence advancement are no longer
   hand-written in the transition loop.
-- Prompt boundary envelope preparation now lives in
-  `domain.prompt_sequence.prepare_prompt_boundary_envelope()`. The server
-  bridge and local human decision client still allocate compatibility
-  `prompt_instance_id` values, but request metadata, public-context merging,
-  and prompt copy semantics are no longer hand-written in `_ask()` bodies.
-  Module continuation attachment remains in the local runtime client until a
-  future prompt-boundary owner can receive the active module/frame context
-  directly.
+- Prompt boundary envelope preparation now runs through
+  `PromptBoundaryBuilder`, with the pure merge/copy rule still in
+  `domain.prompt_sequence.prepare_prompt_boundary_envelope()`. The builder
+  allocates compatibility `prompt_instance_id` values, merges active request
+  metadata, and attaches module continuation metadata before the prompt reaches
+  `DecisionGateway`.
 - Decision-resume prompt sequence matching and post-resume advancement now use
-  `domain.prompt_sequence` helpers. `_ServerDecisionPolicyBridge` still stores
-  and seeds the compatibility prompt sequence through the human client, but the
-  "unknown instance matches", "unseeded sequence matches", and
-  `max(current + 1, resume_instance)` rules are no longer bridge-local
-  arithmetic.
+  `domain.prompt_sequence` helpers against the bridge-owned
+  `PromptBoundaryBuilder`. The "unknown instance matches", "unseeded sequence
+  matches", and `max(current + 1, resume_instance)` rules are no longer
+  bridge-local arithmetic or local human client state.
 - Active batch prompt enrichment now requires explicit `batch_id` plus
   submitted player identity when exact request-id equality does not match.
   Runtime no longer derives batch identity or player position from the legacy
@@ -130,7 +127,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_sequence.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_runtime_prompt_boundary_can_publish_after_view_commit_guardrail apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_human_bridge_prompt_sequence_can_resume_from_checkpoint_value apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision -q`
-- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_prompt_module_continuation.py::test_local_human_client_prompt_sequence_is_owned_by_server_adapter apps/server/tests/test_prompt_module_continuation.py::test_local_human_prompt_created_inside_module_attaches_active_continuation -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_prompt_module_continuation.py::test_local_human_client_prompt_boundary_is_owned_by_builder apps/server/tests/test_prompt_module_continuation.py::test_local_human_prompt_created_inside_module_attaches_active_continuation -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_public_request_alias_resolution_uses_index_before_scans -q`
@@ -176,7 +173,7 @@ Verification:
 
 - `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_gateway_reuses_pending_prompt_id_when_blocking apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_gateway_has_no_process_local_request_seq_fallback -q`
 - `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q -k 'decision_gateway or runtime_prompt_boundary'`
-- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_prompt_module_continuation.py::test_local_human_client_prompt_sequence_is_owned_by_server_adapter apps/server/tests/test_prompt_module_continuation.py::test_local_human_prompt_created_inside_module_attaches_active_continuation -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_prompt_module_continuation.py::test_local_human_client_prompt_boundary_is_owned_by_builder apps/server/tests/test_prompt_module_continuation.py::test_local_human_prompt_created_inside_module_attaches_active_continuation -q`
 - `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_human_bridge_prompt_sequence_can_resume_from_checkpoint_value apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_module_resume_seeds_prompt_sequence_from_previous_same_module_decision -q`
 
 ## 2026-05-13 Runtime Matrix Coverage Sync
@@ -263,8 +260,11 @@ boundary adapter. The current split is:
 
 Important remaining responsibility:
 
-- Remove process-local prompt sequence ownership entirely by moving prompt
-  boundary creation out of the runtime policy/engine adapter path.
+- Prompt boundary construction is no longer owned by `_LocalHumanDecisionClient`;
+  the remaining architectural question is whether the bridge-owned
+  `PromptBoundaryBuilder` should later move up into `SessionCommandExecutor` or
+  a UnitOfWork-style owner. Do not move it until command/prompt atomicity is
+  being redesigned as one boundary.
 - Keep `CommandBoundaryGameStateStore` as the explicit command atomicity staging
   boundary until a future UnitOfWork-style owner exists in `SessionLoop` or
   `SessionCommandExecutor`.

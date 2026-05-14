@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from runtime_modules.contracts import FrameState, ModuleRef
-from apps.server.src.domain.prompt_sequence import PromptInstanceSequencer
 from apps.server.src.services.decision_gateway import METHOD_SPECS
+from apps.server.src.services.prompt_boundary_builder import PromptBoundaryBuilder
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 
@@ -466,8 +466,12 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
     )
     client = _LocalHumanDecisionClient.__new__(_LocalHumanDecisionClient)
     client.policy = SimpleNamespace()
-    client._prompt_instances = PromptInstanceSequencer(3)
-    client._gateway = _Gateway()
+    gateway = _Gateway()
+    client._prompt_boundary_builder = PromptBoundaryBuilder(
+        current_prompt_sequence=3,
+        stable_request_id_resolver=gateway._stable_prompt_request_id,
+    )
+    client._gateway = gateway
     client._active_call = call
 
     result = client._ask({"player_id": 0, "legal_choices": [{"choice_id": "defer"}]}, None, lambda: "fallback")
@@ -489,17 +493,13 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
     assert state.runtime_active_prompt.module_cursor == "await_trick_prompt"
 
 
-def test_local_human_client_prompt_sequence_is_owned_by_server_adapter() -> None:
+def test_local_human_client_prompt_boundary_is_owned_by_builder() -> None:
     client = _LocalHumanDecisionClient.__new__(_LocalHumanDecisionClient)
     client.policy = SimpleNamespace()
-    client._prompt_instances = PromptInstanceSequencer(3)
+    client._prompt_boundary_builder = PromptBoundaryBuilder(current_prompt_sequence=3)
 
-    assert client.prompt_seq == 3
-
-    client.bump_prompt_seq()
-    assert client.prompt_seq == 4
-    assert not hasattr(client.policy, "_prompt_seq")
-
-    client.set_prompt_seq(9)
-    assert client.prompt_seq == 9
+    assert not hasattr(client, "_prompt_instances")
+    assert not hasattr(client, "prompt_seq")
+    assert not hasattr(client, "bump_prompt_seq")
+    assert not hasattr(client, "set_prompt_seq")
     assert not hasattr(client.policy, "_prompt_seq")

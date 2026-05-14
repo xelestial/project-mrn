@@ -25,9 +25,7 @@ from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.domain.protocol_identity import display_identity_fields
 from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
 from apps.server.src.domain.prompt_sequence import (
-    PromptInstanceSequencer,
     clear_prompt_boundary_state,
-    prepare_prompt_boundary_envelope,
     prompt_instance_id_from_resume,
     prompt_resume_matches_next_instance,
     prompt_sequence_after_resume,
@@ -52,6 +50,10 @@ from apps.server.src.services.decision_gateway import (
     build_decision_invocation,
     build_decision_invocation_from_request,
     build_routed_decision_call,
+)
+from apps.server.src.services.prompt_boundary_builder import (
+    PromptBoundaryBuilder,
+    attach_active_module_continuation_to_envelope as _attach_active_module_continuation_to_envelope,
 )
 from apps.server.src.services.session_service import SessionNotFoundError
 from apps.server.src.services.command_execution_gate import CommandExecutionGate
@@ -4192,12 +4194,22 @@ class _ServerDecisionPolicyBridge:
             ai_decision_delay_ms=ai_decision_delay_ms,
             blocking_human_prompts=blocking_human_prompts,
         )
-        factory = client_factory or _ServerDecisionClientFactory()
-        self._human_client = factory.create_human_client(
-            human_seats=human_seats,
-            ai_fallback=ai_fallback,
-            gateway=self._gateway,
+        self._prompt_boundary_builder = PromptBoundaryBuilder(
+            stable_request_id_resolver=getattr(self._gateway, "_stable_prompt_request_id", None),
+            ensure_engine_import_path=RuntimeService._ensure_engine_import_path,
         )
+        factory = client_factory or _ServerDecisionClientFactory()
+        create_human_client_kwargs = {
+            "human_seats": human_seats,
+            "ai_fallback": ai_fallback,
+            "gateway": self._gateway,
+        }
+        create_human_client = factory.create_human_client
+        if "prompt_boundary_builder" in inspect.signature(create_human_client).parameters:
+            create_human_client_kwargs["prompt_boundary_builder"] = self._prompt_boundary_builder
+        self._human_client = create_human_client(**create_human_client_kwargs)
+        if callable(getattr(self._human_client, "set_prompt_boundary_builder", None)):
+            self._human_client.set_prompt_boundary_builder(self._prompt_boundary_builder)
         default_ai_client = factory.create_ai_client(ai_fallback=ai_fallback, gateway=self._gateway)
         if hasattr(factory, "create_participant_clients"):
             self._participant_clients = factory.create_participant_clients(
@@ -4223,20 +4235,15 @@ class _ServerDecisionPolicyBridge:
         self._decision_resume = resume
 
     def set_prompt_sequence(self, value: int) -> None:
-        if self._human_client is not None:
-            self._human_client.set_prompt_seq(value)
+        self._prompt_boundary_builder.set_prompt_sequence(value)
 
     def current_prompt_sequence(self) -> int:
-        if self._human_client is None:
-            return 0
-        return int(self._human_client.prompt_seq)
+        return int(self._prompt_boundary_builder.current_prompt_sequence())
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         if self._human_client is not None:
-            self._human_client.bump_prompt_seq()
-            prompt = prepare_prompt_boundary_envelope(
+            prompt = self._prompt_boundary_builder.prepare(
                 prompt,
-                prompt_instance_id=self._human_client.prompt_seq,
                 replace_prompt_instance_id=True,
             )
         return self._gateway.resolve_human_prompt(prompt, parser, fallback_fn)
@@ -4315,10 +4322,8 @@ class _ServerDecisionPolicyBridge:
         return True
 
     def _decision_resume_matches_next_prompt_instance(self, resume: RuntimeDecisionResume) -> bool:
-        if self._human_client is None:
-            return True
         return prompt_resume_matches_next_instance(
-            current_prompt_sequence=self._human_client.prompt_seq,
+            current_prompt_sequence=self._prompt_boundary_builder.current_prompt_sequence(),
             resume_prompt_instance_id=prompt_instance_id_from_resume(resume),
         )
 
@@ -4442,13 +4447,11 @@ class _ServerDecisionPolicyBridge:
         return selected_cards if selected_cards else None
 
     def _advance_prompt_sequence_after_decision_resume(self, resume: RuntimeDecisionResume) -> None:
-        if self._human_client is None:
-            return
         next_instance_id = prompt_sequence_after_resume(
-            current_prompt_sequence=self._human_client.prompt_seq,
+            current_prompt_sequence=self._prompt_boundary_builder.current_prompt_sequence(),
             resume_prompt_instance_id=prompt_instance_id_from_resume(resume),
         )
-        self._human_client.set_prompt_seq(next_instance_id)
+        self._prompt_boundary_builder.set_prompt_sequence(next_instance_id)
 
     def __getattr__(self, name: str):
         target = self._router.attribute_target(name)
@@ -4705,6 +4708,7 @@ class _HttpExternalAiTransport(_ExternalAiTransportBase):
             envelope,
             call,
             stable_request_id_resolver=getattr(self._gateway, "_stable_prompt_request_id", None),
+            ensure_engine_import_path=RuntimeService._ensure_engine_import_path,
         )
 
         def _parse_decision(response: dict[str, object]):
@@ -5000,162 +5004,6 @@ def _classify_external_ai_error(exc: Exception) -> str:
     return exc.__class__.__name__.lower()
 
 
-def _is_matching_prompt_continuation(
-    continuation,
-    *,
-    request_id: str,
-    frame_id: str,
-    module_id: str,
-    player_id: int,
-    request_type: str,
-) -> bool:  # noqa: ANN001
-    if continuation is None:
-        return False
-    continuation_player_id = getattr(continuation, "player_id", None)
-    if continuation_player_id is None:
-        return False
-    return (
-        str(getattr(continuation, "request_id", "") or "") == request_id
-        and str(getattr(continuation, "frame_id", "") or "") == frame_id
-        and str(getattr(continuation, "module_id", "") or "") == module_id
-        and int(continuation_player_id) == int(player_id)
-        and str(getattr(continuation, "request_type", "") or "") == request_type
-    )
-
-
-def _is_matching_prompt_boundary(
-    continuation,
-    *,
-    frame_id: str,
-    module_id: str,
-    player_id: int,
-    request_type: str,
-) -> bool:  # noqa: ANN001
-    if continuation is None:
-        return False
-    continuation_player_id = getattr(continuation, "player_id", None)
-    if continuation_player_id is None:
-        return False
-    return (
-        str(getattr(continuation, "frame_id", "") or "") == frame_id
-        and str(getattr(continuation, "module_id", "") or "") == module_id
-        and int(continuation_player_id) == int(player_id)
-        and str(getattr(continuation, "request_type", "") or "") == request_type
-    )
-
-
-def _active_frame_and_module(state) -> tuple[object | None, object | None]:  # noqa: ANN001
-    frames = getattr(state, "runtime_frame_stack", None)
-    if not isinstance(frames, list):
-        return None, None
-    for frame in reversed(frames):
-        active_module_id = getattr(frame, "active_module_id", None)
-        if not active_module_id:
-            continue
-        for module in getattr(frame, "module_queue", []) or []:
-            if getattr(module, "module_id", None) == active_module_id:
-                return frame, module
-    return None, None
-
-
-def _attach_active_module_continuation_to_envelope(
-    envelope: dict,
-    active_call,
-    *,
-    stable_request_id_resolver=None,
-) -> None:  # noqa: ANN001
-    invocation = getattr(active_call, "invocation", None)
-    state = getattr(invocation, "state", None)
-    if state is None or str(getattr(state, "runtime_runner_kind", "") or "").lower() != "module":
-        return
-    frame, module = _active_frame_and_module(state)
-    if frame is None or module is None:
-        return
-    boundary_fields = {
-        "runner_kind": "module",
-        "frame_type": str(getattr(frame, "frame_type", "") or ""),
-        "frame_id": str(getattr(frame, "frame_id", "") or ""),
-        "module_id": str(getattr(module, "module_id", "") or ""),
-        "module_type": str(getattr(module, "module_type", "") or ""),
-        "module_cursor": str(getattr(module, "cursor", "") or ""),
-        "idempotency_key": str(getattr(module, "idempotency_key", "") or ""),
-    }
-    envelope.update({key: value for key, value in boundary_fields.items() if value and key != "idempotency_key"})
-    existing_runtime_module = envelope.get("runtime_module")
-    if not isinstance(existing_runtime_module, dict):
-        existing_runtime_module = {}
-    envelope["runtime_module"] = {**boundary_fields, **existing_runtime_module}
-    request = getattr(active_call, "request", None)
-    request_type = str(envelope.get("request_type") or getattr(request, "request_type", "") or "")
-    internal_player_id = getattr(request, "player_id", None)
-    if internal_player_id is None:
-        internal_player_id = int(envelope.get("player_id", 1) or 1) - 1
-    public_context = dict(envelope.get("public_context") or {})
-    existing_continuation = getattr(state, "runtime_active_prompt", None)
-    if not str(envelope.get("request_id") or "").strip() and _is_matching_prompt_boundary(
-        existing_continuation,
-        frame_id=str(getattr(frame, "frame_id", "") or ""),
-        module_id=str(getattr(module, "module_id", "") or ""),
-        player_id=int(internal_player_id),
-        request_type=request_type,
-    ):
-        envelope["request_id"] = str(getattr(existing_continuation, "request_id", "") or "")
-    if not str(envelope.get("request_id") or "").strip() and callable(stable_request_id_resolver):
-        envelope["request_id"] = str(stable_request_id_resolver(envelope, public_context))
-    request_id = str(envelope.get("request_id") or "").strip()
-    if not request_id:
-        return
-    legal_choices = envelope.get("legal_choices")
-    if not isinstance(legal_choices, list):
-        legal_choices = list(getattr(active_call, "legal_choices", []) or [])
-        envelope["legal_choices"] = legal_choices
-    RuntimeService._ensure_engine_import_path()
-    from runtime_modules.prompts import PromptApi
-
-    if _is_matching_prompt_continuation(
-        existing_continuation,
-        request_id=request_id,
-        frame_id=str(getattr(frame, "frame_id", "") or ""),
-        module_id=str(getattr(module, "module_id", "") or ""),
-        player_id=int(internal_player_id),
-        request_type=request_type,
-    ):
-        continuation = existing_continuation
-    else:
-        continuation = PromptApi().create_continuation(
-            request_id=request_id,
-            prompt_instance_id=int(envelope.get("prompt_instance_id", 0) or 0),
-            frame=frame,
-            module=module,
-            player_id=int(internal_player_id),
-            request_type=request_type,
-            legal_choices=[dict(choice) for choice in legal_choices if isinstance(choice, dict)],
-            public_context=public_context,
-        )
-    state.runtime_active_prompt = continuation
-    state.runtime_active_prompt_batch = None
-    module_fields = {
-        "runner_kind": "module",
-        "frame_type": str(getattr(frame, "frame_type", "") or ""),
-        "frame_id": continuation.frame_id,
-        "module_id": continuation.module_id,
-        "module_type": continuation.module_type,
-        "module_cursor": continuation.module_cursor,
-        "idempotency_key": str(getattr(module, "idempotency_key", "") or ""),
-    }
-    envelope.update(
-        {
-            "runner_kind": "module",
-            "resume_token": continuation.resume_token,
-            "frame_id": continuation.frame_id,
-            "module_id": continuation.module_id,
-            "module_type": continuation.module_type,
-            "module_cursor": continuation.module_cursor,
-            "runtime_module": module_fields,
-        }
-    )
-
-
 def _external_ai_prompt_metadata_from_envelope(envelope: dict[str, object]) -> dict[str, object]:
     prompt_metadata_keys = {
         "prompt_instance_id",
@@ -5175,8 +5023,18 @@ def _external_ai_prompt_metadata_from_envelope(envelope: dict[str, object]) -> d
 
 
 class _LocalHumanDecisionClient:
-    def __init__(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway) -> None:
-        self._prompt_instances = PromptInstanceSequencer()
+    def __init__(
+        self,
+        *,
+        human_seats: list[int],
+        ai_fallback,
+        gateway: DecisionGateway,
+        prompt_boundary_builder: PromptBoundaryBuilder | None = None,
+    ) -> None:
+        self._prompt_boundary_builder = prompt_boundary_builder or PromptBoundaryBuilder(
+            stable_request_id_resolver=getattr(gateway, "_stable_prompt_request_id", None),
+            ensure_engine_import_path=RuntimeService._ensure_engine_import_path,
+        )
         if not human_seats:
             self.policy = None
             return
@@ -5192,15 +5050,8 @@ class _LocalHumanDecisionClient:
         self._gateway = gateway
         self._active_call = None
 
-    @property
-    def prompt_seq(self) -> int:
-        return self._prompt_instances.current
-
-    def bump_prompt_seq(self) -> None:
-        self._prompt_instances.allocate_next()
-
-    def set_prompt_seq(self, value: int) -> None:
-        self._prompt_instances.set_current(value)
+    def set_prompt_boundary_builder(self, builder: PromptBoundaryBuilder) -> None:
+        self._prompt_boundary_builder = builder
 
     def _ask(self, prompt: dict, parser, fallback_fn):
         started = time.perf_counter()
@@ -5213,16 +5064,12 @@ class _LocalHumanDecisionClient:
             phase_timings[f"{name}_ms"] = _duration_ms(phase_started)
             phase_started = time.perf_counter()
 
-        self.bump_prompt_seq()
         active_call = self._active_call
-        envelope = prepare_prompt_boundary_envelope(
+        envelope = self._prompt_boundary_builder.prepare(
             prompt,
-            prompt_instance_id=self.prompt_seq,
             active_call=active_call,
         )
         _mark_phase("envelope_prepare")
-        if active_call is not None:
-            self._attach_active_module_continuation(envelope, active_call)
         _mark_phase("active_call_attach")
         try:
             try:
@@ -5245,13 +5092,6 @@ class _LocalHumanDecisionClient:
                     error_type=error.__class__.__name__ if error is not None and not isinstance(error, PromptRequired) else None,
                     **phase_timings,
                 )
-
-    def _attach_active_module_continuation(self, envelope: dict, active_call) -> None:  # noqa: ANN001
-        _attach_active_module_continuation_to_envelope(
-            envelope,
-            active_call,
-            stable_request_id_resolver=getattr(self._gateway, "_stable_prompt_request_id", None),
-        )
 
     def resolve(self, call):
         if self.policy is None:
@@ -5333,11 +5173,19 @@ class _ServerDecisionClientFactory:
     def create_ai_client(self, *, ai_fallback, gateway: DecisionGateway):
         return _LocalAiDecisionClient(ai_fallback=ai_fallback, gateway=gateway)
 
-    def create_human_client(self, *, human_seats: list[int], ai_fallback, gateway: DecisionGateway):
+    def create_human_client(
+        self,
+        *,
+        human_seats: list[int],
+        ai_fallback,
+        gateway: DecisionGateway,
+        prompt_boundary_builder: PromptBoundaryBuilder | None = None,
+    ):
         return _LocalHumanDecisionClient(
             human_seats=human_seats,
             ai_fallback=ai_fallback,
             gateway=gateway,
+            prompt_boundary_builder=prompt_boundary_builder,
         )
 
     def create_participant_clients(self, *, session_seats: list[SeatConfig], human_client, ai_fallback, gateway: DecisionGateway):
