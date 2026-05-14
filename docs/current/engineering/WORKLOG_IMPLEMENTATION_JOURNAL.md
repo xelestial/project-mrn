@@ -20,6 +20,13 @@ in the active plans, status index, tests, or canonical contract documents.
   `pawn_legacy_player_ids`. Numeric `*_player_id` aliases still remain for
   compatibility; this only makes the companion shape complete while public
   string IDs are additive.
+- `domain.protocol_identity.public_identity_numeric_leaks()` now provides a
+  reusable recursive guard for protocol payload tests. It fails when public
+  identity fields such as `public_player_id`, `seat_id`, `viewer_id`,
+  `public_request_id`, `public_prompt_instance_id`, `event_id`, public identity
+  lists, or `*_by_public_player_id` map keys collapse to numeric values, while
+  allowing explicit numeric compatibility aliases such as `player_id`,
+  `legacy_player_id`, `seat`, and `prompt_instance_id`.
 - Prompt timeout fallback now preserves prompt identity companions through
   fallback execution history and timeout/resolved event publication. The
   canonical `request_id` remains the opaque public id, and

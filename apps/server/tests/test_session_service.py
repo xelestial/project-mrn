@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 
+from apps.server.src.domain.protocol_identity import assert_no_public_identity_numeric_leaks
 from apps.server.src.services.session_service import SessionNotFoundError, SessionService, SessionStateError
 
 _PUBLIC_ID_PATTERNS = {
@@ -137,6 +138,10 @@ class SessionServiceTests(unittest.TestCase):
         _assert_public_identity_fields(self, join_1, seat_index=1, legacy_player_id=1)
         _assert_public_identity_fields(self, join_4, seat_index=4, legacy_player_id=4)
         _assert_public_identity_fields(self, auth_1, seat_index=1, legacy_player_id=1)
+        assert_no_public_identity_numeric_leaks(join_1, boundary="join_1")
+        assert_no_public_identity_numeric_leaks(join_4, boundary="join_4")
+        assert_no_public_identity_numeric_leaks(auth_1, boundary="auth_1")
+        assert_no_public_identity_numeric_leaks(public, boundary="session_public")
         for seat_payload in public["seats"]:
             legacy_player_id = seat_payload["player_id"]
             _assert_public_identity_fields(

@@ -88,7 +88,7 @@ Current Phase 0 evidence, 2026-05-13:
 | Contract | Current evidence |
 | --- | --- |
 | Protocol ID helpers | `apps/server/src/domain/protocol_ids.py` defines `new_public_player_id`, `new_seat_id`, `new_viewer_id`, `new_event_id`, `new_request_uuid`, `public_prompt_request_id`, `public_prompt_instance_id`, `prompt_protocol_identity_fields`, `player_label`, and `turn_label`. |
-| Additive session identity | `apps/server/tests/test_session_service.py` covers join payloads, public session payloads, auth context, and store-backed reload preserving `public_player_id`, `seat_id`, and `viewer_id`. `test_new_protocol_identity_fields_never_serialize_numeric_player_ids` locks the rule that newly added public identity fields remain string IDs and do not collapse back to numeric `player_id` values. |
+| Additive session identity | `apps/server/tests/test_session_service.py` covers join payloads, public session payloads, auth context, and store-backed reload preserving `public_player_id`, `seat_id`, and `viewer_id`. `test_new_protocol_identity_fields_never_serialize_numeric_player_ids` locks the rule that newly added public identity fields remain string IDs and do not collapse back to numeric `player_id` values, and uses `domain.protocol_identity.assert_no_public_identity_numeric_leaks()` as the reusable recursive guard for future protocol payload tests. |
 | Legacy numeric compatibility | `player_id`, `seat`, `seat_index`, `turn_order_index`, and `legacy_player_id` remain in the join/auth/viewer payloads while public UUID-like IDs are additive. |
 | `view_commit` round/turn metadata | `apps/server/src/services/runtime_service.py` builds authoritative commits with `round_index`, `turn_index`, and `turn_label` at both payload and `runtime` levels; frontend contract fields are in `apps/web/src/core/contracts/stream.ts`. |
 | Viewer display and public identity metadata | `display_identity_fields()` preserves numeric display compatibility, while `RuntimeService._view_commit_viewer_identity_fields()` enriches player `view_commit.viewer` payloads from `SessionService` with `public_player_id`, `seat_id`, and `viewer_id`. `apps/server/tests/test_runtime_service.py::test_authoritative_view_commit_enriches_viewer_with_session_protocol_identity` proves the string IDs are present without removing numeric bridge fields, and `apps/server/tests/test_visibility_projection.py` proves auth-derived viewer identity is preserved without changing visibility checks. |
@@ -856,7 +856,12 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_session_service.py` verifies `seat_index` and `player_label` stay aligned with `P1` through `P4`.
 - `apps/server/tests/test_session_service.py::test_new_protocol_identity_fields_never_serialize_numeric_player_ids`
   verifies that `public_player_id`, `seat_id`, and `viewer_id` serialize as string IDs, while numeric
-  `player_id` and `legacy_player_id` remain only as compatibility fields.
+  `player_id` and `legacy_player_id` remain only as compatibility fields. It also runs the recursive
+  `assert_no_public_identity_numeric_leaks()` guard over real join/auth/public-session payloads.
+- `apps/server/tests/test_protocol_identity.py` verifies the reusable protocol identity guard itself: numeric
+  public identity fields, public identity lists, and `*_by_public_player_id` map keys are reported, while
+  explicit numeric compatibility aliases such as `player_id`, `legacy_player_id`, `seat`, and
+  `prompt_instance_id` are allowed.
 - `apps/server/tests/test_session_service.py::test_resolve_protocol_player_id_accepts_public_identity_fields`
   verifies that the server can resolve public string identity fields for both human and AI seats back to
   the internal numeric seat id without requiring each route to implement its own conversion.
