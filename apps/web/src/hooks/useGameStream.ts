@@ -47,19 +47,6 @@ export type StreamDecisionFlightIdentity = {
   publicPlayerId: string | null;
 };
 
-export function resolveDecisionFlightPlayerId(args: {
-  playerId: ProtocolPlayerId;
-  legacyPlayerId?: number | null;
-}): number | null {
-  if (typeof args.playerId === "number" && Number.isFinite(args.playerId)) {
-    return Math.floor(args.playerId);
-  }
-  if (typeof args.legacyPlayerId === "number" && Number.isFinite(args.legacyPlayerId)) {
-    return Math.floor(args.legacyPlayerId);
-  }
-  return null;
-}
-
 export function resolveDecisionFlightIdentity(args: {
   playerId: ProtocolPlayerId;
   legacyPlayerId?: number | null;

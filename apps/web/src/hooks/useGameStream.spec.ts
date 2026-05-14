@@ -5,7 +5,7 @@ import {
   buildGameStreamKey,
   createDecisionRequestLedger,
 } from "../domain/stream/decisionProtocol";
-import { resolveDecisionFlightIdentity, resolveDecisionFlightPlayerId } from "./useGameStream";
+import { resolveDecisionFlightIdentity } from "./useGameStream";
 
 describe("useGameStream authoritative commit helpers", () => {
   it("builds the active stream key from the normalized session and token", () => {
@@ -112,20 +112,26 @@ describe("useGameStream authoritative commit helpers", () => {
     expect(nextPrompt).not.toBe(first);
   });
 
-  it("uses the legacy numeric player id for public protocol player decision flights", () => {
-    const flightPlayerId = resolveDecisionFlightPlayerId({
+  it("uses public protocol identity for decision flights without requiring a legacy numeric bridge", () => {
+    const flightIdentity = resolveDecisionFlightIdentity({
       playerId: "player_public_2",
-      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      legacyPlayerId: null,
     });
 
-    expect(flightPlayerId).toBe(2);
-    if (flightPlayerId === null) {
-      throw new Error("expected legacy numeric player id for public protocol player decision flight");
+    expect(flightIdentity).toEqual({
+      playerId: "player_public_2",
+      source: "public",
+      legacyPlayerId: null,
+      publicPlayerId: "player_public_2",
+    });
+    if (flightIdentity === null) {
+      throw new Error("expected public decision flight identity");
     }
     expect(
       buildDecisionFlightKey({
         requestId: "req_public_prompt",
-        playerId: flightPlayerId,
+        playerId: flightIdentity.playerId,
         requestType: "purchase",
         continuation: {
           promptInstanceId: 93,
@@ -139,20 +145,20 @@ describe("useGameStream authoritative commit helpers", () => {
           batchId: null,
         },
       }),
-    ).toBe("player:2\nprompt:sha256:prompt-93\naction:purchase");
+    ).toBe("player:player_public_2\nprompt:sha256:prompt-93\naction:purchase");
   });
 
-  it("uses public protocol identity for decision flights without requiring a legacy numeric bridge", () => {
+  it("prefers public protocol identity over a numeric top-level legacy alias for decision flights", () => {
     const flightIdentity = resolveDecisionFlightIdentity({
-      playerId: "player_public_2",
+      playerId: 2,
       publicPlayerId: "player_public_2",
-      legacyPlayerId: null,
+      legacyPlayerId: 2,
     });
 
     expect(flightIdentity).toEqual({
       playerId: "player_public_2",
       source: "public",
-      legacyPlayerId: null,
+      legacyPlayerId: 2,
       publicPlayerId: "player_public_2",
     });
     if (flightIdentity === null) {
@@ -229,6 +235,9 @@ describe("useGameStream authoritative commit helpers", () => {
       type: "decision",
       request_id: "req_move_1",
       player_id: 1,
+      player_id_alias_role: "legacy_compatibility_alias",
+      primary_player_id: 1,
+      primary_player_id_source: "legacy",
       choice_id: "roll",
       choice_payload: { dice: 4 },
       resume_token: "resume-token-1",
