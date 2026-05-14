@@ -24,6 +24,11 @@ in the active plans, status index, tests, or canonical contract documents.
   `player_id` plus explicit `legacy_player_id`, `public_player_id`, `seat_id`,
   and `viewer_id` companions. Existing numeric `player_id` examples remain
   valid; this only removes the schema-level integer-only blocker.
+- The external-AI full-stack smoke adapter now preserves pending prompt
+  `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
+  `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the
+  worker request and callback body while keeping numeric `player_id` as the
+  compatibility alias.
 - Runtime fanout and session bootstrap identity helpers now keep explicit
   prefixed/list legacy companions for protocol player-id fields. Examples:
   `acting_legacy_player_id`, `owner_legacy_player_id`,

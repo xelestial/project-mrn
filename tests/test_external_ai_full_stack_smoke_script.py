@@ -52,6 +52,40 @@ def test_worker_request_from_pending_prompt_uses_external_ai_contract_fields() -
     }
 
 
+def test_worker_request_preserves_protocol_identity_companions() -> None:
+    module = _load_module()
+    pending = {
+        "request_id": "req_public_1",
+        "legacy_request_id": "ai_req_1",
+        "public_request_id": "req_public_1",
+        "public_prompt_instance_id": "ppi_public_1",
+        "session_id": "sess_1",
+        "seat": 1,
+        "player_id": 10,
+        "legacy_player_id": 10,
+        "public_player_id": "player_public_10",
+        "seat_id": "seat_public_1",
+        "viewer_id": "viewer_public_1",
+        "decision_name": "choose_movement",
+        "request_type": "movement",
+        "fallback_policy": "ai",
+        "public_context": {"turn_index": 3},
+        "legal_choices": [{"choice_id": "dice"}],
+    }
+
+    request = module._worker_request_from_pending_prompt(pending, fallback_seat=1)
+
+    assert request["request_id"] == "req_public_1"
+    assert request["player_id"] == 10
+    assert request["legacy_request_id"] == "ai_req_1"
+    assert request["public_request_id"] == "req_public_1"
+    assert request["public_prompt_instance_id"] == "ppi_public_1"
+    assert request["legacy_player_id"] == 10
+    assert request["public_player_id"] == "player_public_10"
+    assert request["seat_id"] == "seat_public_1"
+    assert request["viewer_id"] == "viewer_public_1"
+
+
 def test_callback_payload_preserves_fingerprint_and_worker_choice_payload() -> None:
     module = _load_module()
     pending = {
@@ -75,6 +109,45 @@ def test_callback_payload_preserves_fingerprint_and_worker_choice_payload() -> N
         "choice_payload": {"source": "worker"},
         "prompt_fingerprint": "pf_123",
         "prompt_fingerprint_version": "prompt_fingerprint.v1",
+    }
+
+
+def test_callback_payload_preserves_protocol_identity_companions() -> None:
+    module = _load_module()
+    pending = {
+        "request_id": "req_public_1",
+        "legacy_request_id": "ai_req_1",
+        "public_request_id": "req_public_1",
+        "public_prompt_instance_id": "ppi_public_1",
+        "player_id": 10,
+        "legacy_player_id": 10,
+        "public_player_id": "player_public_10",
+        "seat_id": "seat_public_1",
+        "viewer_id": "viewer_public_1",
+        "prompt_fingerprint": "pf_123",
+        "prompt_fingerprint_version": "prompt_fingerprint.v1",
+    }
+    worker_response = {
+        "choice_id": "dice",
+        "choice_payload": {"source": "worker"},
+    }
+
+    callback = module._callback_payload_from_prompt_and_worker_response(pending, worker_response)
+
+    assert callback == {
+        "request_id": "req_public_1",
+        "player_id": 10,
+        "choice_id": "dice",
+        "choice_payload": {"source": "worker"},
+        "prompt_fingerprint": "pf_123",
+        "prompt_fingerprint_version": "prompt_fingerprint.v1",
+        "legacy_request_id": "ai_req_1",
+        "public_request_id": "req_public_1",
+        "public_prompt_instance_id": "ppi_public_1",
+        "legacy_player_id": 10,
+        "public_player_id": "player_public_10",
+        "seat_id": "seat_public_1",
+        "viewer_id": "viewer_public_1",
     }
 
 

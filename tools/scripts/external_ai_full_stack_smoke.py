@@ -80,6 +80,28 @@ def _default_session_payload(*, worker_base_url: str, seed: int) -> dict[str, An
     }
 
 
+_IDENTITY_COMPANION_FIELDS = (
+    "legacy_request_id",
+    "public_request_id",
+    "public_prompt_instance_id",
+    "legacy_player_id",
+    "public_player_id",
+    "seat_id",
+    "viewer_id",
+)
+
+
+def _copy_identity_companions(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for field in _IDENTITY_COMPANION_FIELDS:
+        value = source.get(field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if field == "legacy_player_id":
+            target[field] = int(value)
+            continue
+        target[field] = str(value).strip() if isinstance(value, str) else value
+
+
 def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_seat: int) -> dict[str, Any]:
     legal_choices = pending.get("legal_choices")
     if not isinstance(legal_choices, list) or not legal_choices:
@@ -87,7 +109,7 @@ def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_sea
     public_context = pending.get("public_context")
     required_capabilities = pending.get("required_capabilities")
     request_type = str(pending.get("request_type") or "").strip()
-    return {
+    request = {
         "request_id": str(pending.get("request_id") or "").strip(),
         "session_id": str(pending.get("session_id") or "").strip(),
         "seat": int(pending.get("seat") or fallback_seat),
@@ -101,6 +123,8 @@ def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_sea
         "worker_contract_version": str(pending.get("worker_contract_version") or "v1").strip(),
         "required_capabilities": list(required_capabilities) if isinstance(required_capabilities, list) else [],
     }
+    _copy_identity_companions(request, pending)
+    return request
 
 
 def _callback_payload_from_prompt_and_worker_response(
@@ -120,6 +144,7 @@ def _callback_payload_from_prompt_and_worker_response(
         value = pending.get(field)
         if value is not None:
             callback[field] = value
+    _copy_identity_companions(callback, pending)
     return callback
 
 
