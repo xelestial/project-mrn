@@ -235,6 +235,14 @@ export type PromptViewModel = {
   };
 };
 
+export type PromptTargetIdentityInput = {
+  legacyPlayerId?: number | null;
+  protocolPlayerId?: ProtocolPlayerId | null;
+  publicPlayerId?: string | null;
+  seatId?: string | null;
+  viewerId?: string | null;
+};
+
 export type HandTrayCardViewModel = {
   key: string;
   title: string;
@@ -332,6 +340,33 @@ function protocolPlayerIdOrNull(value: unknown): ProtocolPlayerId | null {
   return null;
 }
 
+function comparableLegacyPlayerId(value: unknown): number | null {
+  const normalized = numberOrNull(value);
+  return normalized !== null ? Math.floor(normalized) : null;
+}
+
+function comparableIdentityString(value: unknown): string | null {
+  return stringOrEmpty(value) || null;
+}
+
+function compareOptionalIdentity(promptValue: unknown, targetValue: unknown): boolean | null {
+  const promptIdentity = comparableIdentityString(promptValue);
+  const targetIdentity = comparableIdentityString(targetValue);
+  if (promptIdentity === null || targetIdentity === null) {
+    return null;
+  }
+  return promptIdentity === targetIdentity;
+}
+
+function compareOptionalProtocolPlayerId(promptValue: unknown, targetValue: unknown): boolean | null {
+  const promptIdentity = protocolPlayerIdOrNull(promptValue);
+  const targetIdentity = protocolPlayerIdOrNull(targetValue);
+  if (promptIdentity === null || targetIdentity === null) {
+    return null;
+  }
+  return promptIdentity === targetIdentity;
+}
+
 export function promptIdentityFromActivePromptPayload(active: Record<string, unknown>): PromptIdentityViewModel | null {
   const protocolPlayerId = protocolPlayerIdOrNull(active["player_id"]);
   const legacyPlayerId = numberOrNull(active["legacy_player_id"]) ?? numberOrNull(active["player_id"]);
@@ -364,12 +399,39 @@ export function isPromptPrimaryTarget(prompt: PromptViewModel | null, targetId: 
 }
 
 export function isPromptTargetedToLegacyPlayer(prompt: PromptViewModel | null, legacyPlayerId: number | null): boolean {
+  const targetLegacyPlayerId = comparableLegacyPlayerId(legacyPlayerId);
   return (
     prompt !== null &&
-    typeof legacyPlayerId === "number" &&
-    Number.isFinite(legacyPlayerId) &&
-    prompt.identity.legacyPlayerId === Math.floor(legacyPlayerId)
+    targetLegacyPlayerId !== null &&
+    prompt.identity.legacyPlayerId === targetLegacyPlayerId
   );
+}
+
+export function isPromptTargetedToIdentity(
+  prompt: PromptViewModel | null,
+  target: PromptTargetIdentityInput | null | undefined
+): boolean {
+  if (prompt === null || !target) {
+    return false;
+  }
+  const identity = prompt.identity;
+  const publicMatch = compareOptionalIdentity(identity.publicPlayerId, target.publicPlayerId);
+  if (publicMatch !== null) {
+    return publicMatch;
+  }
+  const protocolMatch = compareOptionalProtocolPlayerId(identity.protocolPlayerId, target.protocolPlayerId);
+  if (protocolMatch !== null) {
+    return protocolMatch;
+  }
+  const viewerMatch = compareOptionalIdentity(identity.viewerId, target.viewerId);
+  if (viewerMatch !== null) {
+    return viewerMatch;
+  }
+  const seatMatch = compareOptionalIdentity(identity.seatId, target.seatId);
+  if (seatMatch !== null) {
+    return seatMatch;
+  }
+  return isPromptTargetedToLegacyPlayer(prompt, comparableLegacyPlayerId(target.legacyPlayerId));
 }
 
 function stringArrayOrNull(value: unknown): string[] | null {

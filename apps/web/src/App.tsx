@@ -7,7 +7,7 @@ import {
 import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
 import {
   isPromptPrimaryTarget,
-  isPromptTargetedToLegacyPlayer,
+  isPromptTargetedToIdentity,
   promptPrimaryTargetId,
   type PromptViewModel,
   selectActivePrompt,
@@ -808,6 +808,22 @@ export function App() {
     localViewerIdentity,
     tokenViewerIdentity
   );
+  const promptTargetIdentity = useMemo(
+    () => ({
+      legacyPlayerId: effectivePlayerId,
+      protocolPlayerId:
+        streamViewerIdentity?.protocolPlayerId ??
+        localViewerIdentity?.protocolPlayerId ??
+        tokenViewerIdentity.protocolPlayerId,
+      publicPlayerId:
+        streamViewerIdentity?.publicPlayerId ??
+        localViewerIdentity?.publicPlayerId ??
+        tokenViewerIdentity.publicPlayerId,
+      seatId: streamViewerIdentity?.seatId ?? localViewerIdentity?.seatId ?? tokenViewerIdentity.seatId,
+      viewerId: streamViewerIdentity?.viewerId ?? localViewerIdentity?.viewerId ?? tokenViewerIdentity.viewerId,
+    }),
+    [effectivePlayerId, localViewerIdentity, streamViewerIdentity, tokenViewerIdentity]
+  );
 
   useEffect(() => {
     submittedPromptRequestIdsRef.current.clear();
@@ -1007,7 +1023,7 @@ export function App() {
 
   const activePrompt = selectActivePrompt(stream.messages);
   const activePromptLabel = activePrompt ? promptLabelForType(activePrompt.requestType) : null;
-  const canActOnPrompt = Boolean(token && isPromptTargetedToLegacyPlayer(activePrompt, effectivePlayerId));
+  const canActOnPrompt = Boolean(token && isPromptTargetedToIdentity(activePrompt, promptTargetIdentity));
   const actionablePrompt = canActOnPrompt ? activePrompt : null;
   const actionablePromptBehavior = actionablePrompt?.behavior ?? null;
   const suppressQueuedBurdenPrompt = Boolean(

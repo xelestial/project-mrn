@@ -9,6 +9,7 @@ import {
   selectActivePrompt,
   selectCurrentHandTrayCards,
   selectLatestDecisionAck,
+  isPromptTargetedToIdentity,
   selectPromptInteractionState,
 } from "./promptSelectors";
 
@@ -518,6 +519,48 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
 
     expect(isPromptTargetedToLegacyPlayer(driftedLegacyAlias, 2)).toBe(true);
     expect(isPromptTargetedToLegacyPlayer(driftedLegacyAlias, 99)).toBe(false);
+  });
+
+  it("checks prompt ownership with public viewer identity before falling back to legacy aliases", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_public_viewer_owner",
+      request_type: "movement",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat:2",
+      viewer_id: "viewer:session:2",
+      choices: [{ choice_id: "roll", title: "Roll" }],
+    });
+
+    expect(prompt).not.toBeNull();
+    expect(
+      isPromptTargetedToIdentity(prompt, {
+        legacyPlayerId: 99,
+        protocolPlayerId: "player_public_2",
+        publicPlayerId: "player_public_2",
+        seatId: "seat:2",
+        viewerId: "viewer:session:2",
+      })
+    ).toBe(true);
+    expect(
+      isPromptTargetedToIdentity(prompt, {
+        legacyPlayerId: 2,
+        protocolPlayerId: "player_public_other",
+        publicPlayerId: "player_public_other",
+        seatId: "seat:other",
+        viewerId: "viewer:session:other",
+      })
+    ).toBe(false);
+    expect(
+      isPromptTargetedToIdentity(prompt, {
+        legacyPlayerId: 2,
+        protocolPlayerId: null,
+        publicPlayerId: null,
+        seatId: null,
+        viewerId: null,
+      })
+    ).toBe(true);
   });
 
   it("compares queued prompt targets with the primary public identity when present", () => {

@@ -124,15 +124,17 @@ in the active plans, status index, tests, or canonical contract documents.
   legacy player, seat, and viewer companions into `useGameStream.sendDecision()`;
   `useGameStream` now resolves duplicate-flight keys through public/protocol
   identity when present and falls back to numeric identity only for legacy
-  prompts. UI ownership checks still use the numeric active-prompt bridge.
+  prompts.
 - `promptSelectors` now exposes an explicit `PromptIdentityViewModel` on
   `PromptViewModel.identity`. The selector can parse public prompt identity
   before the UI resolves it to a legacy engine seat, but actionable prompt
   rendering still requires the numeric `legacy_player_id` bridge.
-- `App.tsx` prompt actionability and queued burden-exchange suppression now
-  call `promptSelectors` identity helpers instead of comparing top-level
-  `PromptViewModel.playerId` directly. The remaining numeric requirement is
-  the local viewer-to-legacy-seat bridge, not prompt ownership logic.
+- `App.tsx` prompt actionability now compares `LocalViewerIdentity`
+  public/protocol/viewer/seat identity against `PromptViewModel.identity`
+  before legacy fallback. Queued burden-exchange suppression stays on the
+  prompt primary identity helper. The remaining numeric requirement is
+  actionable prompt view-model construction and display/engine-bridge selector
+  input, not the prompt target comparison itself.
 - Headless external-policy and replay exports now preserve public player,
   seat, viewer, and legacy player companions. HTTP decision policy requests
   keep numeric `player_id` for existing policy consumers while adding
@@ -587,13 +589,17 @@ foundations are separated from residual identity and outbox migration work.
 - `view_commit.viewer` public/protocol companions can now populate the same
   model, while existing display selectors still receive the resolved numeric
   `legacyPlayerId` bridge.
+- Prompt actionability now consumes this model directly through
+  `isPromptTargetedToIdentity()`, comparing public/protocol/viewer/seat identity
+  before falling back to the legacy numeric bridge.
 - Updated the protocol identity inventory and runtime protocol plan to record
   that this is an intermediate bridge, not numeric alias removal.
 
 Responsibility result: token parsing and local viewer identity construction
-moved out of `App.tsx` into the domain viewer helper. `App.tsx` still owns
-feeding legacy numeric selector inputs until the remaining render selectors
-can consume public/protocol viewer identity directly.
+moved out of `App.tsx` into the domain viewer helper. Prompt target comparison
+moved into `promptSelectors`; `App.tsx` still owns feeding legacy numeric
+selector inputs until the remaining render selectors can consume public/protocol
+viewer identity directly.
 
 ## 2026-05-14 Frontend Prompt Instance Companion Preservation
 

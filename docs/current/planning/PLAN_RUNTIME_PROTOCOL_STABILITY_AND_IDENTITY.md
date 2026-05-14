@@ -191,10 +191,11 @@ legacy numeric render bridge.
 The React UI `sendDecision` path now extracts the same protocol identity companions from the
 active prompt before serialization. `useGameStream` duplicate-flight keys now prefer public/protocol
 identity and only fall back to numeric identity for legacy prompts. Rendered UI prompt actionability
-and queued burden-exchange suppression now compare through `PromptViewModel.identity` helpers instead
-of direct top-level `PromptViewModel.playerId` equality. The local React viewer state now uses an
-explicit `LocalViewerIdentity` model that can preserve `view_commit.viewer` public/protocol companions
-while resolving the numeric value only as the remaining legacy selector/engine bridge. The web prompt selector,
+now compares `LocalViewerIdentity` public/protocol/viewer/seat identity against
+`PromptViewModel.identity` before legacy fallback, while queued burden-exchange suppression stays on
+the prompt primary identity helper. The local React viewer state now uses an explicit
+`LocalViewerIdentity` model that can preserve `view_commit.viewer` public/protocol companions while
+resolving the numeric value only as the remaining display selector/engine bridge. The web prompt selector,
 frontend decision protocol, headless HTTP policy input, and compact headless decision trace now also
 preserve `public_prompt_instance_id` alongside the numeric `prompt_instance_id`; the numeric value
 remains the lifecycle bridge.
