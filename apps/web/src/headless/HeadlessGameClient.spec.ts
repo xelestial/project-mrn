@@ -197,6 +197,16 @@ describe("HeadlessGameClient", () => {
       prompt_instance_id: 17,
       public_prompt_instance_id: "prompt_public_purchase_17",
     });
+    expect(client.trace.find((event) => event.event === "decision_sent")).toMatchObject({
+      player_id: 2,
+      primary_player_id: 2,
+      primary_player_id_source: "legacy",
+      protocol_player_id: 2,
+      legacy_player_id: 2,
+      public_player_id: null,
+      seat_id: null,
+      viewer_id: null,
+    });
     expect(client.metrics.outboundDecisionCount).toBe(1);
     expect(client.metrics.illegalActionCount).toBe(0);
   });
@@ -262,6 +272,16 @@ describe("HeadlessGameClient", () => {
         seat_id: "seat_public_2",
         viewer_id: "viewer_public_2",
       },
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      protocol_player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_public_2",
+      viewer_id: "viewer_public_2",
+    });
+    expect(client.trace.find((event) => event.event === "decision_sent")).toMatchObject({
+      player_id: 2,
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       protocol_player_id: "player_public_2",

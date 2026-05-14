@@ -674,6 +674,25 @@ ambiguous top-level numeric alias to explicit primary identity fields. External
 policy compatibility remains intact because the legacy numeric aliases were not
 removed.
 
+## 2026-05-14 Headless Trace Primary Identity
+
+- Added headless trace coverage for both legacy-only and public-player decision
+  traces.
+- `HeadlessTraceEvent` now carries top-level `primary_player_id`,
+  `primary_player_id_source`, protocol, legacy, public, seat, and viewer
+  identity fields through the shared `recordTrace()` path.
+- `view_commit_seen` trace events use the inbound commit viewer identity
+  directly, so the first public commit trace is not limited by the previously
+  cached client state.
+- The duplicate suppression and retry ledgers were left unchanged because code
+  inspection showed they are keyed by stream/request id, not by numeric
+  `player_id`.
+
+Responsibility result: trace identity interpretation moved off the numeric
+`player_id` alias. The legacy numeric field remains in JSONL for compatibility
+and display/debug grouping, but it is no longer the only top-level player
+identity available to trace consumers.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

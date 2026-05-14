@@ -193,7 +193,10 @@ active prompt before serialization. `useGameStream` duplicate-flight keys now pr
 identity and only fall back to numeric identity for legacy prompts. Rendered UI prompt actionability
 now compares `LocalViewerIdentity` public/protocol/viewer/seat identity against
 `PromptViewModel.identity` before legacy fallback, while queued burden-exchange suppression stays on
-the prompt primary identity helper. The local React viewer state now uses an explicit
+the prompt primary identity helper. Headless trace events now expose top-level
+`primary_player_id`, source, protocol, legacy, public, seat, and viewer companions
+so JSONL consumers no longer need numeric top-level `player_id` as the only player
+identity. The local React viewer state now uses an explicit
 `LocalViewerIdentity` model that can preserve `view_commit.viewer` public/protocol companions while
 resolving the numeric value only as the remaining display selector/engine bridge. The web prompt selector,
 frontend decision protocol, headless HTTP policy input, and compact headless decision trace now also

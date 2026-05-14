@@ -100,6 +100,13 @@ export type HeadlessTraceEvent = {
   ts_ms?: number;
   session_id: string;
   player_id: number;
+  primary_player_id?: ProtocolPlayerId;
+  primary_player_id_source?: "public" | "protocol" | "legacy";
+  protocol_player_id?: ProtocolPlayerId;
+  legacy_player_id?: number;
+  public_player_id?: string | null;
+  seat_id?: string | null;
+  viewer_id?: string | null;
   seq?: number;
   commit_seq?: number;
   request_id?: string;
@@ -123,6 +130,16 @@ type PendingReconnectRecovery = {
   id: number;
   reason: string;
   minCommitSeq: number;
+};
+
+type HeadlessTraceIdentityFields = {
+  primary_player_id: ProtocolPlayerId;
+  primary_player_id_source: "public" | "protocol" | "legacy";
+  protocol_player_id: ProtocolPlayerId;
+  legacy_player_id: number;
+  public_player_id: string | null;
+  seat_id: string | null;
+  viewer_id: string | null;
 };
 
 type PromptDecisionIdentity = {
@@ -187,6 +204,35 @@ function optionalProtocolPlayerId(value: unknown): ProtocolPlayerId | null {
     return value.trim();
   }
   return null;
+}
+
+function traceIdentityFieldsFromViewer(
+  viewer: ViewCommitPayload["viewer"] | undefined,
+  fallbackPlayerId: number,
+): HeadlessTraceIdentityFields {
+  const publicPlayerId = optionalIdentityString(viewer?.public_player_id);
+  const protocolPlayerId = publicPlayerId ?? optionalProtocolPlayerId(viewer?.player_id) ?? Math.floor(fallbackPlayerId);
+  const legacyPlayerId =
+    numberValue(viewer?.legacy_player_id) ??
+    (typeof viewer?.player_id === "number" && Number.isFinite(viewer.player_id)
+      ? Math.floor(viewer.player_id)
+      : Math.floor(fallbackPlayerId));
+  const primaryPlayerId = publicPlayerId ?? optionalProtocolPlayerId(viewer?.player_id) ?? legacyPlayerId;
+  const primaryPlayerIdSource =
+    publicPlayerId !== null
+      ? "public"
+      : typeof viewer?.player_id === "string" && viewer.player_id.trim()
+        ? "protocol"
+        : "legacy";
+  return {
+    primary_player_id: primaryPlayerId,
+    primary_player_id_source: primaryPlayerIdSource,
+    protocol_player_id: protocolPlayerId,
+    legacy_player_id: legacyPlayerId,
+    public_player_id: publicPlayerId,
+    seat_id: optionalIdentityString(viewer?.seat_id),
+    viewer_id: optionalIdentityString(viewer?.viewer_id),
+  };
 }
 
 type HeadlessGameClientArgs = {
@@ -571,8 +617,13 @@ export class HeadlessGameClient {
   private recordTrace(event: HeadlessTraceEvent): void {
     this.trace.push({
       ts_ms: Date.now(),
+      ...this.currentTraceIdentityFields(),
       ...event,
     });
+  }
+
+  private currentTraceIdentityFields(): HeadlessTraceIdentityFields {
+    return traceIdentityFieldsFromViewer(this.stateValue.latestCommit?.viewer, this.playerId);
   }
 
   private async handleSocketMessage(rawData: unknown): Promise<void> {
@@ -1191,6 +1242,7 @@ export class HeadlessGameClient {
       event: "view_commit_seen",
       session_id: this.sessionId,
       player_id: this.playerId,
+      ...traceIdentityFieldsFromViewer(message.payload.viewer, this.playerId),
       seq: message.seq,
       commit_seq: commitSeq,
       payload: compactViewCommitTracePayload(message),
