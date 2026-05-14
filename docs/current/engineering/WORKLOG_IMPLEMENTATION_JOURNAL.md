@@ -91,6 +91,12 @@ in the active plans, status index, tests, or canonical contract documents.
   `useGameStream` still resolves duplicate-flight keys through the numeric
   legacy bridge, so UI ownership checks and repeated-submit suppression remain
   numeric while the outbound wire identity can be public.
+- Headless external-policy and replay exports now preserve public player,
+  seat, viewer, and legacy player companions. HTTP decision policy requests
+  keep numeric `player_id` for existing policy consumers while adding
+  `protocol_player_id` and public companions; compact trace payloads and replay
+  rows carry the same companions without changing reward calculation's numeric
+  actor-index bridge.
 - Session bootstrap identity was aligned with the runtime protocol identity
   migration. `session_start.players`, initial snapshot players, marker owner,
   and starting pawn lists now carry public player, seat, and viewer companion
@@ -152,9 +158,11 @@ in the active plans, status index, tests, or canonical contract documents.
   protocol outbound identity shape instead of assuming caller numeric
   `playerId` is the wire identity. Rendered UI prompt submission now owns
   extracting protocol identity from `PromptViewModel`, while `useGameStream`
-  owns serialization and numeric flight-key compatibility. Engine actor indexes
-  remain internal numeric state. Legacy request IDs now remain compatibility
-  inputs rather than the canonical storage key.
+  owns serialization and numeric flight-key compatibility. Headless policy,
+  trace, and replay export boundaries now own public identity preservation
+  instead of silently reducing those artifacts back to numeric player ids.
+  Engine actor indexes remain internal numeric state. Legacy request IDs now
+  remain compatibility inputs rather than the canonical storage key.
 
 Verification:
 
@@ -176,6 +184,7 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
 - `npm --prefix apps/web test -- src/domain/stream/decisionProtocol.spec.ts src/headless/HeadlessGameClient.spec.ts src/hooks/useGameStream.spec.ts src/headless/frontendTransportAdapter.spec.ts`
+- `npm --prefix apps/web test -- src/headless/httpDecisionPolicy.spec.ts src/headless/protocolReplay.spec.ts src/headless/HeadlessGameClient.spec.ts`
 - `npm --prefix apps/web run build`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_start_replay_session_start_includes_initial_active_faces -q`

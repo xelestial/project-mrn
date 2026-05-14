@@ -900,6 +900,10 @@ Acceptance evidence status, 2026-05-14:
   stores the opaque public request id as the canonical `request_id`, while replayed public ids stay stable.
   `test_create_prompt_adds_opaque_identity_companions_to_lifecycle` verifies that lifecycle payloads preserve
   `legacy_request_id`, `public_request_id`, and `public_prompt_instance_id` for compatibility and debugging.
+- `apps/web/src/headless/httpDecisionPolicy.spec.ts`, `protocolReplay.spec.ts`, and
+  `HeadlessGameClient.spec.ts` verify that headless external policy input, compact trace payloads, and replay
+  rows preserve public player, seat, viewer, and legacy player companions while retaining numeric `player_id`
+  for existing policy consumers and reward calculation.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`
   and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_instance_from_resume_does_not_parse_legacy_request_id`
   verify that prompt sequence recovery and bridge advancement no longer parse legacy request-id suffixes when

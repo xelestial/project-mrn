@@ -32,6 +32,10 @@ function context(): HeadlessDecisionContext {
             { player_id: 1, cash: 17, score: 4, total_score: 4, shards: 2, owned_tile_count: 3, alive: true },
             {
               player_id: 2,
+              legacy_player_id: 2,
+              public_player_id: "player_public_2",
+              seat_id: "seat_public_2",
+              viewer_id: "viewer_public_2",
               cash: 24,
               score: 5,
               total_score: 5,
@@ -50,6 +54,11 @@ function context(): HeadlessDecisionContext {
       requestId: "req_buy",
       requestType: "purchase_tile",
       playerId: 2,
+      protocolPlayerId: "player_public_2",
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      seatId: "seat_public_2",
+      viewerId: "viewer_public_2",
       timeoutMs: 30000,
       choices: [
         {
@@ -127,6 +136,11 @@ describe("httpDecisionPolicy", () => {
       protocol_version: 1,
       session_id: "sess_http_policy",
       player_id: 2,
+      protocol_player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_public_2",
+      viewer_id: "viewer_public_2",
       commit_seq: 42,
       runtime: {
         status: "waiting_input",
@@ -141,6 +155,10 @@ describe("httpDecisionPolicy", () => {
       },
       player_summary: {
         player_id: 2,
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
         cash: 24,
         score: 5,
         shards: 3,

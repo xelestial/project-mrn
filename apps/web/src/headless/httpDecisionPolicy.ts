@@ -1,4 +1,4 @@
-import type { ViewCommitPayload } from "../core/contracts/stream";
+import type { ProtocolPlayerId, ViewCommitPayload } from "../core/contracts/stream";
 import type { PromptChoiceViewModel } from "../domain/selectors/promptSelectors";
 import type { DecisionPolicy, HeadlessDecisionContext, HeadlessPolicyDecision } from "./HeadlessGameClient";
 import { fetchFrontendConnectionUrl } from "../infra/http/connectionRequestManager";
@@ -13,6 +13,11 @@ export type HttpDecisionPolicyRequest = {
   protocol_version: 1;
   session_id: string;
   player_id: number;
+  protocol_player_id: ProtocolPlayerId;
+  legacy_player_id: number;
+  public_player_id: string | null;
+  seat_id: string | null;
+  viewer_id: string | null;
   commit_seq: number;
   runtime: {
     status: string | null;
@@ -84,10 +89,16 @@ export function createHttpDecisionPolicy(options: HttpDecisionPolicyOptions): De
 
 export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext): HttpDecisionPolicyRequest {
   const runtime = context.latestCommit?.runtime;
+  const identity = decisionPolicyIdentity(context);
   return {
     protocol_version: 1,
     session_id: context.sessionId,
     player_id: context.playerId,
+    protocol_player_id: identity.protocolPlayerId,
+    legacy_player_id: identity.legacyPlayerId,
+    public_player_id: identity.publicPlayerId,
+    seat_id: identity.seatId,
+    viewer_id: identity.viewerId,
     commit_seq: context.lastCommitSeq,
     runtime: {
       status: runtime?.status ?? null,
@@ -104,6 +115,28 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     },
     legal_choices: context.legalChoices.map(compactLegalChoice),
     player_summary: compactPolicyPlayerSummary(context.latestCommit, context.playerId),
+  };
+}
+
+function decisionPolicyIdentity(context: HeadlessDecisionContext): {
+  protocolPlayerId: ProtocolPlayerId;
+  legacyPlayerId: number;
+  publicPlayerId: string | null;
+  seatId: string | null;
+  viewerId: string | null;
+} {
+  const legacyPlayerId =
+    typeof context.prompt.legacyPlayerId === "number" && Number.isFinite(context.prompt.legacyPlayerId)
+      ? Math.floor(context.prompt.legacyPlayerId)
+      : Math.floor(context.playerId);
+  const publicPlayerId = stringValue(context.prompt.publicPlayerId);
+  const protocolPlayerId = publicPlayerId ?? context.prompt.protocolPlayerId ?? legacyPlayerId;
+  return {
+    protocolPlayerId,
+    legacyPlayerId,
+    publicPlayerId,
+    seatId: stringValue(context.prompt.seatId),
+    viewerId: stringValue(context.prompt.viewerId),
   };
 }
 
@@ -152,6 +185,10 @@ function compactPolicyPlayerSummary(
   }
   return {
     player_id: numberValue(player["player_id"]),
+    legacy_player_id: numberValue(player["legacy_player_id"]) ?? playerId,
+    public_player_id: stringValue(player["public_player_id"]),
+    seat_id: stringValue(player["seat_id"]),
+    viewer_id: stringValue(player["viewer_id"]),
     cash: numberValue(player["cash"]),
     score: numberValue(player["score"]),
     total_score: numberValue(player["total_score"]),

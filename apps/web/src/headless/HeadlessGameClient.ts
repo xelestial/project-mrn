@@ -1279,8 +1279,14 @@ function compactPromptDecisionTracePayload(
   latestCommit: ViewCommitPayload | null,
   choicePayload: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> {
+  const identity = compactPromptIdentity(prompt);
   return {
     request_type: prompt.requestType,
+    protocol_player_id: identity.protocolPlayerId,
+    legacy_player_id: identity.legacyPlayerId,
+    public_player_id: identity.publicPlayerId,
+    seat_id: identity.seatId,
+    viewer_id: identity.viewerId,
     legal_choice_ids: prompt.choices.map((choice) => choice.choiceId),
     has_choice_payload: selectedChoice.value !== null,
     selected_choice_ids_count: Array.isArray(choicePayload?.["selected_choice_ids"])
@@ -1292,6 +1298,29 @@ function compactPromptDecisionTracePayload(
     frame_id: prompt.continuation.frameId,
     module_id: prompt.continuation.moduleId,
     module_type: prompt.continuation.moduleType,
+  };
+}
+
+function compactPromptIdentity(prompt: PromptViewModel): {
+  protocolPlayerId: ProtocolPlayerId;
+  legacyPlayerId: number | null;
+  publicPlayerId: string | null;
+  seatId: string | null;
+  viewerId: string | null;
+} {
+  const legacyPlayerId =
+    typeof prompt.legacyPlayerId === "number" && Number.isFinite(prompt.legacyPlayerId)
+      ? Math.floor(prompt.legacyPlayerId)
+      : typeof prompt.playerId === "number" && Number.isFinite(prompt.playerId)
+        ? Math.floor(prompt.playerId)
+        : null;
+  const publicPlayerId = optionalIdentityString(prompt.publicPlayerId);
+  return {
+    protocolPlayerId: publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.playerId,
+    legacyPlayerId,
+    publicPlayerId,
+    seatId: optionalIdentityString(prompt.seatId),
+    viewerId: optionalIdentityString(prompt.viewerId),
   };
 }
 
@@ -1349,6 +1378,12 @@ function compactViewCommitTracePayload(
     active_module_type: message.payload.runtime.active_module_type,
     active_prompt_request_id: typeof activeRequestId === "string" ? activeRequestId : null,
     active_prompt_player_id: typeof activePlayerId === "number" ? activePlayerId : null,
+    active_prompt_protocol_player_id:
+      typeof activePlayerId === "string" || typeof activePlayerId === "number" ? activePlayerId : null,
+    active_prompt_legacy_player_id: numberValue(active?.["legacy_player_id"]) ?? numberValue(activePlayerId),
+    active_prompt_public_player_id: stringValue(active?.["public_player_id"]),
+    active_prompt_seat_id: stringValue(active?.["seat_id"]),
+    active_prompt_viewer_id: stringValue(active?.["viewer_id"]),
     active_prompt_request_type: typeof activeRequestType === "string" ? activeRequestType : null,
     player_summaries: compactPlayerSummaries(message.payload.view_state),
   };
@@ -1365,6 +1400,10 @@ function compactPlayerSummaries(viewState: Record<string, unknown>): Array<Recor
     .filter(isRecord)
     .map((player) => ({
       player_id: numberValue(player["player_id"]),
+      legacy_player_id: numberValue(player["legacy_player_id"]) ?? numberValue(player["player_id"]),
+      public_player_id: stringValue(player["public_player_id"]),
+      seat_id: stringValue(player["seat_id"]),
+      viewer_id: stringValue(player["viewer_id"]),
       seat: numberValue(player["seat"]),
       character: stringValue(player["current_character_face"]) ?? stringValue(player["character"]),
       cash: numberValue(player["cash"]),

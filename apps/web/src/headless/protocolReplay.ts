@@ -8,6 +8,10 @@ export type ProtocolReplayLegalAction = {
 
 export type ProtocolReplayPlayerSummary = {
   player_id: number;
+  legacy_player_id: number | null;
+  public_player_id: string | null;
+  seat_id: string | null;
+  viewer_id: string | null;
   cash: number | null;
   score: number | null;
   total_score: number | null;
@@ -35,6 +39,10 @@ export type ProtocolReplayRow = {
   seed: number | null;
   policy_mode: string;
   player_id: number;
+  legacy_player_id: number | null;
+  public_player_id: string | null;
+  seat_id: string | null;
+  viewer_id: string | null;
   decision_key: string;
   observation: {
     commit_seq: number | null;
@@ -42,6 +50,10 @@ export type ProtocolReplayRow = {
     round_index: number | null;
     turn_index: number | null;
     player_id: number;
+    legacy_player_id: number | null;
+    public_player_id: string | null;
+    seat_id: string | null;
+    viewer_id: string | null;
     cash: number | null;
     score: number | null;
     total_score: number | null;
@@ -86,6 +98,7 @@ export function protocolTraceEventsToReplayRows(
       const requestType = stringValue(event.payload?.["request_type"]) ?? "unknown";
       const legalChoiceIds = stringArrayValue(event.payload?.["legal_choice_ids"]);
       const commitSeq = numberOrNull(event.commit_seq);
+      const identity = replayIdentityFromEvent(event);
       const before = playerSummaryForSnapshot(snapshotAtOrBefore(snapshots, commitSeq), event.player_id);
       const after = playerSummaryForSnapshot(snapshotAfter(snapshots, commitSeq) ?? snapshots[snapshots.length - 1], event.player_id);
       const finalPlayer = playerSummaryForSnapshot({ commitSeq: null, players: finalPlayers }, event.player_id);
@@ -96,6 +109,10 @@ export function protocolTraceEventsToReplayRows(
         seed: options.seed ?? null,
         policy_mode: options.policyMode ?? "full_stack_protocol",
         player_id: event.player_id,
+        legacy_player_id: identity.legacyPlayerId,
+        public_player_id: identity.publicPlayerId,
+        seat_id: identity.seatId,
+        viewer_id: identity.viewerId,
         decision_key: requestType,
         observation: {
           commit_seq: numberOrNull(event.commit_seq),
@@ -103,6 +120,10 @@ export function protocolTraceEventsToReplayRows(
           round_index: numberOrNull(event.payload?.["round_index"]),
           turn_index: numberOrNull(event.payload?.["turn_index"]),
           player_id: event.player_id,
+          legacy_player_id: observationPlayer?.legacy_player_id ?? identity.legacyPlayerId,
+          public_player_id: observationPlayer?.public_player_id ?? identity.publicPlayerId,
+          seat_id: observationPlayer?.seat_id ?? identity.seatId,
+          viewer_id: observationPlayer?.viewer_id ?? identity.viewerId,
           cash: observationPlayer?.cash ?? null,
           score: observationPlayer?.score ?? null,
           total_score: observationPlayer?.total_score ?? null,
@@ -212,13 +233,17 @@ function playerSummariesFromValue(value: unknown): ProtocolReplayPlayerSummary[]
   }
   return value
     .filter(isRecord)
-    .map((item) => {
+    .map((item): ProtocolReplayPlayerSummary | null => {
       const playerId = numberOrNull(item["player_id"]);
       if (playerId === null) {
         return null;
       }
       return {
         player_id: playerId,
+        legacy_player_id: numberOrNull(item["legacy_player_id"]) ?? playerId,
+        public_player_id: stringValue(item["public_player_id"]),
+        seat_id: stringValue(item["seat_id"]),
+        viewer_id: stringValue(item["viewer_id"]),
         cash: numberOrNull(item["cash"]),
         score: numberOrNull(item["score"]),
         total_score: numberOrNull(item["total_score"]),
@@ -230,6 +255,20 @@ function playerSummariesFromValue(value: unknown): ProtocolReplayPlayerSummary[]
       };
     })
     .filter((item): item is ProtocolReplayPlayerSummary => item !== null);
+}
+
+function replayIdentityFromEvent(event: HeadlessTraceEvent): {
+  legacyPlayerId: number | null;
+  publicPlayerId: string | null;
+  seatId: string | null;
+  viewerId: string | null;
+} {
+  return {
+    legacyPlayerId: numberOrNull(event.payload?.["legacy_player_id"]) ?? event.player_id,
+    publicPlayerId: stringValue(event.payload?.["public_player_id"]),
+    seatId: stringValue(event.payload?.["seat_id"]),
+    viewerId: stringValue(event.payload?.["viewer_id"]),
+  };
 }
 
 function computeAuthoritativeReward(

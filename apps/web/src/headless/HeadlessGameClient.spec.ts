@@ -226,6 +226,13 @@ describe("HeadlessGameClient", () => {
       choice_id: "buy",
       choice_payload: { tile_index: 7, buy: true },
     });
+    expect(client.trace.find((event) => event.event === "decision_sent")?.payload).toMatchObject({
+      protocol_player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_public_2",
+      viewer_id: "viewer_public_2",
+    });
   });
 
   it("declines repeatable burden exchange by default to keep protocol playtests bounded", async () => {
@@ -542,6 +549,10 @@ describe("HeadlessGameClient", () => {
     expect(client.trace[0].payload?.["player_summaries"]).toEqual([
       {
         player_id: 1,
+        legacy_player_id: 1,
+        public_player_id: null,
+        seat_id: null,
+        viewer_id: null,
         seat: 1,
         character: "박수",
         cash: 20,
