@@ -4,7 +4,7 @@ import os
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.services.external_ai_worker_service import ExternalAiWorkerService
@@ -14,7 +14,14 @@ class ExternalAiDecisionRequest(BaseModel):
     request_id: str = Field(..., min_length=1)
     session_id: str = Field(..., min_length=1)
     seat: int = Field(..., ge=1)
-    player_id: int = Field(..., ge=1)
+    player_id: int | str
+    player_id_alias_role: str | None = None
+    primary_player_id: int | str | None = None
+    primary_player_id_source: str | None = None
+    legacy_player_id: int | str | None = None
+    public_player_id: str | None = None
+    seat_id: str | None = None
+    viewer_id: str | None = None
     decision_name: str = Field(..., min_length=1)
     request_type: str = Field(..., min_length=1)
     fallback_policy: str = Field(..., min_length=1)
@@ -23,6 +30,24 @@ class ExternalAiDecisionRequest(BaseModel):
     transport: str = Field(..., min_length=1)
     worker_contract_version: str = Field(default="v1", min_length=1)
     required_capabilities: list[str] = Field(default_factory=list)
+
+    @field_validator("player_id", "primary_player_id", "legacy_player_id")
+    @classmethod
+    def _validate_player_identity(cls, value: int | str | None) -> int | str | None:
+        if value is None:
+            return value
+        if isinstance(value, bool):
+            raise ValueError("player identity must be a positive integer or non-empty string")
+        if isinstance(value, int):
+            if value < 1:
+                raise ValueError("player identity must be a positive integer or non-empty string")
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                raise ValueError("player identity must be a positive integer or non-empty string")
+            return stripped
+        raise ValueError("player identity must be a positive integer or non-empty string")
 
 
 class ExternalAiDecisionResponse(BaseModel):

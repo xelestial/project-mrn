@@ -155,7 +155,7 @@ def _add_player_identity_metadata(target: dict[str, Any], source: dict[str, Any]
     target["primary_player_id_source"] = primary_player_id_source
 
 
-def _callback_protocol_player_id(source: dict[str, Any]) -> Any:
+def _protocol_player_id(source: dict[str, Any]) -> Any:
     primary_player_id, primary_player_id_source = _primary_player_identity(source)
     if primary_player_id_source in {"public", "protocol"}:
         return primary_player_id
@@ -182,7 +182,7 @@ def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_sea
         "request_id": str(pending.get("request_id") or "").strip(),
         "session_id": str(pending.get("session_id") or "").strip(),
         "seat": int(pending.get("seat") or fallback_seat),
-        "player_id": _numeric_legacy_player_id(pending),
+        "player_id": _protocol_player_id(pending),
         "decision_name": str(pending.get("decision_name") or request_type or "external_ai_decision").strip(),
         "request_type": request_type,
         "fallback_policy": str(pending.get("fallback_policy") or "ai").strip(),
@@ -206,7 +206,7 @@ def _callback_payload_from_prompt_and_worker_response(
         raise RuntimeError(f"worker response missing choice_id: {json.dumps(worker_response, ensure_ascii=False)}")
     callback: dict[str, Any] = {
         "request_id": str(pending.get("request_id") or "").strip(),
-        "player_id": _callback_protocol_player_id(pending),
+        "player_id": _protocol_player_id(pending),
         "choice_id": choice_id,
         "choice_payload": worker_response.get("choice_payload") if isinstance(worker_response.get("choice_payload"), dict) else {},
     }

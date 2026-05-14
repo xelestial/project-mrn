@@ -79,8 +79,8 @@ def test_worker_request_preserves_protocol_identity_companions() -> None:
     request = module._worker_request_from_pending_prompt(pending, fallback_seat=1)
 
     assert request["request_id"] == "req_public_1"
-    assert request["player_id"] == 10
-    assert request["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert request["player_id"] == "player_public_10"
+    assert "player_id_alias_role" not in request
     assert request["primary_player_id"] == "player_public_10"
     assert request["primary_player_id_source"] == "public"
     assert request["legacy_request_id"] == "ai_req_1"
@@ -112,8 +112,8 @@ def test_worker_request_prefers_explicit_primary_identity_over_top_level_alias()
 
     request = module._worker_request_from_pending_prompt(pending, fallback_seat=1)
 
-    assert request["player_id"] == 10
-    assert request["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert request["player_id"] == "player_public_10"
+    assert "player_id_alias_role" not in request
     assert request["primary_player_id"] == "player_public_10"
     assert request["primary_player_id_source"] == "public"
 

@@ -157,6 +157,37 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["supported_transports"], ["http"])
         self.assertIn("healthcheck", payload["capabilities"])
 
+    def test_decide_accepts_public_player_id_with_legacy_bridge(self) -> None:
+        request = _purchase_tile_payload(cash=8, cost=4)
+        request.update(
+            {
+                "player_id": "player_public_1",
+                "primary_player_id": "player_public_1",
+                "primary_player_id_source": "public",
+                "legacy_player_id": 1,
+                "public_player_id": "player_public_1",
+                "seat_id": "seat_public_1",
+                "viewer_id": "viewer_public_1",
+            }
+        )
+
+        response = self.client.post("/decide", json=request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "yes")
+        self.assertEqual(payload["choice_payload"]["choice_id"], "yes")
+
+    def test_decide_rejects_invalid_player_identity(self) -> None:
+        for invalid_player_id in (0, "", "   "):
+            with self.subTest(invalid_player_id=invalid_player_id):
+                request = _purchase_tile_payload(cash=8, cost=4)
+                request["player_id"] = invalid_player_id
+
+                response = self.client.post("/decide", json=request)
+
+                self.assertEqual(response.status_code, 422)
+
     def test_service_can_mount_custom_worker_adapter(self) -> None:
         class _ScriptedAdapter:
             adapter_id = "scripted_test_v1"

@@ -854,21 +854,25 @@ Responsibility result: human diagnostic grouping moved off the bare numeric
 `player_id` alias. Numeric values remain only as legacy/display fallback labels
 for old logs.
 
-## 2026-05-14 External AI Callback Public Player Identity
+## 2026-05-14 External AI Worker and Callback Public Player Identity
 
 - Added regression coverage for `SessionService.resolve_protocol_player_id()`
   resolving a public string supplied as top-level `player_id`.
 - The `/external-ai/decisions` callback request model now accepts string
   `player_id` and normalizes it through the same session identity adapter used
   by other protocol decision boundaries.
-- `external_ai_full_stack_smoke.py` now keeps numeric `player_id` for the
-  worker `/decide` request, but sends public/protocol top-level `player_id` on
-  the server callback when the pending prompt provides that primary identity.
+- The reference external AI worker `/decide` request model now accepts public or
+  protocol string `player_id` plus explicit legacy/public/seat/viewer identity
+  companions.
+- `external_ai_full_stack_smoke.py` now sends public/protocol top-level
+  `player_id` to both the worker `/decide` request and the server callback when
+  the pending prompt provides that primary identity. Numeric `player_id` remains
+  only for legacy-only prompt input and is labeled as a compatibility alias.
 
 Responsibility result: public-string player resolution moved into
-`SessionService.resolve_protocol_player_id()` instead of being duplicated in
-callback routes or smoke scripts. Numeric worker request identity intentionally
-remains because the current worker app input model still requires an integer.
+`SessionService.resolve_protocol_player_id()` for server callbacks, while the
+worker boundary itself now accepts the same public/protocol identity contract
+instead of forcing the smoke adapter to down-convert to a numeric alias.
 
 ## 2026-05-12 Runtime Rebuild Baseline
 
