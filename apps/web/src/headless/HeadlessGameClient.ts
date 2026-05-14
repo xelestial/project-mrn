@@ -7,9 +7,11 @@ import type {
 } from "../core/contracts/stream";
 import type {
   PromptChoiceViewModel,
+  PromptTargetIdentityInput,
   PromptViewModel,
 } from "../domain/selectors/promptSelectors";
 import {
+  isPromptTargetedToIdentity,
   promptViewModelFromActivePromptPayload,
   selectActivePrompt,
 } from "../domain/selectors/promptSelectors";
@@ -175,6 +177,16 @@ function headlessDecisionIdentity(prompt: PromptViewModel, fallbackPlayerId: num
 
 function optionalIdentityString(value: string | null | undefined): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function optionalProtocolPlayerId(value: unknown): ProtocolPlayerId | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  return null;
 }
 
 type HeadlessGameClientArgs = {
@@ -589,7 +601,7 @@ export class HeadlessGameClient {
   }
 
   private async maybeBuildDecisionForRawPrompt(prompt: PromptViewModel | null, seq?: number): Promise<OutboundMessage[]> {
-    if (!prompt || prompt.playerId !== this.playerId) {
+    if (!this.isPromptTargetedToClient(prompt)) {
       return [];
     }
     const activePrompt = selectActivePrompt(this.stateValue.messages);
@@ -648,7 +660,7 @@ export class HeadlessGameClient {
   }
 
   private async maybeBuildDecisionForPrompt(prompt: PromptViewModel | null): Promise<OutboundMessage[]> {
-    if (!prompt || prompt.playerId !== this.playerId) {
+    if (!this.isPromptTargetedToClient(prompt)) {
       return [];
     }
 
@@ -764,6 +776,31 @@ export class HeadlessGameClient {
     } finally {
       this.inFlightDecisionRequestIds.delete(prompt.requestId);
     }
+  }
+
+  private isPromptTargetedToClient(prompt: PromptViewModel | null): prompt is PromptViewModel {
+    if (isPromptTargetedToIdentity(prompt, this.promptTargetIdentity())) {
+      return true;
+    }
+    if (prompt?.identity.primaryPlayerIdSource !== "legacy") {
+      return false;
+    }
+    return isPromptTargetedToIdentity(prompt, {
+      legacyPlayerId: this.playerId,
+      protocolPlayerId: this.playerId,
+    });
+  }
+
+  private promptTargetIdentity(): PromptTargetIdentityInput {
+    const viewer = this.stateValue.latestCommit?.viewer;
+    const publicPlayerId = optionalIdentityString(viewer?.public_player_id);
+    return {
+      legacyPlayerId: this.playerId,
+      protocolPlayerId: optionalProtocolPlayerId(viewer?.player_id) ?? this.playerId,
+      publicPlayerId,
+      seatId: optionalIdentityString(viewer?.seat_id),
+      viewerId: optionalIdentityString(viewer?.viewer_id),
+    };
   }
 
   private buildUnackedDecisionRetry(prompt: PromptViewModel, pending: PendingDecision | undefined): OutboundMessage | null {

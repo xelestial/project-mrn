@@ -198,7 +198,9 @@ the prompt primary identity helper. The local React viewer state now uses an exp
 resolving the numeric value only as the remaining display selector/engine bridge. The web prompt selector,
 frontend decision protocol, headless HTTP policy input, and compact headless decision trace now also
 preserve `public_prompt_instance_id` alongside the numeric `prompt_instance_id`; the numeric value
-remains the lifecycle bridge.
+remains the lifecycle bridge. Headless active/raw prompt routing now compares latest
+`view_commit.viewer` identity against `PromptViewModel.identity` through the shared prompt selector
+helper, with numeric seat fallback limited to legacy-only prompts.
 
 ## Problem 2. Numeric Sequences Are Doing Too Much
 
@@ -946,7 +948,9 @@ Acceptance evidence status, 2026-05-14:
   plus `primary_player_id_source`, proving public identity is the primary policy input when present while
   numeric-only prompts remain explicit legacy fallback. `HeadlessGameClient` policy contexts and compact
   decision/view traces now expose the same primary identity shape so headless policy and artifact consumers
-  do not need to treat top-level numeric `player_id` as the public identity.
+  do not need to treat top-level numeric `player_id` as the public identity. `HeadlessGameClient.spec.ts`
+  also verifies that headless active prompt routing answers public-only prompts without a numeric
+  `legacy_player_id` bridge while keeping legacy-only prompts routable during mixed migration commits.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`
   and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_instance_from_resume_does_not_parse_legacy_request_id`
   verify that prompt sequence recovery and bridge advancement no longer parse legacy request-id suffixes when

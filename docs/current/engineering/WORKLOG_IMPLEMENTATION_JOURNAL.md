@@ -640,6 +640,24 @@ Responsibility result: actionable prompt construction moved off the numeric
 legacy seat bridge. Numeric `PromptViewModel.playerId` intentionally remains as
 display/headless compatibility data until those remaining consumers are migrated.
 
+## 2026-05-14 Headless Prompt Routing Identity
+
+- Added headless coverage for an active public prompt that has no numeric
+  `legacy_player_id` bridge and for a mixed migration commit where the viewer
+  exposes public identity while the active prompt remains legacy-only.
+- `HeadlessGameClient` now routes active and raw prompts through
+  `isPromptTargetedToIdentity()` using latest `view_commit.viewer`
+  public/protocol/viewer/seat identity.
+- The numeric `playerId` fallback remains narrowly scoped to prompts whose
+  primary identity source is explicitly legacy, preserving transition-period
+  compatibility without treating `PromptViewModel.playerId` as the primary
+  target for public prompts.
+
+Responsibility result: headless prompt target ownership moved from direct
+`PromptViewModel.playerId === this.playerId` checks into the shared prompt
+identity selector. Duplicate/retry ledgers and top-level trace seat keys
+intentionally remain numeric compatibility surfaces.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

@@ -281,6 +281,101 @@ describe("HeadlessGameClient", () => {
     });
   });
 
+  it("routes an active public player prompt without a legacy player bridge", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_public_only_player",
+      token: "seat-2",
+      playerId: 2,
+      policy: baselineDecisionPolicy,
+    });
+
+    const outbound = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 13,
+        requestId: "req_public_only_player_13",
+        playerId: 2,
+        publicPlayerId: "player_public_2",
+        seatId: "seat_public_2",
+        viewerId: "viewer_public_2",
+        choicePayload: { tile_index: 8, buy: true },
+      }),
+    );
+
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]).toMatchObject({
+      type: "decision",
+      request_id: "req_public_only_player_13",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_public_2",
+      viewer_id: "viewer_public_2",
+      choice_id: "buy",
+      choice_payload: { tile_index: 8, buy: true },
+    });
+  });
+
+  it("keeps routing legacy prompts when the viewer also exposes public identity", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_mixed_viewer_legacy_prompt",
+      token: "seat-2",
+      playerId: 2,
+      policy: baselineDecisionPolicy,
+    });
+
+    const outbound = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 14,
+        requestId: "req_legacy_prompt_public_viewer_14",
+        playerId: 2,
+        legacyPlayerId: 2,
+        publicPlayerId: "player_public_2",
+        seatId: "seat_public_2",
+        viewerId: "viewer_public_2",
+        viewState: {
+          prompt: {
+            active: {
+              request_id: "req_legacy_prompt_public_viewer_14",
+              request_type: "purchase_tile",
+              player_id: 2,
+              legacy_player_id: 2,
+              timeout_ms: 30000,
+              runner_kind: "module",
+              prompt_instance_id: 18,
+              resume_token: "resume:req_legacy_prompt_public_viewer_14",
+              frame_id: "frame:2",
+              module_id: "module:2",
+              module_type: "PromptModule",
+              module_cursor: "await_choice",
+              public_context: {},
+              choices: [
+                {
+                  choice_id: "buy",
+                  title: "구매",
+                  value: { tile_index: 9, buy: true },
+                },
+                {
+                  choice_id: "pass",
+                  title: "넘김",
+                  secondary: true,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]).toMatchObject({
+      type: "decision",
+      request_id: "req_legacy_prompt_public_viewer_14",
+      player_id: 2,
+      choice_id: "buy",
+      choice_payload: { tile_index: 9, buy: true },
+    });
+  });
+
   it("declines repeatable burden exchange by default to keep protocol playtests bounded", async () => {
     const client = new HeadlessGameClient({
       sessionId: "sess_headless_burden_default",
