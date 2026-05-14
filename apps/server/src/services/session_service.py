@@ -216,27 +216,55 @@ class SessionService:
     ) -> int | None:
         """Resolve public protocol identity fields to the server's internal seat id."""
         session = self.get_session(session_id)
-        for candidate in (player_id, legacy_player_id, seat):
-            numeric = self._optional_int(candidate)
-            if numeric is not None and self._has_seat(session, numeric):
-                return numeric
+        resolved_seats: list[int] = []
+        has_unresolved_identity = False
 
-        protocol_player_id = None
+        def _present(value: int | str | None) -> bool:
+            if value is None or isinstance(value, bool):
+                return False
+            if isinstance(value, str) and not value.strip():
+                return False
+            return True
+
+        def _add_numeric_candidate(value: int | str | None, *, allow_protocol_string: bool = False) -> None:
+            nonlocal has_unresolved_identity
+            if not _present(value):
+                return
+            numeric = self._optional_int(value)
+            if numeric is not None:
+                if self._has_seat(session, numeric):
+                    resolved_seats.append(numeric)
+                else:
+                    has_unresolved_identity = True
+                return
+            if not allow_protocol_string:
+                has_unresolved_identity = True
+
+        def _add_public_candidate(value: str | None, attr_name: str) -> None:
+            nonlocal has_unresolved_identity
+            candidate = self._clean_optional_string(value)
+            if candidate is None:
+                return
+            for seat_cfg in session.seats:
+                if getattr(seat_cfg, attr_name, None) == candidate:
+                    resolved_seats.append(seat_cfg.seat)
+                    return
+            has_unresolved_identity = True
+
+        _add_numeric_candidate(player_id, allow_protocol_string=True)
+        _add_numeric_candidate(legacy_player_id)
+        _add_numeric_candidate(seat)
+
         if self._optional_int(player_id) is None:
-            protocol_player_id = self._clean_optional_string(player_id)
-        public_player_id = self._clean_optional_string(public_player_id)
-        seat_id = self._clean_optional_string(seat_id)
-        viewer_id = self._clean_optional_string(viewer_id)
-        for seat_cfg in session.seats:
-            if protocol_player_id is not None and seat_cfg.public_player_id == protocol_player_id:
-                return seat_cfg.seat
-            if public_player_id is not None and seat_cfg.public_player_id == public_player_id:
-                return seat_cfg.seat
-            if seat_id is not None and seat_cfg.seat_id == seat_id:
-                return seat_cfg.seat
-            if viewer_id is not None and seat_cfg.viewer_id == viewer_id:
-                return seat_cfg.seat
-        return None
+            _add_public_candidate(player_id, "public_player_id")
+        _add_public_candidate(public_player_id, "public_player_id")
+        _add_public_candidate(seat_id, "seat_id")
+        _add_public_candidate(viewer_id, "viewer_id")
+
+        unique_seats = set(resolved_seats)
+        if has_unresolved_identity or len(unique_seats) != 1:
+            return None
+        return sorted(unique_seats)[0]
 
     def protocol_identity_fields(self, session_id: str, player_id: int | str | None) -> dict:
         """Return public protocol identity fields for an internal numeric seat id."""

@@ -941,10 +941,16 @@ Acceptance evidence status, 2026-05-15:
 - `apps/server/tests/test_session_service.py::test_resolve_protocol_player_id_accepts_public_identity_fields`
   verifies that the server can resolve public string identity fields for both human and AI seats back to
   the internal numeric seat id without requiring each route to implement its own conversion.
+- `apps/server/tests/test_session_service.py::test_resolve_protocol_player_id_rejects_conflicting_identity_fields`
+  verifies that the same server adapter rejects payloads whose public/protocol player identity and legacy
+  numeric compatibility aliases resolve to different seats instead of silently preferring the numeric alias.
 - `apps/server/tests/test_stream_api.py::test_seat_decision_accepts_public_player_identity_with_ack`
   verifies that the WebSocket decision route accepts a public string player identity, normalizes it to the
   authenticated internal seat id, and returns public identity fields plus the compatibility `player_id` in
   the ack payload. The ack payload also runs through `assert_no_public_identity_numeric_leaks()`.
+- `apps/server/tests/test_stream_api.py::test_seat_decision_rejects_conflicting_protocol_identity_fields`
+  verifies that the WebSocket decision route turns a contradictory public/protocol player id plus numeric
+  legacy alias into the existing `PLAYER_MISMATCH` path rather than accepting the legacy numeric alias.
 - `apps/web/src/domain/stream/decisionProtocol.spec.ts` and
   `apps/web/src/headless/HeadlessGameClient.spec.ts` verify that frontend/headless decision construction can
   send a public string `player_id` with explicit `primary_player_id`, `primary_player_id_source`,

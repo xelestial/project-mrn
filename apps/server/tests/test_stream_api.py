@@ -822,6 +822,48 @@ class StreamApiTests(unittest.TestCase):
             boundary="stream_decision_ack",
         )
 
+    def test_seat_decision_rejects_conflicting_protocol_identity_fields(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 118})
+        join_token = session.join_tokens[1]
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=join_token)
+        seat_2 = state.session_service.to_public(session)["seats"][1]
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_conflicting_protocol_identity",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "fallback_policy": "timeout_fallback",
+            },
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={joined['session_token']}"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json(
+                {
+                    "type": "decision",
+                    "request_id": "r_conflicting_protocol_identity",
+                    "player_id": seat_2["public_player_id"],
+                    "legacy_player_id": 1,
+                    "choice_id": "roll",
+                    "choice_payload": {},
+                }
+            )
+
+            messages: list[dict] = []
+            for _ in range(8):
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg.get("type") == "error" and msg.get("payload", {}).get("code") == "PLAYER_MISMATCH":
+                    break
+
+        errors = [m for m in messages if m.get("type") == "error"]
+        self.assertGreaterEqual(len(errors), 1)
+        self.assertEqual(errors[-1].get("payload", {}).get("code"), "PLAYER_MISMATCH")
+
     def test_visible_ack_is_not_dropped_after_latest_snapshot_advances_stream_seq(self) -> None:
         from apps.server.src import state
 
