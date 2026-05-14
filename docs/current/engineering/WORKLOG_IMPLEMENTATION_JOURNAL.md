@@ -56,6 +56,14 @@ in the active plans, status index, tests, or canonical contract documents.
   projection layer is not the remaining blocker; the numeric batch bridge stays
   because `PromptService` and the runtime semantic guard still validate numeric
   resume maps before module continuation.
+- Module continuation validation now lives in
+  `apps/server/src/domain/module_continuation_contract.py`. `PromptService` and
+  the runtime semantic guard share that contract for required module resume
+  fields, simultaneous batch prompt detection, and numeric batch resume bridge
+  validation. This is a responsibility consolidation, not numeric alias removal:
+  public-player/seat/viewer companions can exist at projection/protocol
+  surfaces, but runtime prompt validation still requires the numeric engine
+  bridge before module continuation.
 - Frontend decision duplicate-flight keys now prefer `publicPromptInstanceId`
   before the numeric `promptInstanceId` lifecycle alias when no prompt
   fingerprint is present. Decision payloads still send numeric

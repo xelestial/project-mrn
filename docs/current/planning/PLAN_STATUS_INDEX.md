@@ -105,7 +105,11 @@ Read and maintain these:
   five and eight concurrent games passed, ten concurrent games first breached
   the 5s backend command SLO, and twenty concurrent games remains overload
   evidence. The current direction is measured horizontal server-instance scaling,
-  not Redis fan-out or prompt/view-commit patching.
+  not Redis fan-out or prompt/view-commit patching. Module continuation
+  validation for simultaneous batch prompts is now centralized in
+  `apps/server/src/domain/module_continuation_contract.py`; this removes
+  duplicated server validation logic while intentionally keeping the numeric
+  engine bridge requirement at the runtime prompt boundary.
 
 ## Closed Enough
 

@@ -4,6 +4,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from apps.server.src.domain.module_continuation_contract import (
+    missing_module_continuation_fields,
+    simultaneous_batch_state_error,
+)
+
 ENGINE_DIR = Path(__file__).resolve().parents[4] / "engine"
 ENGINE_DIR_TEXT = str(ENGINE_DIR)
 if ENGINE_DIR_TEXT not in sys.path:
@@ -208,35 +213,19 @@ def _checkpoint_proves_round_end_card_flip(
 
 
 def _validate_prompt_payload(payload: dict[str, Any]) -> None:
-    for field in ("resume_token", "frame_id", "module_id", "module_type", "module_cursor"):
-        if not str(payload.get(field) or "").strip():
-            raise RuntimeSemanticViolation(f"module prompt missing {field}")
+    missing_fields = missing_module_continuation_fields(payload)
+    if missing_fields:
+        raise RuntimeSemanticViolation(f"module prompt missing {missing_fields[0]}")
     module_type = str(payload.get("module_type") or "")
     frame_id = str(payload.get("frame_id") or "")
     frame_type = _frame_type_from_frame_id(frame_id)
     if frame_type:
         _validate_runtime_module({"module_type": module_type, "frame_type": frame_type, "frame_id": frame_id})
-    if _is_simultaneous_batch_prompt(payload):
-        if not str(payload.get("batch_id") or "").strip():
-            raise RuntimeSemanticViolation("simultaneous prompt missing batch_id")
-        if not isinstance(payload.get("missing_player_ids"), list) or not isinstance(
-            payload.get("resume_tokens_by_player_id"),
-            dict,
-        ):
-            raise RuntimeSemanticViolation("simultaneous prompt missing batch state")
-
-
-def _is_simultaneous_batch_prompt(payload: dict[str, Any]) -> bool:
-    module_type = str(payload.get("module_type") or "").strip()
-    request_type = str(payload.get("request_type") or "").strip()
-    module_cursor = str(payload.get("module_cursor") or "").strip()
-    if module_type == "SimultaneousPromptBatchModule":
-        return True
-    return (
-        module_type == "ResupplyModule"
-        and request_type in {"burden_exchange", "resupply_choice"}
-        and module_cursor.startswith("await_resupply_batch")
-    )
+    batch_error = simultaneous_batch_state_error(payload)
+    if batch_error == "missing_batch_id":
+        raise RuntimeSemanticViolation("simultaneous prompt missing batch_id")
+    if batch_error == "missing_simultaneous_batch_state":
+        raise RuntimeSemanticViolation("simultaneous prompt missing batch state")
 
 
 def _validate_card_flip_not_before_turns_complete(frame: dict[str, Any]) -> None:

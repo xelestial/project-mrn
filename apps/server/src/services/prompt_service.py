@@ -5,6 +5,11 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from apps.server.src.domain.module_continuation_contract import (
+    is_simultaneous_batch_prompt as _is_simultaneous_batch_prompt,
+    missing_module_continuation_fields,
+    simultaneous_batch_state_error,
+)
 from apps.server.src.domain.protocol_ids import prompt_protocol_identity_fields
 from apps.server.src.services.command_inbox import CommandInbox
 from apps.server.src.services.prompt_fingerprint import (
@@ -1334,31 +1339,12 @@ def _is_module_prompt(prompt: dict) -> bool:
 
 
 def _require_module_continuation(prompt: dict) -> None:
-    required = ("resume_token", "frame_id", "module_id", "module_type", "module_cursor")
-    missing = [field for field in required if not str(prompt.get(field) or "").strip()]
+    missing = missing_module_continuation_fields(prompt)
     if missing:
         raise ValueError(f"missing_module_continuation:{','.join(missing)}")
-    if _is_simultaneous_batch_prompt(prompt):
-        if not str(prompt.get("batch_id") or "").strip():
-            raise ValueError("missing_batch_id")
-        if not isinstance(prompt.get("missing_player_ids"), list) or not isinstance(
-            prompt.get("resume_tokens_by_player_id"),
-            dict,
-        ):
-            raise ValueError("missing_simultaneous_batch_state")
-
-
-def _is_simultaneous_batch_prompt(prompt: dict) -> bool:
-    module_type = str(prompt.get("module_type") or "").strip()
-    request_type = str(prompt.get("request_type") or "").strip()
-    module_cursor = str(prompt.get("module_cursor") or "").strip()
-    if module_type == "SimultaneousPromptBatchModule":
-        return True
-    return (
-        module_type == "ResupplyModule"
-        and request_type in {"burden_exchange", "resupply_choice"}
-        and module_cursor.startswith("await_resupply_batch")
-    )
+    batch_error = simultaneous_batch_state_error(prompt)
+    if batch_error:
+        raise ValueError(batch_error)
 
 
 def _module_decision_mismatch(prompt: dict, decision: dict) -> str:

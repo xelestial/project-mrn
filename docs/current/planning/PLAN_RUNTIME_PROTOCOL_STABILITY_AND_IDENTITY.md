@@ -966,6 +966,11 @@ Acceptance evidence status, 2026-05-14:
   `resume_tokens_by_player_id`, or `prompt_instance_id` aliases when the source prompt omits them.
   This narrows the remaining numeric continuation dependency to runtime resume validation and
   lifecycle compatibility rather than view-state projection itself.
+- `apps/server/tests/test_module_continuation_contract.py` verifies that the shared module-continuation
+  contract treats simultaneous batch companion maps as protocol/projection companions only and still
+  requires numeric `missing_player_ids` plus `resume_tokens_by_player_id` before runtime module
+  continuation. `PromptService` and the runtime semantic guard now consume that same contract instead
+  of owning duplicate private validation rules.
 - `apps/web/src/i18n/i18n.spec.ts` verifies that prompt metadata labels accept public/protocol string
   player identity while preserving the existing numeric `P2` display.
 - `apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event`,
