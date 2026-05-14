@@ -1803,6 +1803,15 @@ def build_decision_ack_payload(
     }
     if identity_fields:
         payload.update(dict(identity_fields))
+    if isinstance(player_id, int) and not isinstance(player_id, bool):
+        public_player_id = payload.get("public_player_id")
+        payload.setdefault("player_id_alias_role", "legacy_compatibility_alias")
+        if public_player_id is not None and str(public_player_id).strip():
+            payload.setdefault("primary_player_id", public_player_id)
+            payload.setdefault("primary_player_id_source", "public")
+        else:
+            payload.setdefault("primary_player_id", player_id)
+            payload.setdefault("primary_player_id_source", "legacy")
     if reason:
         payload["reason"] = reason
     if command_seq is not None:

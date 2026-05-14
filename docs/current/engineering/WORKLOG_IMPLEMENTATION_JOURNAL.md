@@ -40,6 +40,13 @@ in the active plans, status index, tests, or canonical contract documents.
   nested command decision payloads. This keeps the command boundary from
   silently downgrading an explicit public primary identity back to an unlabeled
   numeric `player_id`.
+- `decision_ack` payloads now carry `player_id_alias_role`,
+  `primary_player_id`, and `primary_player_id_source` whenever the legacy
+  numeric `player_id` remains in the ACK. `SessionService.protocol_identity_fields()`
+  supplies the public primary identity for normal session-backed ACKs, and
+  `build_decision_ack_payload()` falls back to explicit legacy-primary metadata
+  if no public identity companion is available. The WebSocket ACK schema and
+  examples now require that primary metadata for numeric ACK aliases.
 - The external-AI full-stack smoke adapter now preserves pending prompt
   `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the
@@ -59,6 +66,9 @@ in the active plans, status index, tests, or canonical contract documents.
   `primary_player_id_source`, and labels numeric top-level `player_id` as
   `player_id_alias_role: "legacy_compatibility_alias"` instead of forcing
   consumers to infer primary identity from the numeric alias.
+Responsibility result: ACK primary identity ownership moved to the server ACK
+builder/session identity boundary. Consumers no longer need to guess whether
+numeric ACK `player_id` is primary identity or a compatibility alias.
 - Runtime fanout and session bootstrap identity helpers now keep explicit
   prefixed/list legacy companions for protocol player-id fields. Examples:
   `acting_legacy_player_id`, `owner_legacy_player_id`,

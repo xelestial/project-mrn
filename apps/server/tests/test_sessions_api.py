@@ -875,7 +875,9 @@ class SessionsApiTests(unittest.TestCase):
         state.runtime_settings = RuntimeSettings(admin_token="admin-secret")
         state.command_router = router  # type: ignore[assignment]
         created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
-        session_id = created.json()["data"]["session_id"]
+        session_data = created.json()["data"]
+        session_id = session_data["session_id"]
+        seat = session_data["seats"][0]
         state.prompt_service.create_prompt(
             session_id,
             {
@@ -903,6 +905,9 @@ class SessionsApiTests(unittest.TestCase):
         ack = next(message for message in snapshot if message.type == "decision_ack")
         self.assertEqual(ack.payload["provider"], "ai")
         self.assertEqual(ack.payload["request_id"], "ai_req_1")
+        self.assertEqual(ack.payload["player_id_alias_role"], "legacy_compatibility_alias")
+        self.assertEqual(ack.payload["primary_player_id"], seat["public_player_id"])
+        self.assertEqual(ack.payload["primary_player_id_source"], "public")
 
     def test_external_ai_decision_callback_accepts_public_player_and_request_identity(self) -> None:
         from apps.server.src import state
@@ -944,6 +949,9 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ack.payload["provider"], "ai")
         self.assertEqual(ack.payload["request_id"], public_request_id)
         self.assertEqual(ack.payload["player_id"], 1)
+        self.assertEqual(ack.payload["player_id_alias_role"], "legacy_compatibility_alias")
+        self.assertEqual(ack.payload["primary_player_id"], seat["public_player_id"])
+        self.assertEqual(ack.payload["primary_player_id_source"], "public")
         self.assertEqual(ack.payload["public_player_id"], seat["public_player_id"])
         self.assertEqual(ack.payload["seat_id"], seat["seat_id"])
         self.assertEqual(ack.payload["viewer_id"], seat["viewer_id"])

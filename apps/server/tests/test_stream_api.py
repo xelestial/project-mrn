@@ -757,6 +757,9 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
         self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
+        self.assertEqual(acks[-1].get("payload", {}).get("player_id_alias_role"), "legacy_compatibility_alias")
+        self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id"), joined["public_player_id"])
+        self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id_source"), "public")
 
     def test_seat_decision_accepts_public_player_identity_with_ack(self) -> None:
         from apps.server.src import state
@@ -809,6 +812,9 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[-1].get("payload", {}).get("player_id"), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
         self.assertEqual(acks[-1].get("payload", {}).get("public_player_id"), joined["public_player_id"])
+        self.assertEqual(acks[-1].get("payload", {}).get("player_id_alias_role"), "legacy_compatibility_alias")
+        self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id"), joined["public_player_id"])
+        self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id_source"), "public")
         self.assertEqual(acks[-1].get("payload", {}).get("seat_id"), joined["seat_id"])
         self.assertEqual(acks[-1].get("payload", {}).get("viewer_id"), joined["viewer_id"])
         assert_no_public_identity_numeric_leaks(

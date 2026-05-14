@@ -6,6 +6,7 @@ from apps.server.src.domain.protocol_identity import (
     assert_no_public_identity_numeric_leaks,
     public_identity_numeric_leaks,
 )
+from apps.server.src.services.decision_gateway import build_decision_ack_payload
 
 
 def test_public_identity_numeric_leak_guard_rejects_numeric_public_identity_fields() -> None:
@@ -71,3 +72,30 @@ def test_public_identity_numeric_leak_guard_allows_legacy_numeric_aliases() -> N
 
     assert public_identity_numeric_leaks(payload) == []
     assert_no_public_identity_numeric_leaks(payload)
+
+
+def test_decision_ack_builder_labels_numeric_player_id_as_legacy_alias() -> None:
+    payload = build_decision_ack_payload(
+        request_id="req_1",
+        status="accepted",
+        player_id=2,
+    )
+
+    assert payload["player_id"] == 2
+    assert payload["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert payload["primary_player_id"] == 2
+    assert payload["primary_player_id_source"] == "legacy"
+
+
+def test_decision_ack_builder_prefers_public_primary_identity() -> None:
+    payload = build_decision_ack_payload(
+        request_id="req_1",
+        status="accepted",
+        player_id=2,
+        identity_fields={"public_player_id": "ply_2"},
+    )
+
+    assert payload["player_id"] == 2
+    assert payload["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert payload["primary_player_id"] == "ply_2"
+    assert payload["primary_player_id_source"] == "public"

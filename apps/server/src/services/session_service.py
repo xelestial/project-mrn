@@ -241,9 +241,15 @@ class SessionService:
         session = self.get_session(session_id)
         for seat_cfg in session.seats:
             if seat_cfg.seat == numeric:
+                public_player_id = seat_cfg.public_player_id
+                primary_player_id = public_player_id or numeric
+                primary_player_id_source = "public" if public_player_id else "legacy"
                 return {
                     **display_identity_fields(numeric, legacy_player_id=numeric),
                     **seat_protocol_fields(seat_cfg),
+                    "player_id_alias_role": "legacy_compatibility_alias",
+                    "primary_player_id": primary_player_id,
+                    "primary_player_id_source": primary_player_id_source,
                 }
         return {}
 

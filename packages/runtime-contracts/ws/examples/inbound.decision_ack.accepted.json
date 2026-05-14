@@ -6,7 +6,13 @@
   "payload": {
     "request_id": "req_turn7_move",
     "status": "accepted",
-    "player_id": 1
+    "player_id": 1,
+    "player_id_alias_role": "legacy_compatibility_alias",
+    "primary_player_id": "ply_example_1",
+    "primary_player_id_source": "public",
+    "legacy_player_id": 1,
+    "public_player_id": "ply_example_1",
+    "seat_id": "seat_example_1",
+    "viewer_id": "view_example_1"
   }
 }
-

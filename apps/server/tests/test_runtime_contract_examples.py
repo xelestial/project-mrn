@@ -104,6 +104,7 @@ class RuntimeContractExampleTests(unittest.TestCase):
             ("inbound.event.schema.json", "inbound.event.decision_requested.external_ai.json"),
             ("inbound.prompt.schema.json", "inbound.prompt.movement.json"),
             ("inbound.decision_ack.schema.json", "inbound.decision_ack.accepted.json"),
+            ("inbound.decision_ack.schema.json", "inbound.decision_ack.rejected.with_view_state.json"),
             ("inbound.error.schema.json", "inbound.error.resume_gap_too_old.json"),
             ("inbound.heartbeat.schema.json", "inbound.heartbeat.backpressure.json"),
             ("outbound.resume.schema.json", "outbound.resume.json"),
@@ -164,6 +165,29 @@ class RuntimeContractExampleTests(unittest.TestCase):
             path="$<inbound.prompt.public_identity>",
         )
 
+        inbound_decision_ack_schema = _load_json(schemas / "inbound.decision_ack.schema.json")
+        _validate_subset(
+            {
+                "type": "decision_ack",
+                "seq": 9,
+                "session_id": "sess_public_identity",
+                "payload": {
+                    "request_id": "req_public_1",
+                    "status": "accepted",
+                    "player_id": 1,
+                    "player_id_alias_role": "legacy_compatibility_alias",
+                    "primary_player_id": "player_public_1",
+                    "primary_player_id_source": "public",
+                    "legacy_player_id": 1,
+                    "public_player_id": "player_public_1",
+                    "seat_id": "seat_1",
+                    "viewer_id": "viewer_1",
+                },
+            },
+            inbound_decision_ack_schema,
+            path="$<inbound.decision_ack.public_identity>",
+        )
+
     def test_ws_identity_schemas_require_primary_metadata_for_numeric_player_alias(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
         schemas = root / "schemas"
@@ -200,6 +224,23 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 },
                 inbound_prompt_schema,
                 path="$<inbound.prompt.numeric_alias_without_primary>",
+            )
+
+        inbound_decision_ack_schema = _load_json(schemas / "inbound.decision_ack.schema.json")
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "decision_ack",
+                    "seq": 9,
+                    "session_id": "sess_numeric_alias_without_primary",
+                    "payload": {
+                        "request_id": "req_numeric_alias_without_primary",
+                        "status": "accepted",
+                        "player_id": 1,
+                    },
+                },
+                inbound_decision_ack_schema,
+                path="$<inbound.decision_ack.numeric_alias_without_primary>",
             )
 
     def test_ws_decision_event_sequences_validate_and_keep_order(self) -> None:
