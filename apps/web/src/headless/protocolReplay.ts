@@ -1,4 +1,7 @@
 import type { HeadlessTraceEvent } from "./HeadlessGameClient";
+import type { ProtocolPlayerId } from "../core/contracts/stream";
+
+export type ProtocolReplayIdentitySource = "public" | "protocol" | "legacy";
 
 export type ProtocolReplayLegalAction = {
   action_id: string;
@@ -8,6 +11,8 @@ export type ProtocolReplayLegalAction = {
 
 export type ProtocolReplayPlayerSummary = {
   player_id: number;
+  primary_player_id: ProtocolPlayerId | null;
+  primary_player_id_source: ProtocolReplayIdentitySource | null;
   legacy_player_id: number | null;
   public_player_id: string | null;
   seat_id: string | null;
@@ -39,6 +44,8 @@ export type ProtocolReplayRow = {
   seed: number | null;
   policy_mode: string;
   player_id: number;
+  primary_player_id: ProtocolPlayerId | null;
+  primary_player_id_source: ProtocolReplayIdentitySource | null;
   legacy_player_id: number | null;
   public_player_id: string | null;
   seat_id: string | null;
@@ -50,6 +57,8 @@ export type ProtocolReplayRow = {
     round_index: number | null;
     turn_index: number | null;
     player_id: number;
+    primary_player_id: ProtocolPlayerId | null;
+    primary_player_id_source: ProtocolReplayIdentitySource | null;
     legacy_player_id: number | null;
     public_player_id: string | null;
     seat_id: string | null;
@@ -109,6 +118,8 @@ export function protocolTraceEventsToReplayRows(
         seed: options.seed ?? null,
         policy_mode: options.policyMode ?? "full_stack_protocol",
         player_id: event.player_id,
+        primary_player_id: identity.primaryPlayerId,
+        primary_player_id_source: identity.primaryPlayerIdSource,
         legacy_player_id: identity.legacyPlayerId,
         public_player_id: identity.publicPlayerId,
         seat_id: identity.seatId,
@@ -120,6 +131,8 @@ export function protocolTraceEventsToReplayRows(
           round_index: numberOrNull(event.payload?.["round_index"]),
           turn_index: numberOrNull(event.payload?.["turn_index"]),
           player_id: event.player_id,
+          primary_player_id: observationPlayer?.primary_player_id ?? identity.primaryPlayerId,
+          primary_player_id_source: observationPlayer?.primary_player_id_source ?? identity.primaryPlayerIdSource,
           legacy_player_id: observationPlayer?.legacy_player_id ?? identity.legacyPlayerId,
           public_player_id: observationPlayer?.public_player_id ?? identity.publicPlayerId,
           seat_id: observationPlayer?.seat_id ?? identity.seatId,
@@ -240,6 +253,7 @@ function playerSummariesFromValue(value: unknown): ProtocolReplayPlayerSummary[]
       }
       return {
         player_id: playerId,
+        ...replayIdentityFieldsFromRecord(item, playerId),
         legacy_player_id: numberOrNull(item["legacy_player_id"]) ?? playerId,
         public_player_id: stringValue(item["public_player_id"]),
         seat_id: stringValue(item["seat_id"]),
@@ -258,16 +272,70 @@ function playerSummariesFromValue(value: unknown): ProtocolReplayPlayerSummary[]
 }
 
 function replayIdentityFromEvent(event: HeadlessTraceEvent): {
+  primaryPlayerId: ProtocolPlayerId | null;
+  primaryPlayerIdSource: ProtocolReplayIdentitySource | null;
   legacyPlayerId: number | null;
   publicPlayerId: string | null;
   seatId: string | null;
   viewerId: string | null;
 } {
+  const record = replayIdentityRecordFromEvent(event);
+  const legacyPlayerId = numberOrNull(record["legacy_player_id"]) ?? event.player_id;
+  const identity = replayIdentityFieldsFromRecord(record, legacyPlayerId);
   return {
-    legacyPlayerId: numberOrNull(event.payload?.["legacy_player_id"]) ?? event.player_id,
-    publicPlayerId: stringValue(event.payload?.["public_player_id"]),
-    seatId: stringValue(event.payload?.["seat_id"]),
-    viewerId: stringValue(event.payload?.["viewer_id"]),
+    primaryPlayerId: identity.primary_player_id,
+    primaryPlayerIdSource: identity.primary_player_id_source,
+    legacyPlayerId,
+    publicPlayerId: stringValue(record["public_player_id"]),
+    seatId: stringValue(record["seat_id"]),
+    viewerId: stringValue(record["viewer_id"]),
+  };
+}
+
+function replayIdentityRecordFromEvent(event: HeadlessTraceEvent): Record<string, unknown> {
+  return {
+    ...(event.payload ?? {}),
+    primary_player_id: event.primary_player_id ?? event.payload?.["primary_player_id"],
+    primary_player_id_source: event.primary_player_id_source ?? event.payload?.["primary_player_id_source"],
+    protocol_player_id: event.protocol_player_id ?? event.payload?.["protocol_player_id"],
+    legacy_player_id: event.legacy_player_id ?? event.payload?.["legacy_player_id"],
+    public_player_id: event.public_player_id ?? event.payload?.["public_player_id"],
+    seat_id: event.seat_id ?? event.payload?.["seat_id"],
+    viewer_id: event.viewer_id ?? event.payload?.["viewer_id"],
+  };
+}
+
+function replayIdentityFieldsFromRecord(
+  record: Record<string, unknown> | undefined,
+  fallbackLegacyPlayerId: number | null,
+): Pick<ProtocolReplayPlayerSummary, "primary_player_id" | "primary_player_id_source"> {
+  const explicitPrimary = protocolPlayerIdValue(record?.["primary_player_id"]);
+  if (explicitPrimary !== null) {
+    return {
+      primary_player_id: explicitPrimary,
+      primary_player_id_source: protocolIdentitySourceValue(record?.["primary_player_id_source"], explicitPrimary),
+    };
+  }
+
+  const publicPlayerId = stringValue(record?.["public_player_id"]);
+  if (publicPlayerId !== null) {
+    return {
+      primary_player_id: publicPlayerId,
+      primary_player_id_source: "public",
+    };
+  }
+
+  const protocolPlayerId = protocolPlayerIdValue(record?.["protocol_player_id"]);
+  if (protocolPlayerId !== null) {
+    return {
+      primary_player_id: protocolPlayerId,
+      primary_player_id_source: "protocol",
+    };
+  }
+
+  return {
+    primary_player_id: fallbackLegacyPlayerId,
+    primary_player_id_source: fallbackLegacyPlayerId === null ? null : "legacy",
   };
 }
 
@@ -352,6 +420,26 @@ function stringArrayValue(value: unknown): string[] {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function protocolPlayerIdValue(value: unknown): ProtocolPlayerId | null {
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return null;
+}
+
+function protocolIdentitySourceValue(
+  value: unknown,
+  primaryPlayerId: ProtocolPlayerId,
+): ProtocolReplayIdentitySource {
+  if (value === "public" || value === "protocol" || value === "legacy") {
+    return value;
+  }
+  return typeof primaryPlayerId === "number" ? "legacy" : "protocol";
 }
 
 function numberOrNull(value: unknown): number | null {

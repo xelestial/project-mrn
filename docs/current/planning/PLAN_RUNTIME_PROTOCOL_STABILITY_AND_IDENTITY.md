@@ -953,7 +953,9 @@ Acceptance evidence status, 2026-05-14:
   `primary_player_id` plus `primary_player_id_source`, proving public identity is the primary policy input
   when present while numeric-only prompts remain explicit legacy fallback. `HeadlessGameClient` policy contexts and compact
   decision/view traces now expose the same primary identity shape so headless policy and artifact consumers
-  do not need to treat top-level numeric `player_id` as the public identity. `HeadlessGameClient.spec.ts`
+  do not need to treat top-level numeric `player_id` as the public identity. Replay rows, observations,
+  and final player summaries now expose `primary_player_id` plus source while keeping numeric `player_id`
+  as the legacy display/grouping alias for reward and rank calculations. `HeadlessGameClient.spec.ts`
   also verifies that headless active prompt routing answers public-only prompts without a numeric
   `legacy_player_id` bridge while keeping legacy-only prompts routable during mixed migration commits.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`

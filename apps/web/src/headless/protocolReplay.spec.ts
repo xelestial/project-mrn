@@ -54,6 +54,8 @@ describe("protocolReplay", () => {
         seed: 20260508,
         policy_mode: "baseline",
         player_id: 2,
+        primary_player_id: 2,
+        primary_player_id_source: "legacy",
         legacy_player_id: 2,
         public_player_id: null,
         seat_id: null,
@@ -75,6 +77,8 @@ describe("protocolReplay", () => {
       round_index: 1,
       turn_index: 2,
       player_id: 2,
+      primary_player_id: 2,
+      primary_player_id_source: "legacy",
       legacy_player_id: 2,
       public_player_id: null,
       seat_id: null,
@@ -197,6 +201,81 @@ describe("protocolReplay", () => {
         shards: 2,
       }),
     });
+  });
+
+  it("exports primary player identity while preserving numeric legacy aliases", () => {
+    const events: HeadlessTraceEvent[] = [
+      {
+        event: "view_commit_seen",
+        session_id: "sess_protocol_identity",
+        player_id: 1,
+        commit_seq: 7,
+        payload: {
+          runtime_status: "waiting_input",
+          player_summaries: [
+            {
+              player_id: 2,
+              legacy_player_id: 2,
+              primary_player_id: "player_public_2",
+              primary_player_id_source: "public",
+              public_player_id: "player_public_2",
+              seat_id: "seat_public_2",
+              viewer_id: "viewer_public_2",
+              cash: 18,
+              total_score: 3,
+              alive: true,
+            },
+          ],
+        },
+      },
+      {
+        event: "decision_sent",
+        session_id: "sess_protocol_identity",
+        player_id: 2,
+        commit_seq: 7,
+        request_id: "req_identity",
+        choice_id: "pass",
+        payload: {
+          request_type: "identity_check",
+          primary_player_id: "player_public_2",
+          primary_player_id_source: "public",
+          legacy_player_id: 2,
+          public_player_id: "player_public_2",
+          seat_id: "seat_public_2",
+          viewer_id: "viewer_public_2",
+          legal_choice_ids: ["pass"],
+        },
+      },
+    ];
+
+    const [row] = protocolTraceEventsToReplayRows(events);
+
+    expect(row).toEqual(
+      expect.objectContaining({
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        player_id: 2,
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+      }),
+    );
+    expect(row.observation).toEqual(
+      expect.objectContaining({
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        player_id: 2,
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+      }),
+    );
+    expect(row.outcome.final_player_summary).toEqual(
+      expect.objectContaining({
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        player_id: 2,
+        legacy_player_id: 2,
+      }),
+    );
   });
 
   it("does not serialize raw view_state or stream messages into replay rows", () => {

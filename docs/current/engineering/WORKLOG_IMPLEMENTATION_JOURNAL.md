@@ -707,6 +707,20 @@ Responsibility result: protocol-gate operator diagnostics no longer interpret
 numeric active-prompt `player_id` as the primary identity. Seat numbers remain
 available for display and legacy grouping only.
 
+## 2026-05-14 Protocol Replay Primary Identity Export
+
+- Added replay coverage for public primary player identity in rows,
+  observations, and final player summaries.
+- `ProtocolReplayRow` and `ProtocolReplayPlayerSummary` now expose
+  `primary_player_id` plus `primary_player_id_source`.
+- Numeric `player_id` remains available for reward/rank grouping and legacy
+  display, but replay exports no longer present it as the only player identity.
+
+Responsibility result: replay artifact identity moved to explicit primary
+identity fields. Numeric player ids intentionally remain as display/training
+grouping aliases because reward and rank calculations still consume engine-seat
+snapshots.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
