@@ -45,9 +45,11 @@ in the active plans, status index, tests, or canonical contract documents.
   requests expose the preferred identity without guessing from the numeric alias.
 - The Redis restart decision smoke adapter now accepts replay prompts whose
   protocol `player_id` is public as long as `legacy_player_id` or another
-  numeric bridge is present, and decision payload construction preserves the
-  same request/player/seat/viewer companions instead of forcing numeric
-  `player_id`.
+  numeric bridge is present. Decision payload construction now preserves the
+  same request/player/seat/viewer companions, emits `primary_player_id` and
+  `primary_player_id_source`, and labels numeric top-level `player_id` as
+  `player_id_alias_role: "legacy_compatibility_alias"` instead of forcing
+  consumers to infer primary identity from the numeric alias.
 - Runtime fanout and session bootstrap identity helpers now keep explicit
   prefixed/list legacy companions for protocol player-id fields. Examples:
   `acting_legacy_player_id`, `owner_legacy_player_id`,

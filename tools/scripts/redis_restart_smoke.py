@@ -204,6 +204,43 @@ def _copy_identity_companions(target: dict[str, Any], source: dict[str, Any]) ->
         target[field] = str(value).strip() if isinstance(value, str) else value
 
 
+def _prompt_primary_player_identity(prompt: dict[str, Any]) -> tuple[Any, str] | None:
+    primary_player_id = prompt.get("primary_player_id")
+    primary_player_id_source = str(prompt.get("primary_player_id_source") or "").strip()
+    if primary_player_id_source in {"public", "protocol", "legacy"}:
+        if isinstance(primary_player_id, int) and not isinstance(primary_player_id, bool):
+            return primary_player_id, primary_player_id_source
+        if isinstance(primary_player_id, str) and primary_player_id.strip():
+            return primary_player_id.strip(), primary_player_id_source
+
+    public_player_id = prompt.get("public_player_id")
+    if isinstance(public_player_id, str) and public_player_id.strip():
+        return public_player_id.strip(), "public"
+
+    player_id = prompt.get("player_id")
+    if isinstance(player_id, str) and player_id.strip() and _optional_int(player_id) is None:
+        return player_id.strip(), "protocol"
+
+    legacy_player_id = _prompt_legacy_player_id(prompt)
+    if legacy_player_id is not None:
+        return legacy_player_id, "legacy"
+    return None
+
+
+def _add_player_identity_metadata(target: dict[str, Any], prompt: dict[str, Any]) -> None:
+    if isinstance(target.get("player_id"), int) and not isinstance(target.get("player_id"), bool):
+        alias_role = str(prompt.get("player_id_alias_role") or "").strip()
+        target["player_id_alias_role"] = (
+            alias_role if alias_role == "legacy_compatibility_alias" else "legacy_compatibility_alias"
+        )
+    primary_identity = _prompt_primary_player_identity(prompt)
+    if primary_identity is None:
+        return
+    primary_player_id, primary_player_id_source = primary_identity
+    target["primary_player_id"] = primary_player_id
+    target["primary_player_id_source"] = primary_player_id_source
+
+
 def _poll_runtime_advanced_from_request(
     base_url: str,
     session_id: str,
@@ -285,6 +322,7 @@ def _decision_from_prompt(prompt: dict[str, Any], *, choice_id: str) -> dict[str
         value = prompt.get(field)
         if value is not None:
             decision[field] = value
+    _add_player_identity_metadata(decision, prompt)
     _copy_identity_companions(decision, prompt)
     return decision
 

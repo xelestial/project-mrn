@@ -128,6 +128,9 @@ def test_decision_smoke_payload_preserves_prompt_continuation_contract() -> None
         "type": "decision",
         "request_id": "sess:r1:t1:p1:draft_card:1",
         "player_id": 1,
+        "player_id_alias_role": "legacy_compatibility_alias",
+        "primary_player_id": 1,
+        "primary_player_id_source": "legacy",
         "choice_id": "8",
         "choice_payload": {},
         "resume_token": "resume-1",
@@ -181,6 +184,8 @@ def test_decision_smoke_payload_preserves_protocol_identity_companions() -> None
         "type": "decision",
         "request_id": "req_public_1",
         "player_id": "player_public_1",
+        "primary_player_id": "player_public_1",
+        "primary_player_id_source": "public",
         "choice_id": "roll",
         "choice_payload": {},
         "legacy_request_id": "ai_req_1",
@@ -191,3 +196,27 @@ def test_decision_smoke_payload_preserves_protocol_identity_companions() -> None
         "seat_id": "seat_public_1",
         "viewer_id": "viewer_public_1",
     }
+
+
+def test_decision_smoke_payload_prefers_explicit_primary_identity_over_top_level_alias() -> None:
+    script = _load_script()
+
+    decision = script._decision_from_prompt(
+        {
+            "request_id": "req_public_2",
+            "player_id": 2,
+            "player_id_alias_role": "legacy_compatibility_alias",
+            "primary_player_id": "player_public_2",
+            "primary_player_id_source": "public",
+            "legacy_player_id": 2,
+            "public_player_id": "player_public_2",
+            "seat_id": "seat_public_2",
+            "viewer_id": "viewer_public_2",
+        },
+        choice_id="roll",
+    )
+
+    assert decision["player_id"] == 2
+    assert decision["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert decision["primary_player_id"] == "player_public_2"
+    assert decision["primary_player_id_source"] == "public"
