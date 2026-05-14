@@ -40,6 +40,13 @@ import {
   selectDebugMessagesForTurn,
   selectUserVisibleDebugMessages,
 } from "./domain/selectors/debugLogSelectors";
+import {
+  localViewerIdentityFromJoinResult,
+  localViewerIdentityFromMessages,
+  localViewerIdentityFromSessionToken,
+  resolveLocalViewerLegacyPlayerId,
+  type LocalViewerIdentity,
+} from "./domain/viewer/localViewerIdentity";
 import { effectCharacterFromPayload } from "./domain/events/effectCharacter";
 import { BoardPanel } from "./features/board/BoardPanel";
 import { GameEventOverlay } from "./features/board/GameEventOverlay";
@@ -147,18 +154,6 @@ function promptDecisionIdentity(prompt: PromptViewModel): PromptDecisionIdentity
 
 function optionalPromptIdentityString(value: string | null | undefined): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function inferPlayerIdFromSessionToken(token: string | undefined): number | null {
-  if (!token) {
-    return null;
-  }
-  const match = /^session_p(\d+)_/.exec(token.trim());
-  if (!match) {
-    return null;
-  }
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function tokenStorageKey(sessionId: string): string {
@@ -761,9 +756,7 @@ export function App() {
   const [sessionManifest, setSessionManifest] = useState<ParameterManifest | null>(null);
   const [sessionInitialActiveByCard, setSessionInitialActiveByCard] = useState<Record<string, string> | null>(null);
   const [sessionSeats, setSessionSeats] = useState<SeatPublic[] | null>(null);
-  const [localPlayerId, setLocalPlayerId] = useState<number | null>(null);
-  const inferredPlayerId = inferPlayerIdFromSessionToken(token);
-  const effectivePlayerId = localPlayerId ?? inferredPlayerId;
+  const [localViewerIdentity, setLocalViewerIdentity] = useState<LocalViewerIdentity | null>(null);
 
   const [compactDensity, setCompactDensity] = useState(false);
   const [sessionInfoExpanded, setSessionInfoExpanded] = useState(false);
@@ -808,6 +801,13 @@ export function App() {
   const stream = useGameStream({ sessionId: activeStreamSessionId, token, baseUrl: serverBaseUrl });
   const debugMessages = stream.debugMessages;
   const eventQueue = useEventQueue();
+  const tokenViewerIdentity = useMemo(() => localViewerIdentityFromSessionToken(token), [token]);
+  const streamViewerIdentity = useMemo(() => localViewerIdentityFromMessages(stream.messages), [stream.messages]);
+  const effectivePlayerId = resolveLocalViewerLegacyPlayerId(
+    streamViewerIdentity,
+    localViewerIdentity,
+    tokenViewerIdentity
+  );
 
   useEffect(() => {
     submittedPromptRequestIdsRef.current.clear();
@@ -1284,7 +1284,7 @@ export function App() {
   function clearActiveMatchState() {
     setSessionId("");
     setToken("");
-    setLocalPlayerId(null);
+    setLocalViewerIdentity(null);
     setRuntime({ status: "-" });
     setSessionManifest(null);
     setSessionInitialActiveByCard(null);
@@ -1312,13 +1312,13 @@ export function App() {
         const restoredToken = parsed.token || loadStoredSessionToken(parsed.sessionId ?? "");
         setTokenInput(restoredToken ?? "");
         setToken(restoredToken);
-        setLocalPlayerId(inferPlayerIdFromSessionToken(restoredToken));
+        setLocalViewerIdentity(localViewerIdentityFromSessionToken(restoredToken));
       } else if (parsed.sessionId) {
         const restoredToken = loadStoredSessionToken(parsed.sessionId);
         if (restoredToken) {
           setTokenInput(restoredToken);
           setToken(restoredToken);
-          setLocalPlayerId(inferPlayerIdFromSessionToken(restoredToken));
+          setLocalViewerIdentity(localViewerIdentityFromSessionToken(restoredToken));
         }
       }
     };
@@ -1352,7 +1352,7 @@ export function App() {
           setSessionId(room.session_id);
           setTokenInput(room.session_token);
           setToken(room.session_token);
-          setLocalPlayerId(inferPlayerIdFromSessionToken(room.session_token));
+          setLocalViewerIdentity(localViewerIdentityFromSessionToken(room.session_token));
           navigateRoute("match", { sessionId: room.session_id, token: room.session_token });
         }
       })
@@ -1389,7 +1389,7 @@ export function App() {
           setSessionId(room.session_id);
           setTokenInput(room.session_token);
           setToken(room.session_token);
-          setLocalPlayerId(inferPlayerIdFromSessionToken(room.session_token));
+          setLocalViewerIdentity(localViewerIdentityFromSessionToken(room.session_token));
           navigateRoute("match", { sessionId: room.session_id, token: room.session_token });
         }
       } catch {
@@ -2208,7 +2208,7 @@ export function App() {
         setSessionId(started.session_id);
         setTokenInput(roomSessionToken);
         setToken(roomSessionToken);
-        setLocalPlayerId(inferPlayerIdFromSessionToken(roomSessionToken));
+        setLocalViewerIdentity(localViewerIdentityFromSessionToken(roomSessionToken));
         navigateRoute("match", { sessionId: started.session_id, token: roomSessionToken });
       }
       setNotice(locale === "ko" ? `방 #${activeRoomNo} 게임 시작` : `Started room #${activeRoomNo}`);
@@ -2224,12 +2224,12 @@ export function App() {
     event.preventDefault();
     setError("");
     setNotice("");
-    setLocalPlayerId(null);
+    setLocalViewerIdentity(null);
     const normalized = sessionInput.trim();
     setSessionId(normalized);
     const nextToken = tokenInput.trim() || undefined;
     setToken(nextToken);
-    setLocalPlayerId(inferPlayerIdFromSessionToken(nextToken));
+    setLocalViewerIdentity(localViewerIdentityFromSessionToken(nextToken));
     if (normalized) {
       navigateRoute("match", { sessionId: normalized, token: nextToken });
     }
@@ -2264,7 +2264,7 @@ export function App() {
       setSessionId(created.session_id);
       setTokenInput("");
       setToken(undefined);
-      setLocalPlayerId(null);
+      setLocalViewerIdentity(null);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
       const seat = Number(joinSeatInput) || 1;
@@ -2310,7 +2310,7 @@ export function App() {
       setSessionId(created.session_id);
       setTokenInput("");
       setToken(undefined);
-      setLocalPlayerId(null);
+      setLocalViewerIdentity(null);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
@@ -2367,7 +2367,7 @@ export function App() {
       setSessionId(created.session_id);
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
-      setLocalPlayerId(joined.player_id);
+      setLocalViewerIdentity(localViewerIdentityFromJoinResult(joined));
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
@@ -2439,7 +2439,7 @@ export function App() {
       setSessionSeats(snapshotLocal.seats ?? null);
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
-      setLocalPlayerId(joined.player_id);
+      setLocalViewerIdentity(localViewerIdentityFromJoinResult(joined));
       setNotice(app.notices.joinSeat(joined.player_id));
       navigateRoute("match", { sessionId: current, token: joined.session_token });
       await refreshSessions();
@@ -2460,7 +2460,7 @@ export function App() {
     setLastJoinTokens({});
     setTokenInput("");
     setToken(undefined);
-    setLocalPlayerId(null);
+    setLocalViewerIdentity(null);
     const selected = sessions.find((session) => session.session_id === id);
     setSessionManifest(selected?.parameter_manifest ?? null);
     setSessionInitialActiveByCard(selected?.initial_active_by_card ?? null);

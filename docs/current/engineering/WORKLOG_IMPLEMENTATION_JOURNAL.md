@@ -578,6 +578,23 @@ requires non-local endpoint URLs, auth, and platform-filled Redis commands.
 Protocol-plan responsibility also became explicit: completed additive/debug
 foundations are separated from residual identity and outbox migration work.
 
+## 2026-05-14 React Local Viewer Identity Bridge
+
+- Added `LocalViewerIdentity` as the React-side local viewer model.
+- Token-derived `session_pN_*` values and join-response `player_id` values are
+  now normalized as legacy fallback inputs, not stored as the UI's whole viewer
+  identity.
+- `view_commit.viewer` public/protocol companions can now populate the same
+  model, while existing display selectors still receive the resolved numeric
+  `legacyPlayerId` bridge.
+- Updated the protocol identity inventory and runtime protocol plan to record
+  that this is an intermediate bridge, not numeric alias removal.
+
+Responsibility result: token parsing and local viewer identity construction
+moved out of `App.tsx` into the domain viewer helper. `App.tsx` still owns
+feeding legacy numeric selector inputs until the remaining render selectors
+can consume public/protocol viewer identity directly.
+
 ## 2026-05-14 Frontend Prompt Instance Companion Preservation
 
 - Added frontend/headless coverage that fails when `public_prompt_instance_id`
