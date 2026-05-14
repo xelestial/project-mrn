@@ -922,10 +922,13 @@ Acceptance evidence status, 2026-05-15:
   remain explicit companions. Numeric player ids remain covered as labeled
   legacy aliases in schema tests, so external workers do not have to infer
   primary identity from a numeric compatibility alias. Runtime contract schema
-  tests also reject numeric `primary_player_id` values when
-  `primary_player_id_source` is `public` or `protocol`, so malformed producer
-  payloads cannot reintroduce numeric public primary identity through WS
-  decision, WS prompt, WS decision ACK, or external-AI request contracts.
+  tests also reject mismatched primary identity source/type pairs: numeric
+  `primary_player_id` values are invalid when `primary_player_id_source` is
+  `public` or `protocol`, and string `primary_player_id` values are invalid
+  when the source is `legacy`. Malformed producer payloads therefore cannot
+  reintroduce numeric public primary identity or relabel public string identity
+  as legacy through WS decision, WS prompt, WS decision ACK, or external-AI
+  request contracts.
 - `tests/test_game_debug_log_audit_script.py` verifies debug-log audit duplicate grouping prefers public
   primary identity when numeric `player_id` is absent or only a legacy top-level alias, so simultaneous
   public identities that share a request id are not collapsed into one legacy numeric bucket.

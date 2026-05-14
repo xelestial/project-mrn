@@ -14,11 +14,12 @@ in the active plans, status index, tests, or canonical contract documents.
 ## 2026-05-15 Runtime Contract Primary Identity Guard
 
 - Runtime contract schemas now reject numeric `primary_player_id` when
-  `primary_player_id_source` is `public` or `protocol` across WebSocket
-  outbound decisions, inbound prompts, inbound decision ACKs, and external-AI
-  request payloads. This moves the malformed-primary guard from producer-local
-  cleanup into the shared protocol contract while keeping legacy numeric
-  primary fallback valid only under `primary_player_id_source: "legacy"`.
+  `primary_player_id_source` is `public` or `protocol`, and reject string
+  `primary_player_id` when the source is `legacy`, across WebSocket outbound
+  decisions, inbound prompts, inbound decision ACKs, and external-AI request
+  payloads. This moves the malformed-primary guard from producer-local cleanup
+  into the shared protocol contract while keeping legacy primary fallback
+  numeric-only under `primary_player_id_source: "legacy"`.
 - `SessionService.resolve_protocol_player_id()` now treats all supplied public,
   protocol, seat/viewer, and legacy numeric identity fields as one candidate
   set. If those fields resolve to different internal seats, the adapter returns

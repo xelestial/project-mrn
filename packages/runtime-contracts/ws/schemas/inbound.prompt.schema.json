@@ -71,6 +71,24 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "required": ["primary_player_id", "primary_player_id_source"],
+            "properties": {
+              "primary_player_id_source": {
+                "const": "legacy"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "primary_player_id": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
         }
       ],
       "properties": {
