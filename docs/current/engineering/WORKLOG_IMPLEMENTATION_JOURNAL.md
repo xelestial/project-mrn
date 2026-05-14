@@ -35,6 +35,11 @@ in the active plans, status index, tests, or canonical contract documents.
   frontend prompt selector consumes those explicit primary fields first, then
   keeps the existing public/protocol/legacy fallback path for mixed migration
   payloads.
+- `PromptService.submit_decision()` now preserves the same primary identity trio
+  from the pending prompt into lifecycle decision records, command payloads, and
+  nested command decision payloads. This keeps the command boundary from
+  silently downgrading an explicit public primary identity back to an unlabeled
+  numeric `player_id`.
 - The external-AI full-stack smoke adapter now preserves pending prompt
   `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the

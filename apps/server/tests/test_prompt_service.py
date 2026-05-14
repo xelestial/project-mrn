@@ -186,6 +186,9 @@ class PromptServiceTests(unittest.TestCase):
             lifecycle["decision"]["public_prompt_instance_id"],
             pending.payload["public_prompt_instance_id"],
         )
+        self.assertEqual(lifecycle["decision"]["primary_player_id"], 1)
+        self.assertEqual(lifecycle["decision"]["primary_player_id_source"], "legacy")
+        self.assertEqual(lifecycle["decision"]["player_id_alias_role"], "legacy_compatibility_alias")
 
     def test_create_prompt_uses_public_request_id_as_canonical_key(self) -> None:
         legacy_request_id = "s1:r2:t3:p1:movement:15"
@@ -552,7 +555,13 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(command_payload["seat_id"], "seat_1")
         self.assertEqual(command_payload["viewer_id"], "view_1")
         self.assertEqual(command_payload["legacy_player_id"], 1)
+        self.assertEqual(command_payload["primary_player_id"], "ply_1")
+        self.assertEqual(command_payload["primary_player_id_source"], "public")
+        self.assertEqual(command_payload["player_id_alias_role"], "legacy_compatibility_alias")
         self.assertEqual(command_payload["decision"]["public_player_id"], "ply_1")
+        self.assertEqual(command_payload["decision"]["primary_player_id"], "ply_1")
+        self.assertEqual(command_payload["decision"]["primary_player_id_source"], "public")
+        self.assertEqual(command_payload["decision"]["player_id_alias_role"], "legacy_compatibility_alias")
 
     def test_simultaneous_batch_decisions_wait_for_collector_completion(self) -> None:
         collector = BatchCollectorStub(

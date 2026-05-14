@@ -1464,6 +1464,9 @@ def _copy_prompt_protocol_identity(source: dict, target: dict) -> None:
 
 def _copy_prompt_player_identity(source: dict, target: dict) -> None:
     for field in (
+        "player_id_alias_role",
+        "primary_player_id",
+        "primary_player_id_source",
         "public_player_id",
         "seat_id",
         "viewer_id",
@@ -1536,6 +1539,16 @@ def _compact_prompt_lifecycle_payload(prompt: dict) -> dict[str, Any]:
         "prompt_fingerprint": str(prompt.get("prompt_fingerprint") or ""),
         "prompt_fingerprint_version": prompt.get("prompt_fingerprint_version"),
         "public_context": dict(prompt.get("public_context") or {}),
+        "player_id_alias_role": str(prompt.get("player_id_alias_role") or ""),
+        "primary_player_id": prompt.get("primary_player_id"),
+        "primary_player_id_source": str(prompt.get("primary_player_id_source") or ""),
+        "public_player_id": str(prompt.get("public_player_id") or ""),
+        "seat_id": str(prompt.get("seat_id") or ""),
+        "viewer_id": str(prompt.get("viewer_id") or ""),
+        "legacy_player_id": prompt.get("legacy_player_id"),
+        "seat_index": prompt.get("seat_index"),
+        "turn_order_index": prompt.get("turn_order_index"),
+        "player_label": str(prompt.get("player_label") or ""),
     }
     return {key: value for key, value in result.items() if value not in ("", None, [], {})}
 
@@ -1555,5 +1568,15 @@ def _compact_decision_lifecycle_payload(decision: dict) -> dict[str, Any]:
         "public_prompt_instance_id": str(decision.get("public_prompt_instance_id") or ""),
         "resume_token": str(decision.get("resume_token") or ""),
         "prompt_fingerprint": str(decision.get("prompt_fingerprint") or ""),
+        "player_id_alias_role": str(decision.get("player_id_alias_role") or ""),
+        "primary_player_id": decision.get("primary_player_id"),
+        "primary_player_id_source": str(decision.get("primary_player_id_source") or ""),
+        "public_player_id": str(decision.get("public_player_id") or ""),
+        "seat_id": str(decision.get("seat_id") or ""),
+        "viewer_id": str(decision.get("viewer_id") or ""),
+        "legacy_player_id": decision.get("legacy_player_id"),
+        "seat_index": decision.get("seat_index"),
+        "turn_order_index": decision.get("turn_order_index"),
+        "player_label": str(decision.get("player_label") or ""),
     }
     return {key: value for key, value in result.items() if value not in ("", None, [], {})}
