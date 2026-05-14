@@ -216,7 +216,7 @@ def test_decision_smoke_payload_prefers_explicit_primary_identity_over_top_level
         choice_id="roll",
     )
 
-    assert decision["player_id"] == 2
-    assert decision["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert decision["player_id"] == "player_public_2"
+    assert "player_id_alias_role" not in decision
     assert decision["primary_player_id"] == "player_public_2"
     assert decision["primary_player_id_source"] == "public"

@@ -58,11 +58,10 @@ in the active plans, status index, tests, or canonical contract documents.
 - The external-AI full-stack smoke adapter now preserves pending prompt
   `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the
-  worker request and callback body while keeping numeric `player_id` as the
-  compatibility alias. It also emits `primary_player_id`,
-  `primary_player_id_source`, and
-  `player_id_alias_role: "legacy_compatibility_alias"` so external worker
-  requests expose the preferred identity without guessing from the numeric alias.
+  worker request and callback body. It now uses public/protocol top-level
+  `player_id` when available and keeps numeric `player_id` plus
+  `player_id_alias_role: "legacy_compatibility_alias"` only for legacy-only
+  prompt input.
   When a pending prompt already carries explicit `primary_player_id` metadata,
   the worker request and callback now consume that primary identity before
   falling back to `public_player_id`, protocol `player_id`, or legacy numeric
@@ -71,9 +70,10 @@ in the active plans, status index, tests, or canonical contract documents.
   protocol `player_id` is public as long as `legacy_player_id` or another
   numeric bridge is present. Decision payload construction now preserves the
   same request/player/seat/viewer companions, emits `primary_player_id` and
-  `primary_player_id_source`, and labels numeric top-level `player_id` as
-  `player_id_alias_role: "legacy_compatibility_alias"` instead of forcing
-  consumers to infer primary identity from the numeric alias.
+  `primary_player_id_source`, and uses public/protocol top-level `player_id`
+  when available. Numeric top-level `player_id` is labeled as
+  `player_id_alias_role: "legacy_compatibility_alias"` only for legacy-only
+  prompt input.
 - HTTP decision policy requests now label both the top-level numeric
   `player_id` and the nested `identity` payload with
   `player_id_alias_role: "legacy_compatibility_alias"`. This keeps external
@@ -873,6 +873,19 @@ Responsibility result: public-string player resolution moved into
 `SessionService.resolve_protocol_player_id()` for server callbacks, while the
 worker boundary itself now accepts the same public/protocol identity contract
 instead of forcing the smoke adapter to down-convert to a numeric alias.
+
+## 2026-05-14 Redis Restart Smoke Public Decision Identity
+
+- `redis_restart_smoke.py` now uses the prompt's explicit public/protocol
+  primary identity as submitted decision `player_id` when available.
+- The script still uses `legacy_player_id` as the replay prompt lookup bridge
+  for operator-selected numeric player seats.
+- Legacy-only prompts still submit numeric `player_id` and label it as
+  `player_id_alias_role: "legacy_compatibility_alias"`.
+
+Responsibility result: restart-smoke decision submission moved off the numeric
+top-level alias when public/protocol identity exists. Numeric identity remains
+only as replay lookup and legacy-only compatibility input.
 
 ## 2026-05-12 Runtime Rebuild Baseline
 
