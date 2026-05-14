@@ -209,6 +209,61 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         self.assertEqual(active["resume_tokens_by_seat_id"], {"seat_1": "tok_p1", "seat_3": "tok_p3"})
         self.assertEqual(active["resume_tokens_by_viewer_id"], {"view_1": "tok_p1", "view_3": "tok_p3"})
 
+    def test_build_prompt_view_state_preserves_companion_only_batch_continuation(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_public_batch",
+                        "request_type": "burden_exchange",
+                        "player_id": "ply_1",
+                        "primary_player_id": "ply_1",
+                        "primary_player_id_source": "public",
+                        "public_player_id": "ply_1",
+                        "seat_id": "seat_1",
+                        "viewer_id": "view_1",
+                        "timeout_ms": 30000,
+                        "runner_kind": "module",
+                        "public_prompt_instance_id": "pin_public_batch",
+                        "resume_token": "tok_p1",
+                        "frame_id": "round:1:batch",
+                        "module_id": "mod:resupply",
+                        "module_type": "ResupplyModule",
+                        "module_cursor": "await_resupply_batch:1",
+                        "batch_id": "batch_public",
+                        "missing_public_player_ids": ["ply_1", "ply_3"],
+                        "missing_seat_ids": ["seat_1", "seat_3"],
+                        "missing_viewer_ids": ["view_1", "view_3"],
+                        "resume_tokens_by_public_player_id": {"ply_1": "tok_p1", "ply_3": "tok_p3"},
+                        "resume_tokens_by_seat_id": {"seat_1": "tok_p1", "seat_3": "tok_p3"},
+                        "resume_tokens_by_viewer_id": {"view_1": "tok_p1", "view_3": "tok_p3"},
+                        "legal_choices": [{"choice_id": "yes", "title": "Pay"}],
+                        "public_context": {},
+                    },
+                }
+            ]
+        )
+
+        active = view_state["active"]
+        self.assertEqual(active["player_id"], "ply_1")
+        self.assertEqual(active["primary_player_id"], "ply_1")
+        self.assertEqual(active["primary_player_id_source"], "public")
+        self.assertEqual(active["batch_id"], "batch_public")
+        self.assertEqual(active["public_prompt_instance_id"], "pin_public_batch")
+        self.assertEqual(active["missing_public_player_ids"], ["ply_1", "ply_3"])
+        self.assertEqual(active["missing_seat_ids"], ["seat_1", "seat_3"])
+        self.assertEqual(active["missing_viewer_ids"], ["view_1", "view_3"])
+        self.assertEqual(active["resume_tokens_by_public_player_id"], {"ply_1": "tok_p1", "ply_3": "tok_p3"})
+        self.assertEqual(active["resume_tokens_by_seat_id"], {"seat_1": "tok_p1", "seat_3": "tok_p3"})
+        self.assertEqual(active["resume_tokens_by_viewer_id"], {"view_1": "tok_p1", "view_3": "tok_p3"})
+        self.assertNotIn("missing_player_ids", active)
+        self.assertNotIn("resume_tokens_by_player_id", active)
+        self.assertNotIn("prompt_instance_id", active)
+
     def test_build_prompt_view_state_marks_numeric_player_id_as_legacy_primary_fallback(self) -> None:
         view_state = build_prompt_view_state(
             [

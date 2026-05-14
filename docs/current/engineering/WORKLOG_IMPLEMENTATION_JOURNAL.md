@@ -49,6 +49,13 @@ in the active plans, status index, tests, or canonical contract documents.
   bridge. `player_id_alias_role` is emitted only for legacy-only numeric
   top-level prompts, so the public prompt target is no longer serialized through
   the numeric active-prompt bridge.
+- Server active prompt view-state also preserves complete public-player, seat,
+  and viewer batch-continuation companion maps without fabricating numeric
+  `missing_player_ids`, `resume_tokens_by_player_id`, or `prompt_instance_id`
+  aliases when those aliases are absent from the source prompt. This proves the
+  projection layer is not the remaining blocker; the numeric batch bridge stays
+  because `PromptService` and the runtime semantic guard still validate numeric
+  resume maps before module continuation.
 - Frontend decision duplicate-flight keys now prefer `publicPromptInstanceId`
   before the numeric `promptInstanceId` lifecycle alias when no prompt
   fingerprint is present. Decision payloads still send numeric

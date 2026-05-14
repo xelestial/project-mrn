@@ -960,6 +960,12 @@ Acceptance evidence status, 2026-05-14:
   companion maps without requiring numeric continuation maps in the selector input. It also verifies
   that rendered UI ownership/queued target helpers read `PromptViewModel.identity` instead of the
   top-level legacy `PromptViewModel.playerId` alias.
+- `apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_preserves_companion_only_batch_continuation`
+  verifies that server active prompt view-state projection preserves complete public-player, seat, and
+  viewer continuation companion maps without inventing numeric `missing_player_ids`,
+  `resume_tokens_by_player_id`, or `prompt_instance_id` aliases when the source prompt omits them.
+  This narrows the remaining numeric continuation dependency to runtime resume validation and
+  lifecycle compatibility rather than view-state projection itself.
 - `apps/web/src/i18n/i18n.spec.ts` verifies that prompt metadata labels accept public/protocol string
   player identity while preserving the existing numeric `P2` display.
 - `apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event`,
