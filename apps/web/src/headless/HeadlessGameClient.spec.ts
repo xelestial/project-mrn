@@ -202,11 +202,15 @@ describe("HeadlessGameClient", () => {
   });
 
   it("sends active prompt public player identity while preserving the legacy numeric alias", async () => {
+    let observedPolicyIdentity: unknown = null;
     const client = new HeadlessGameClient({
       sessionId: "sess_headless_public_player",
       token: "seat-2",
       playerId: 2,
-      policy: baselineDecisionPolicy,
+      policy: (context) => {
+        observedPolicyIdentity = (context as unknown as Record<string, unknown>)["identity"];
+        return baselineDecisionPolicy(context);
+      },
     });
 
     const outbound = await client.ingestMessage(
@@ -234,12 +238,46 @@ describe("HeadlessGameClient", () => {
       choice_id: "buy",
       choice_payload: { tile_index: 7, buy: true },
     });
+    expect(client.trace.find((event) => event.event === "view_commit_seen")?.payload).toMatchObject({
+      active_prompt_identity: {
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
+      },
+      active_prompt_primary_player_id: "player_public_2",
+      active_prompt_primary_player_id_source: "public",
+      active_prompt_player_id: 2,
+    });
     expect(client.trace.find((event) => event.event === "decision_sent")?.payload).toMatchObject({
+      identity: {
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
+      },
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
       protocol_player_id: "player_public_2",
       legacy_player_id: 2,
       public_player_id: "player_public_2",
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
+    });
+    expect(observedPolicyIdentity).toEqual({
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: "player_public_2",
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      seatId: "seat_public_2",
+      viewerId: "viewer_public_2",
     });
   });
 

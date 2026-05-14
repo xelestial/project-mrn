@@ -134,6 +134,12 @@ in the active plans, status index, tests, or canonical contract documents.
   top-level numeric `player_id` by default. Compact trace payloads and replay
   rows carry the same companions without changing reward calculation's numeric
   actor-index bridge.
+- `HeadlessGameClient` now gives decision policies a
+  `HeadlessDecisionContext.identity` object and writes compact decision/view
+  trace identity blocks with `primary_player_id`. Public identity is visible as
+  the policy/trace primary value while numeric `playerId` remains the legacy
+  route/debug bridge for current prompt matching, duplicate suppression, and
+  retry handling.
 - Session bootstrap identity was aligned with the runtime protocol identity
   migration. `session_start.players`, initial snapshot players, marker owner,
   and starting pawn lists now carry public player, seat, and viewer companion

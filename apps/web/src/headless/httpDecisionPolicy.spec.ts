@@ -6,6 +6,15 @@ function context(): HeadlessDecisionContext {
   return {
     sessionId: "sess_http_policy",
     playerId: 2,
+    identity: {
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: "player_public_2",
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      seatId: "seat_public_2",
+      viewerId: "viewer_public_2",
+    },
     lastCommitSeq: 42,
     messages: [],
     latestCommit: {

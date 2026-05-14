@@ -37,11 +37,22 @@ export type HeadlessPolicyDecision = {
 export type HeadlessDecisionContext = {
   sessionId: string;
   playerId: number;
+  identity: HeadlessDecisionIdentity;
   prompt: PromptViewModel;
   legalChoices: PromptChoiceViewModel[];
   latestCommit: ViewCommitPayload | null;
   lastCommitSeq: number;
   messages: InboundMessage[];
+};
+
+export type HeadlessDecisionIdentity = {
+  primaryPlayerId: ProtocolPlayerId;
+  primaryPlayerIdSource: "public" | "protocol" | "legacy";
+  protocolPlayerId: ProtocolPlayerId;
+  legacyPlayerId: number;
+  publicPlayerId: string | null;
+  seatId: string | null;
+  viewerId: string | null;
 };
 
 export type DecisionPolicy = (
@@ -124,6 +135,18 @@ const DEFAULT_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
 const DEFAULT_UNACKED_DECISION_RETRY_LIMIT = 2;
 
 function promptDecisionIdentity(prompt: PromptViewModel, fallbackPlayerId: number): PromptDecisionIdentity {
+  const identity = headlessDecisionIdentity(prompt, fallbackPlayerId);
+  const needsLegacyAlias = typeof identity.protocolPlayerId === "string";
+  return {
+    playerId: identity.protocolPlayerId,
+    ...(needsLegacyAlias ? { legacyPlayerId: identity.legacyPlayerId } : {}),
+    ...(identity.publicPlayerId ? { publicPlayerId: identity.publicPlayerId } : {}),
+    ...(identity.seatId ? { seatId: identity.seatId } : {}),
+    ...(identity.viewerId ? { viewerId: identity.viewerId } : {}),
+  };
+}
+
+function headlessDecisionIdentity(prompt: PromptViewModel, fallbackPlayerId: number): HeadlessDecisionIdentity {
   const legacyPlayerId =
     typeof prompt.legacyPlayerId === "number" && Number.isFinite(prompt.legacyPlayerId)
       ? Math.floor(prompt.legacyPlayerId)
@@ -132,13 +155,21 @@ function promptDecisionIdentity(prompt: PromptViewModel, fallbackPlayerId: numbe
   const seatId = optionalIdentityString(prompt.seatId);
   const viewerId = optionalIdentityString(prompt.viewerId);
   const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId;
-  const needsLegacyAlias = typeof protocolPlayerId === "string";
+  const primaryPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId;
+  const primaryPlayerIdSource =
+    publicPlayerId !== null
+      ? "public"
+      : typeof prompt.protocolPlayerId === "string"
+        ? "protocol"
+        : "legacy";
   return {
-    playerId: protocolPlayerId,
-    ...(needsLegacyAlias ? { legacyPlayerId } : {}),
-    ...(publicPlayerId ? { publicPlayerId } : {}),
-    ...(seatId ? { seatId } : {}),
-    ...(viewerId ? { viewerId } : {}),
+    primaryPlayerId,
+    primaryPlayerIdSource,
+    protocolPlayerId,
+    legacyPlayerId,
+    publicPlayerId,
+    seatId,
+    viewerId,
   };
 }
 
@@ -656,6 +687,7 @@ export class HeadlessGameClient {
       const rawPolicyDecision = await this.policy({
         sessionId: this.sessionId,
         playerId: this.playerId,
+        identity: headlessDecisionIdentity(prompt, this.playerId),
         prompt,
         legalChoices: prompt.choices,
         latestCommit: this.stateValue.latestCommit,
@@ -1282,6 +1314,17 @@ function compactPromptDecisionTracePayload(
   const identity = compactPromptIdentity(prompt);
   return {
     request_type: prompt.requestType,
+    identity: {
+      primary_player_id: identity.primaryPlayerId,
+      primary_player_id_source: identity.primaryPlayerIdSource,
+      protocol_player_id: identity.protocolPlayerId,
+      legacy_player_id: identity.legacyPlayerId,
+      public_player_id: identity.publicPlayerId,
+      seat_id: identity.seatId,
+      viewer_id: identity.viewerId,
+    },
+    primary_player_id: identity.primaryPlayerId,
+    primary_player_id_source: identity.primaryPlayerIdSource,
     protocol_player_id: identity.protocolPlayerId,
     legacy_player_id: identity.legacyPlayerId,
     public_player_id: identity.publicPlayerId,
@@ -1303,6 +1346,8 @@ function compactPromptDecisionTracePayload(
 }
 
 function compactPromptIdentity(prompt: PromptViewModel): {
+  primaryPlayerId: ProtocolPlayerId;
+  primaryPlayerIdSource: "public" | "protocol" | "legacy";
   protocolPlayerId: ProtocolPlayerId;
   legacyPlayerId: number | null;
   publicPlayerId: string | null;
@@ -1316,8 +1361,18 @@ function compactPromptIdentity(prompt: PromptViewModel): {
         ? Math.floor(prompt.playerId)
         : null;
   const publicPlayerId = optionalIdentityString(prompt.publicPlayerId);
+  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.playerId;
+  const primaryPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.playerId;
+  const primaryPlayerIdSource =
+    publicPlayerId !== null
+      ? "public"
+      : typeof prompt.protocolPlayerId === "string"
+        ? "protocol"
+        : "legacy";
   return {
-    protocolPlayerId: publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId ?? prompt.playerId,
+    primaryPlayerId,
+    primaryPlayerIdSource,
+    protocolPlayerId,
     legacyPlayerId,
     publicPlayerId,
     seatId: optionalIdentityString(prompt.seatId),
@@ -1369,6 +1424,7 @@ function compactViewCommitTracePayload(
   const active = isRecord(prompt?.["active"]) ? prompt["active"] : null;
   const activeRequestId = active?.["request_id"];
   const activePlayerId = active?.["player_id"];
+  const activeIdentity = compactActivePromptIdentity(active);
   const activeRequestType = active?.["request_type"];
   return {
     stream_type: message.type,
@@ -1378,15 +1434,42 @@ function compactViewCommitTracePayload(
     active_module_id: message.payload.runtime.active_module_id,
     active_module_type: message.payload.runtime.active_module_type,
     active_prompt_request_id: typeof activeRequestId === "string" ? activeRequestId : null,
-    active_prompt_player_id: typeof activePlayerId === "number" ? activePlayerId : null,
+    active_prompt_identity: activeIdentity,
+    active_prompt_primary_player_id: activeIdentity?.primary_player_id ?? null,
+    active_prompt_primary_player_id_source: activeIdentity?.primary_player_id_source ?? null,
+    active_prompt_player_id: activeIdentity?.legacy_player_id ?? null,
     active_prompt_protocol_player_id:
       typeof activePlayerId === "string" || typeof activePlayerId === "number" ? activePlayerId : null,
-    active_prompt_legacy_player_id: numberValue(active?.["legacy_player_id"]) ?? numberValue(activePlayerId),
-    active_prompt_public_player_id: stringValue(active?.["public_player_id"]),
-    active_prompt_seat_id: stringValue(active?.["seat_id"]),
-    active_prompt_viewer_id: stringValue(active?.["viewer_id"]),
+    active_prompt_legacy_player_id: activeIdentity?.legacy_player_id ?? null,
+    active_prompt_public_player_id: activeIdentity?.public_player_id ?? null,
+    active_prompt_seat_id: activeIdentity?.seat_id ?? null,
+    active_prompt_viewer_id: activeIdentity?.viewer_id ?? null,
     active_prompt_request_type: typeof activeRequestType === "string" ? activeRequestType : null,
     player_summaries: compactPlayerSummaries(message.payload.view_state),
+  };
+}
+
+function compactActivePromptIdentity(active: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!active) {
+    return null;
+  }
+  const activePlayerId = active["player_id"];
+  const publicPlayerId = stringValue(active["public_player_id"]);
+  const legacyPlayerId = numberValue(active["legacy_player_id"]) ?? numberValue(activePlayerId);
+  const protocolPlayerId =
+    publicPlayerId ??
+    (typeof activePlayerId === "string" || typeof activePlayerId === "number" ? activePlayerId : legacyPlayerId);
+  const primaryPlayerId = publicPlayerId ?? (typeof activePlayerId === "string" ? activePlayerId : legacyPlayerId);
+  const primaryPlayerIdSource =
+    publicPlayerId !== null ? "public" : typeof activePlayerId === "string" ? "protocol" : "legacy";
+  return {
+    primary_player_id: primaryPlayerId,
+    primary_player_id_source: primaryPlayerId === null ? null : primaryPlayerIdSource,
+    protocol_player_id: protocolPlayerId,
+    legacy_player_id: legacyPlayerId,
+    public_player_id: publicPlayerId,
+    seat_id: stringValue(active["seat_id"]),
+    viewer_id: stringValue(active["viewer_id"]),
   };
 }
 
