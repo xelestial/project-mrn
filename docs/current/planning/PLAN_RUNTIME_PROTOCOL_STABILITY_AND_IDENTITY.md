@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` when splitting implementation across workers, or `superpowers:executing-plans` when applying this plan sequentially. Track each checklist item in this document as it is completed.
 
 Status: ACTIVE STABILIZATION TRACK
-Updated: 2026-05-14
+Updated: 2026-05-15
 Owner: Engine runtime / WebSocket protocol  
 Scope: Runtime identity, sequence contracts, viewer outbox, prompt lifecycle, `view_commit` recovery, Redis debug state, full-stack protocol gates
 
@@ -897,7 +897,7 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
 - [x] Runtime failures include non-empty diagnostic detail.
 - [x] Full-stack live gate passes with four headless players and one spectator.
 
-Acceptance evidence status, 2026-05-14:
+Acceptance evidence status, 2026-05-15:
 
 - `docs/current/engineering/PROTOCOL_IDENTITY_CONSUMER_INVENTORY.md` classifies the remaining numeric
   `player_id` consumers as `display`, `engine bridge`, `compat alias`, or `protocol violation`, and makes
@@ -921,7 +921,11 @@ Acceptance evidence status, 2026-05-14:
   while `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id`
   remain explicit companions. Numeric player ids remain covered as labeled
   legacy aliases in schema tests, so external workers do not have to infer
-  primary identity from a numeric compatibility alias.
+  primary identity from a numeric compatibility alias. Runtime contract schema
+  tests also reject numeric `primary_player_id` values when
+  `primary_player_id_source` is `public` or `protocol`, so malformed producer
+  payloads cannot reintroduce numeric public primary identity through WS
+  decision, WS prompt, WS decision ACK, or external-AI request contracts.
 - `tests/test_game_debug_log_audit_script.py` verifies debug-log audit duplicate grouping prefers public
   primary identity when numeric `player_id` is absent or only a legacy top-level alias, so simultaneous
   public identities that share a request id are not collapsed into one legacy numeric bucket.
@@ -948,7 +952,8 @@ Acceptance evidence status, 2026-05-14:
   companions while preserving the existing numeric-only decision path, marking top-level numeric
   `player_id` as a legacy compatibility alias, submitting explicit public/protocol primary identity
   instead of a numeric top-level active-prompt alias when available, and keeping the numeric prompt
-  lifecycle alias.
+  lifecycle alias. `decisionProtocol.spec.ts` also locks the malformed-boundary case where a numeric
+  `primary_player_id` with public/protocol source must not override a valid public companion.
 - `apps/web/src/hooks/useGameStream.spec.ts` verifies that rendered UI decision submission can use a public
   protocol `player_id`, submits explicit public/protocol primary identity instead of a numeric active-prompt
   alias, and builds duplicate-flight keys from explicit prompt primary or public identity without requiring a
@@ -989,12 +994,15 @@ Acceptance evidence status, 2026-05-14:
 - `tests/test_external_ai_full_stack_smoke_script.py` verifies that the external-AI full-stack smoke adapter
   preserves pending prompt request/player/seat/viewer identity companions through the worker request and
   callback body, sends public/protocol top-level `player_id` when available, and retains numeric `player_id`
-  only as a compatibility alias for legacy-only prompt input.
+  only as a compatibility alias for legacy-only prompt input. It also verifies that malformed numeric
+  public/protocol primary fields do not leak back into worker or callback `player_id` payloads when a public
+  companion exists.
 - `tests/test_redis_restart_smoke_script.py` verifies that restart decision smoke can select a replay prompt
   whose protocol `player_id` is public by using the explicit numeric legacy bridge, and that submitted
   decision payloads prefer public/protocol top-level `player_id` when available while preserving
   request/player/seat/viewer identity companions and `primary_player_id` metadata. Numeric top-level
-  `player_id` remains only for legacy-only prompt input and is labeled as the compatibility alias.
+  `player_id` remains only for legacy-only prompt input and is labeled as the compatibility alias; malformed
+  numeric public/protocol primary fields are ignored in favor of public companions.
 - `apps/server/tests/test_sessions_api.py::SessionsApiTests::test_start_replay_session_start_includes_initial_active_faces`
   verifies that bootstrap `session_start` replay payloads expose public player, seat, and viewer companions for
   player lists plus marker owner and pawn-id snapshot fields while preserving numeric compatibility aliases and

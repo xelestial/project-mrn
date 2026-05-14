@@ -209,7 +209,8 @@ def _prompt_primary_player_identity(prompt: dict[str, Any]) -> tuple[Any, str] |
     primary_player_id_source = str(prompt.get("primary_player_id_source") or "").strip()
     if primary_player_id_source in {"public", "protocol", "legacy"}:
         if isinstance(primary_player_id, int) and not isinstance(primary_player_id, bool):
-            return primary_player_id, primary_player_id_source
+            if primary_player_id_source == "legacy":
+                return primary_player_id, primary_player_id_source
         if isinstance(primary_player_id, str) and primary_player_id.strip():
             return primary_player_id.strip(), primary_player_id_source
 

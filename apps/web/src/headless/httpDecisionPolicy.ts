@@ -104,8 +104,8 @@ export function createHttpDecisionPolicy(options: HttpDecisionPolicyOptions): De
 
 export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext): HttpDecisionPolicyRequest {
   const runtime = context.latestCommit?.runtime;
-  const identity = context.identity;
-  const policyPlayerId = protocolPolicyPlayerId(identity);
+  const identity = normalizePolicyIdentity(context.identity);
+  const policyPlayerId = identity.protocolPlayerId;
   const policyPlayerIdIsLegacyAlias = typeof policyPlayerId === "number";
   return {
     protocol_version: 1,
@@ -150,11 +150,44 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
   };
 }
 
-function protocolPolicyPlayerId(identity: HeadlessDecisionContext["identity"]): ProtocolPlayerId {
-  if (identity.primaryPlayerIdSource === "public" || identity.primaryPlayerIdSource === "protocol") {
-    return identity.primaryPlayerId;
+function normalizePolicyIdentity(identity: HeadlessDecisionContext["identity"]): HeadlessDecisionContext["identity"] {
+  if (
+    (identity.primaryPlayerIdSource === "public" || identity.primaryPlayerIdSource === "protocol") &&
+    typeof identity.primaryPlayerId === "string" &&
+    identity.primaryPlayerId.trim()
+  ) {
+    const primaryPlayerId = identity.primaryPlayerId.trim();
+    return {
+      ...identity,
+      primaryPlayerId,
+      protocolPlayerId: primaryPlayerId,
+    };
   }
-  return identity.legacyPlayerId;
+  if (typeof identity.publicPlayerId === "string" && identity.publicPlayerId.trim()) {
+    const publicPlayerId = identity.publicPlayerId.trim();
+    return {
+      ...identity,
+      primaryPlayerId: publicPlayerId,
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: publicPlayerId,
+      publicPlayerId,
+    };
+  }
+  if (typeof identity.protocolPlayerId === "string" && identity.protocolPlayerId.trim()) {
+    const protocolPlayerId = identity.protocolPlayerId.trim();
+    return {
+      ...identity,
+      primaryPlayerId: protocolPlayerId,
+      primaryPlayerIdSource: "protocol",
+      protocolPlayerId,
+    };
+  }
+  return {
+    ...identity,
+    primaryPlayerId: identity.legacyPlayerId,
+    primaryPlayerIdSource: "legacy",
+    protocolPlayerId: identity.legacyPlayerId,
+  };
 }
 
 function compactLegalChoice(choice: PromptChoiceViewModel): HttpDecisionPolicyRequest["legal_choices"][number] {

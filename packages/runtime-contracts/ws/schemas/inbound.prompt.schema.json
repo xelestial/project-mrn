@@ -53,6 +53,24 @@
               "legacy_player_id"
             ]
           }
+        },
+        {
+          "if": {
+            "required": ["primary_player_id", "primary_player_id_source"],
+            "properties": {
+              "primary_player_id_source": {
+                "enum": ["public", "protocol"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "primary_player_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
         }
       ],
       "properties": {

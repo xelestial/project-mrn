@@ -163,6 +163,34 @@ describe("decisionProtocol lifecycle handling", () => {
     expect(message).not.toHaveProperty("player_id_alias_role");
   });
 
+  it("ignores numeric public primary identity when a public companion exists", () => {
+    const message = buildDecisionMessage({
+      requestId: "req_invalid_numeric_public_primary",
+      playerId: 2,
+      primaryPlayerId: 2,
+      primaryPlayerIdSource: "public",
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      choiceId: "roll",
+      viewCommitSeqSeen: 12,
+      clientSeq: 13,
+    });
+
+    expect(message).toMatchObject({
+      type: "decision",
+      request_id: "req_invalid_numeric_public_primary",
+      player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      choice_id: "roll",
+      view_commit_seq_seen: 12,
+      client_seq: 13,
+    });
+    expect(message).not.toHaveProperty("player_id_alias_role");
+  });
+
   it("keeps explicit numeric primary identity as a legacy alias", () => {
     expect(
       buildDecisionMessage({

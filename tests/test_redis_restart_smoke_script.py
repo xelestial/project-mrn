@@ -220,3 +220,28 @@ def test_decision_smoke_payload_prefers_explicit_primary_identity_over_top_level
     assert "player_id_alias_role" not in decision
     assert decision["primary_player_id"] == "player_public_2"
     assert decision["primary_player_id_source"] == "public"
+
+
+def test_decision_smoke_payload_ignores_numeric_public_primary_when_public_companion_exists() -> None:
+    script = _load_script()
+
+    decision = script._decision_from_prompt(
+        {
+            "request_id": "req_public_bad_primary",
+            "player_id": 2,
+            "player_id_alias_role": "legacy_compatibility_alias",
+            "primary_player_id": 2,
+            "primary_player_id_source": "public",
+            "legacy_player_id": 2,
+            "public_player_id": "player_public_2",
+            "seat_id": "seat_public_2",
+            "viewer_id": "viewer_public_2",
+        },
+        choice_id="roll",
+    )
+
+    assert decision["player_id"] == "player_public_2"
+    assert "player_id_alias_role" not in decision
+    assert decision["primary_player_id"] == "player_public_2"
+    assert decision["primary_player_id_source"] == "public"
+    assert decision["legacy_player_id"] == 2

@@ -11,6 +11,15 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Runtime Contract Primary Identity Guard
+
+- Runtime contract schemas now reject numeric `primary_player_id` when
+  `primary_player_id_source` is `public` or `protocol` across WebSocket
+  outbound decisions, inbound prompts, inbound decision ACKs, and external-AI
+  request payloads. This moves the malformed-primary guard from producer-local
+  cleanup into the shared protocol contract while keeping legacy numeric
+  primary fallback valid only under `primary_player_id_source: "legacy"`.
+
 ## 2026-05-14 Runtime Protocol Identity Continuation
 
 - Added `PROTOCOL_IDENTITY_CONSUMER_INVENTORY.md` to classify the remaining
@@ -121,6 +130,11 @@ in the active plans, status index, tests, or canonical contract documents.
   when available and mirror that value in `identity.player_id`. Numeric
   `player_id` plus `player_id_alias_role: "legacy_compatibility_alias"` remains
   only for legacy-only policy input.
+- Browser decision serialization, headless HTTP policy requests, external-AI
+  smoke worker/callback payloads, and Redis restart smoke decision payloads now
+  reject malformed numeric public/protocol `primary_player_id` values when a
+  public companion can repair the identity. This keeps top-level decision
+  `player_id` public/protocol-first even across mixed migration payloads.
 - Headless view-commit trace compaction now consumes explicit active-prompt
   `primary_player_id` plus `primary_player_id_source` before numeric aliases.
   Numeric `active_prompt_player_id` and `active_prompt_protocol_player_id`

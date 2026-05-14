@@ -122,7 +122,9 @@ def _explicit_primary_player_identity(source: dict[str, Any]) -> tuple[Any, str]
     if isinstance(primary_player_id, bool):
         return None
     if isinstance(primary_player_id, int):
-        return primary_player_id, primary_player_id_source
+        if primary_player_id_source == "legacy":
+            return primary_player_id, primary_player_id_source
+        return None
     if isinstance(primary_player_id, str) and primary_player_id.strip():
         stripped = primary_player_id.strip()
         if primary_player_id_source == "legacy" and stripped.isdigit():

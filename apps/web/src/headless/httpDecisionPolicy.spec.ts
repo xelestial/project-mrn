@@ -312,6 +312,42 @@ describe("httpDecisionPolicy", () => {
     });
   });
 
+  it("does not submit a numeric player_id when public identity companions repair a bad primary field", () => {
+    const baseContext = context();
+    const request = buildHttpDecisionPolicyRequest({
+      ...baseContext,
+      identity: {
+        primaryPlayerId: 2,
+        primaryPlayerIdSource: "public",
+        protocolPlayerId: "player_public_2",
+        legacyPlayerId: 2,
+        publicPlayerId: "player_public_2",
+        seatId: "seat_public_2",
+        viewerId: "viewer_public_2",
+      },
+      legalChoices: baseContext.prompt.choices,
+    });
+
+    expect(request).toMatchObject({
+      player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      protocol_player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      identity: {
+        player_id: "player_public_2",
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+      },
+    });
+    expect(request).not.toHaveProperty("player_id_alias_role");
+    expect(request.identity).not.toHaveProperty("player_id_alias_role");
+  });
+
   it("uses the HTTP response as the policy decision", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ choice_id: "pass", choice_payload: { reason: "cash_guard" } }), {

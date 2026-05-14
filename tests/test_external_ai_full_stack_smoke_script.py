@@ -118,6 +118,33 @@ def test_worker_request_prefers_explicit_primary_identity_over_top_level_alias()
     assert request["primary_player_id_source"] == "public"
 
 
+def test_worker_request_ignores_numeric_public_primary_when_public_companion_exists() -> None:
+    module = _load_module()
+    pending = {
+        "request_id": "req_public_bad_primary",
+        "session_id": "sess_1",
+        "seat": 1,
+        "player_id": 10,
+        "primary_player_id": 10,
+        "primary_player_id_source": "public",
+        "legacy_player_id": 10,
+        "public_player_id": "player_public_10",
+        "decision_name": "choose_movement",
+        "request_type": "movement",
+        "fallback_policy": "ai",
+        "public_context": {"turn_index": 3},
+        "legal_choices": [{"choice_id": "dice"}],
+    }
+
+    request = module._worker_request_from_pending_prompt(pending, fallback_seat=1)
+
+    assert request["player_id"] == "player_public_10"
+    assert "player_id_alias_role" not in request
+    assert request["primary_player_id"] == "player_public_10"
+    assert request["primary_player_id_source"] == "public"
+    assert request["legacy_player_id"] == 10
+
+
 def test_callback_payload_preserves_fingerprint_and_worker_choice_payload() -> None:
     module = _load_module()
     pending = {
@@ -224,6 +251,30 @@ def test_callback_payload_prefers_explicit_primary_identity_over_top_level_alias
         "legacy_player_id": 10,
         "prompt_fingerprint": "pf_123",
         "prompt_fingerprint_version": "prompt_fingerprint.v1",
+    }
+    worker_response = {
+        "choice_id": "dice",
+        "choice_payload": {"source": "worker"},
+    }
+
+    callback = module._callback_payload_from_prompt_and_worker_response(pending, worker_response)
+
+    assert callback["player_id"] == "player_public_10"
+    assert "player_id_alias_role" not in callback
+    assert callback["legacy_player_id"] == 10
+    assert callback["primary_player_id"] == "player_public_10"
+    assert callback["primary_player_id_source"] == "public"
+
+
+def test_callback_payload_ignores_numeric_public_primary_when_public_companion_exists() -> None:
+    module = _load_module()
+    pending = {
+        "request_id": "req_public_bad_primary",
+        "player_id": 10,
+        "primary_player_id": 10,
+        "primary_player_id_source": "public",
+        "legacy_player_id": 10,
+        "public_player_id": "player_public_10",
     }
     worker_response = {
         "choice_id": "dice",
