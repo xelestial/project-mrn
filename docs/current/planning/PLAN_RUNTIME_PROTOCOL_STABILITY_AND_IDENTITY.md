@@ -988,7 +988,7 @@ Acceptance evidence status, 2026-05-14:
   rows preserve public player, seat, viewer, legacy player, and public prompt-instance companions while
   retaining numeric `player_id` and `prompt_instance_id` aliases for existing policy consumers, lifecycle
   bridging, and reward calculation. The HTTP policy request now also includes top-level and nested
-  `primary_player_id` plus `primary_player_id_source`, and labels top-level numeric `player_id` with
+  `primary_player_id` plus `primary_player_id_source`, and labels top-level and nested numeric `player_id` usage with
   `player_id_alias_role: "legacy_compatibility_alias"`, proving public identity is the primary policy input
   when present while numeric-only prompts remain explicit legacy fallback. `HeadlessGameClient` policy contexts and compact
   decision/view traces now expose the same primary identity shape so headless policy and artifact consumers

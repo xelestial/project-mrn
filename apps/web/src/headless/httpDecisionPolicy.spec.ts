@@ -166,6 +166,7 @@ describe("httpDecisionPolicy", () => {
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
       identity: {
+        player_id_alias_role: "legacy_compatibility_alias",
         primary_player_id: "player_public_2",
         primary_player_id_source: "public",
         protocol_player_id: "player_public_2",
@@ -252,6 +253,7 @@ describe("httpDecisionPolicy", () => {
       seat_id: null,
       viewer_id: null,
       identity: {
+        player_id_alias_role: "legacy_compatibility_alias",
         primary_player_id: 2,
         primary_player_id_source: "legacy",
         protocol_player_id: 2,
@@ -298,6 +300,7 @@ describe("httpDecisionPolicy", () => {
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
       identity: {
+        player_id_alias_role: "legacy_compatibility_alias",
         primary_player_id: "player_public_2",
         primary_player_id_source: "public",
         protocol_player_id: "player_public_2",

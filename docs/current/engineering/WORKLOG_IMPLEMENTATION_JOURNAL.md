@@ -66,9 +66,16 @@ in the active plans, status index, tests, or canonical contract documents.
   `primary_player_id_source`, and labels numeric top-level `player_id` as
   `player_id_alias_role: "legacy_compatibility_alias"` instead of forcing
   consumers to infer primary identity from the numeric alias.
+- HTTP decision policy requests now label both the top-level numeric
+  `player_id` and the nested `identity` payload with
+  `player_id_alias_role: "legacy_compatibility_alias"`. This keeps external
+  policy consumers from losing the alias contract when they read only the
+  compact nested identity object.
 Responsibility result: ACK primary identity ownership moved to the server ACK
-builder/session identity boundary. Consumers no longer need to guess whether
-numeric ACK `player_id` is primary identity or a compatibility alias.
+builder/session identity boundary, and HTTP policy request identity labeling is
+owned by the request builder. Consumers no longer need to guess whether numeric
+ACK or HTTP-policy `player_id` values are primary identity or compatibility
+aliases.
 - Runtime fanout and session bootstrap identity helpers now keep explicit
   prefixed/list legacy companions for protocol player-id fields. Examples:
   `acting_legacy_player_id`, `owner_legacy_player_id`,

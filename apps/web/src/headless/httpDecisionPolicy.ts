@@ -22,6 +22,7 @@ export type HttpDecisionPolicyRequest = {
   seat_id: string | null;
   viewer_id: string | null;
   identity: {
+    player_id_alias_role: "legacy_compatibility_alias";
     primary_player_id: ProtocolPlayerId;
     primary_player_id_source: "public" | "protocol" | "legacy";
     protocol_player_id: ProtocolPlayerId;
@@ -116,6 +117,7 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     seat_id: identity.seatId,
     viewer_id: identity.viewerId,
     identity: {
+      player_id_alias_role: "legacy_compatibility_alias",
       primary_player_id: identity.primaryPlayerId,
       primary_player_id_source: identity.primaryPlayerIdSource,
       protocol_player_id: identity.protocolPlayerId,
