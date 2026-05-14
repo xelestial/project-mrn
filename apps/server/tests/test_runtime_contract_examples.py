@@ -439,7 +439,7 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 self.assertIsInstance(example.get("seat_id"), str)
                 self.assertIsInstance(example.get("viewer_id"), str)
 
-    def test_external_ai_request_schema_accepts_public_player_id_with_legacy_alias(self) -> None:
+    def test_external_ai_request_schema_accepts_public_player_id_with_legacy_companions(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
         schema = _load_json(root / "schemas" / "request.schema.json")
 
@@ -449,7 +449,6 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 "session_id": "sess_public_identity",
                 "seat": 1,
                 "player_id": "player_public_1",
-                "player_id_alias_role": "legacy_compatibility_alias",
                 "primary_player_id": "player_public_1",
                 "primary_player_id_source": "public",
                 "legacy_player_id": 1,
@@ -467,6 +466,36 @@ class RuntimeContractExampleTests(unittest.TestCase):
             },
             schema,
             path="$<external-ai.request.public_identity>",
+        )
+
+    def test_external_ai_request_schema_accepts_labeled_numeric_player_alias(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
+        schema = _load_json(root / "schemas" / "request.schema.json")
+
+        _validate_subset(
+            {
+                "request_id": "req_numeric_alias_1",
+                "session_id": "sess_numeric_alias",
+                "seat": 1,
+                "player_id": 1,
+                "player_id_alias_role": "legacy_compatibility_alias",
+                "primary_player_id": "player_public_1",
+                "primary_player_id_source": "public",
+                "legacy_player_id": 1,
+                "public_player_id": "player_public_1",
+                "seat_id": "seat_1",
+                "viewer_id": "viewer_1",
+                "decision_name": "movement",
+                "request_type": "movement",
+                "fallback_policy": "ai",
+                "public_context": {},
+                "legal_choices": [{"choice_id": "roll"}],
+                "transport": "http",
+                "worker_contract_version": "v1",
+                "required_capabilities": [],
+            },
+            schema,
+            path="$<external-ai.request.numeric_alias>",
         )
 
     def test_external_ai_request_schema_requires_primary_metadata_for_numeric_player_alias(self) -> None:

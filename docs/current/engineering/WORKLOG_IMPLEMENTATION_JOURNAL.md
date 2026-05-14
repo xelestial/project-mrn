@@ -67,6 +67,10 @@ in the active plans, status index, tests, or canonical contract documents.
   Numeric player ids still remain valid as a labeled legacy alias in schema
   tests, but the frozen examples no longer present the numeric alias as the
   canonical external worker contract.
+- External-AI request schema tests now separate the canonical public-primary
+  sample from the labeled numeric compatibility-alias sample. This keeps the
+  compatibility path covered without teaching external worker authors to attach
+  `player_id_alias_role` to the normal public string `player_id` request.
 - The external-AI full-stack smoke adapter now preserves pending prompt
   `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the
