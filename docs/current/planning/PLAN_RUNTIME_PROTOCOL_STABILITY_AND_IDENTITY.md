@@ -906,8 +906,12 @@ Acceptance evidence status, 2026-05-14:
   to public/protocol/legacy derivation.
   WebSocket `decision_ack` payloads, schema, and examples now expose the same primary identity
   fields whenever numeric `player_id` remains as the compatibility alias.
-  External-AI request examples expose the same primary identity fields so external workers do not
-  have to infer primary identity from the numeric compatibility alias.
+  External-AI request examples now exercise the public-primary path directly:
+  top-level `player_id` and `primary_player_id` are public string identities,
+  while `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id`
+  remain explicit companions. Numeric player ids remain covered as labeled
+  legacy aliases in schema tests, so external workers do not have to infer
+  primary identity from a numeric compatibility alias.
 - `tests/test_game_debug_log_audit_script.py` verifies debug-log audit duplicate grouping prefers public
   primary identity when numeric `player_id` is absent or only a legacy top-level alias, so simultaneous
   public identities that share a request id are not collapsed into one legacy numeric bucket.

@@ -423,6 +423,22 @@ class RuntimeContractExampleTests(unittest.TestCase):
             example = _load_json(examples / example_name)
             _validate_subset(example, schema, path=f"$<{example_name}>")
 
+    def test_external_ai_request_examples_use_public_primary_identity(self) -> None:
+        examples = _project_root() / "packages" / "runtime-contracts" / "external-ai" / "examples"
+
+        for example_path in sorted(examples.glob("request.*.json")):
+            example = _load_json(example_path)
+            player_id = example.get("player_id")
+            with self.subTest(example=example_path.name):
+                self.assertIsInstance(player_id, str)
+                self.assertNotIn("player_id_alias_role", example)
+                self.assertEqual(example.get("primary_player_id"), player_id)
+                self.assertEqual(example.get("primary_player_id_source"), "public")
+                self.assertEqual(example.get("public_player_id"), player_id)
+                self.assertIsInstance(example.get("legacy_player_id"), int)
+                self.assertIsInstance(example.get("seat_id"), str)
+                self.assertIsInstance(example.get("viewer_id"), str)
+
     def test_external_ai_request_schema_accepts_public_player_id_with_legacy_alias(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
         schema = _load_json(root / "schemas" / "request.schema.json")

@@ -60,6 +60,13 @@ in the active plans, status index, tests, or canonical contract documents.
   integrity test did not require that row. The doc guard now includes the ACK
   schema so this protocol boundary cannot silently disappear from the
   inventory while numeric ACK aliases remain.
+- External-AI request contract examples now exercise the public-primary request
+  shape: top-level `player_id` is the public string identity,
+  `primary_player_id_source` is `public`, and `legacy_player_id`,
+  `public_player_id`, `seat_id`, and `viewer_id` are explicit companions.
+  Numeric player ids still remain valid as a labeled legacy alias in schema
+  tests, but the frozen examples no longer present the numeric alias as the
+  canonical external worker contract.
 - The external-AI full-stack smoke adapter now preserves pending prompt
   `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the
