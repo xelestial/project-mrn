@@ -29,6 +29,11 @@ in the active plans, status index, tests, or canonical contract documents.
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the
   worker request and callback body while keeping numeric `player_id` as the
   compatibility alias.
+- The Redis restart decision smoke adapter now accepts replay prompts whose
+  protocol `player_id` is public as long as `legacy_player_id` or another
+  numeric bridge is present, and decision payload construction preserves the
+  same request/player/seat/viewer companions instead of forcing numeric
+  `player_id`.
 - Runtime fanout and session bootstrap identity helpers now keep explicit
   prefixed/list legacy companions for protocol player-id fields. Examples:
   `acting_legacy_player_id`, `owner_legacy_player_id`,

@@ -163,6 +163,47 @@ def _runtime_waiting_request_id(runtime: dict[str, Any]) -> str:
     return str(checkpoint.get("waiting_prompt_request_id") or "").strip()
 
 
+_IDENTITY_COMPANION_FIELDS = (
+    "legacy_request_id",
+    "public_request_id",
+    "public_prompt_instance_id",
+    "legacy_player_id",
+    "public_player_id",
+    "seat_id",
+    "viewer_id",
+)
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _prompt_legacy_player_id(prompt: dict[str, Any]) -> int | None:
+    for field in ("legacy_player_id", "player_id", "seat"):
+        legacy_player_id = _optional_int(prompt.get(field))
+        if legacy_player_id is not None:
+            return legacy_player_id
+    return None
+
+
+def _copy_identity_companions(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for field in _IDENTITY_COMPANION_FIELDS:
+        value = source.get(field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if field == "legacy_player_id":
+            legacy_player_id = _optional_int(value)
+            if legacy_player_id is not None:
+                target[field] = legacy_player_id
+            continue
+        target[field] = str(value).strip() if isinstance(value, str) else value
+
+
 def _poll_runtime_advanced_from_request(
     base_url: str,
     session_id: str,
@@ -201,7 +242,7 @@ def _latest_prompt_for_player(replay_payload: dict[str, Any], *, player_id: int)
         payload = event.get("payload")
         if not isinstance(payload, dict):
             continue
-        if int(payload.get("player_id", 0) or 0) != int(player_id):
+        if _prompt_legacy_player_id(payload) != int(player_id):
             continue
         request_id = str(payload.get("request_id") or "").strip()
         legal_choices = payload.get("legal_choices")
@@ -221,10 +262,13 @@ def _first_legal_choice_id(prompt: dict[str, Any]) -> str:
 
 
 def _decision_from_prompt(prompt: dict[str, Any], *, choice_id: str) -> dict[str, Any]:
+    player_id = prompt.get("player_id")
+    if player_id is None or (isinstance(player_id, str) and not player_id.strip()):
+        player_id = _prompt_legacy_player_id(prompt) or 0
     decision: dict[str, Any] = {
         "type": "decision",
         "request_id": str(prompt.get("request_id") or ""),
-        "player_id": int(prompt.get("player_id", 0) or 0),
+        "player_id": str(player_id).strip() if isinstance(player_id, str) else int(player_id or 0),
         "choice_id": choice_id,
         "choice_payload": {},
     }
@@ -241,6 +285,7 @@ def _decision_from_prompt(prompt: dict[str, Any], *, choice_id: str) -> dict[str
         value = prompt.get(field)
         if value is not None:
             decision[field] = value
+    _copy_identity_companions(decision, prompt)
     return decision
 
 

@@ -899,6 +899,9 @@ Acceptance evidence status, 2026-05-14:
 - `tests/test_external_ai_full_stack_smoke_script.py` verifies that the external-AI full-stack smoke adapter
   preserves pending prompt request/player/seat/viewer identity companions through the worker request and
   callback body while retaining numeric `player_id` as a compatibility alias.
+- `tests/test_redis_restart_smoke_script.py` verifies that restart decision smoke can select a replay prompt
+  whose protocol `player_id` is public by using the explicit numeric legacy bridge, and that the submitted
+  decision payload preserves request/player/seat/viewer identity companions.
 - `apps/server/tests/test_sessions_api.py::SessionsApiTests::test_start_replay_session_start_includes_initial_active_faces`
   verifies that bootstrap `session_start` replay payloads expose public player, seat, and viewer companions for
   player lists plus marker owner and pawn-id snapshot fields while preserving numeric compatibility aliases and

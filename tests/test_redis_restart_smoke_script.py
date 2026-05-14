@@ -139,3 +139,55 @@ def test_decision_smoke_payload_preserves_prompt_continuation_contract() -> None
         "prompt_fingerprint": "fp-1",
         "prompt_fingerprint_version": 1,
     }
+
+
+def test_latest_prompt_for_player_accepts_public_protocol_player_id_with_legacy_alias() -> None:
+    script = _load_script()
+    prompt = {
+        "type": "prompt",
+        "payload": {
+            "request_id": "req_public_1",
+            "player_id": "player_public_1",
+            "legacy_player_id": 1,
+            "public_player_id": "player_public_1",
+            "seat_id": "seat_public_1",
+            "viewer_id": "viewer_public_1",
+            "legal_choices": [{"choice_id": "roll"}],
+        },
+    }
+
+    assert script._latest_prompt_for_player({"events": [prompt]}, player_id=1) == prompt["payload"]
+
+
+def test_decision_smoke_payload_preserves_protocol_identity_companions() -> None:
+    script = _load_script()
+
+    decision = script._decision_from_prompt(
+        {
+            "request_id": "req_public_1",
+            "legacy_request_id": "ai_req_1",
+            "public_request_id": "req_public_1",
+            "public_prompt_instance_id": "ppi_public_1",
+            "player_id": "player_public_1",
+            "legacy_player_id": 1,
+            "public_player_id": "player_public_1",
+            "seat_id": "seat_public_1",
+            "viewer_id": "viewer_public_1",
+        },
+        choice_id="roll",
+    )
+
+    assert decision == {
+        "type": "decision",
+        "request_id": "req_public_1",
+        "player_id": "player_public_1",
+        "choice_id": "roll",
+        "choice_payload": {},
+        "legacy_request_id": "ai_req_1",
+        "public_request_id": "req_public_1",
+        "public_prompt_instance_id": "ppi_public_1",
+        "legacy_player_id": 1,
+        "public_player_id": "player_public_1",
+        "seat_id": "seat_public_1",
+        "viewer_id": "viewer_public_1",
+    }
