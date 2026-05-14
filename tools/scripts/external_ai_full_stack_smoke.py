@@ -149,9 +149,26 @@ def _primary_player_identity(source: dict[str, Any]) -> tuple[Any, str]:
 
 def _add_player_identity_metadata(target: dict[str, Any], source: dict[str, Any]) -> None:
     primary_player_id, primary_player_id_source = _primary_player_identity(source)
-    target["player_id_alias_role"] = "legacy_compatibility_alias"
+    if isinstance(target.get("player_id"), int) and not isinstance(target.get("player_id"), bool):
+        target["player_id_alias_role"] = "legacy_compatibility_alias"
     target["primary_player_id"] = primary_player_id
     target["primary_player_id_source"] = primary_player_id_source
+
+
+def _callback_protocol_player_id(source: dict[str, Any]) -> Any:
+    primary_player_id, primary_player_id_source = _primary_player_identity(source)
+    if primary_player_id_source in {"public", "protocol"}:
+        return primary_player_id
+
+    public_player_id = source.get("public_player_id")
+    if isinstance(public_player_id, str) and public_player_id.strip():
+        return public_player_id.strip()
+
+    player_id = source.get("player_id")
+    if isinstance(player_id, str) and player_id.strip() and not player_id.strip().isdigit():
+        return player_id.strip()
+
+    return _numeric_legacy_player_id(source)
 
 
 def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_seat: int) -> dict[str, Any]:
@@ -189,7 +206,7 @@ def _callback_payload_from_prompt_and_worker_response(
         raise RuntimeError(f"worker response missing choice_id: {json.dumps(worker_response, ensure_ascii=False)}")
     callback: dict[str, Any] = {
         "request_id": str(pending.get("request_id") or "").strip(),
-        "player_id": _numeric_legacy_player_id(pending),
+        "player_id": _callback_protocol_player_id(pending),
         "choice_id": choice_id,
         "choice_payload": worker_response.get("choice_payload") if isinstance(worker_response.get("choice_payload"), dict) else {},
     }

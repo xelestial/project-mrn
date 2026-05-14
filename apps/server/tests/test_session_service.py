@@ -192,6 +192,10 @@ class SessionServiceTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
+            self.service.resolve_protocol_player_id(session.session_id, player_id=join_1["public_player_id"]),
+            1,
+        )
+        self.assertEqual(
             self.service.resolve_protocol_player_id(session.session_id, seat_id=join_1["seat_id"]),
             1,
         )

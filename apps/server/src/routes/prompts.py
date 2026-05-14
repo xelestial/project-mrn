@@ -26,7 +26,7 @@ class DebugPromptRequest(BaseModel):
 
 class ExternalAiDecisionRequest(BaseModel):
     request_id: str
-    player_id: int | None = None
+    player_id: int | str | None = None
     legacy_player_id: int | str | None = None
     seat: int | str | None = None
     public_player_id: str | None = None

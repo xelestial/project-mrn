@@ -854,6 +854,22 @@ Responsibility result: human diagnostic grouping moved off the bare numeric
 `player_id` alias. Numeric values remain only as legacy/display fallback labels
 for old logs.
 
+## 2026-05-14 External AI Callback Public Player Identity
+
+- Added regression coverage for `SessionService.resolve_protocol_player_id()`
+  resolving a public string supplied as top-level `player_id`.
+- The `/external-ai/decisions` callback request model now accepts string
+  `player_id` and normalizes it through the same session identity adapter used
+  by other protocol decision boundaries.
+- `external_ai_full_stack_smoke.py` now keeps numeric `player_id` for the
+  worker `/decide` request, but sends public/protocol top-level `player_id` on
+  the server callback when the pending prompt provides that primary identity.
+
+Responsibility result: public-string player resolution moved into
+`SessionService.resolve_protocol_player_id()` instead of being duplicated in
+callback routes or smoke scripts. Numeric worker request identity intentionally
+remains because the current worker app input model still requires an integer.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

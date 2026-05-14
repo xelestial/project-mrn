@@ -964,6 +964,48 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(decision["public_request_id"], public_request_id)
         assert_no_public_identity_numeric_leaks(decision, boundary="external_ai_decision_record")
 
+    def test_external_ai_decision_callback_accepts_top_level_public_player_id(self) -> None:
+        from apps.server.src import state
+
+        state.runtime_settings = RuntimeSettings(admin_token="admin-secret")
+        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        session_data = created.json()["data"]
+        session_id = session_data["session_id"]
+        seat = session_data["seats"][0]
+        public_player_id = seat["public_player_id"]
+        pending = state.prompt_service.create_prompt(
+            session_id,
+            {
+                "request_id": "ai_req_public_player_top_level_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "provider": "ai",
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        accepted = self.client.post(
+            f"/api/v1/sessions/{session_id}/external-ai/decisions",
+            json={
+                "request_id": public_request_id,
+                "player_id": public_player_id,
+                "choice_id": "roll",
+            },
+            headers={"X-Admin-Token": "admin-secret"},
+        )
+
+        self.assertEqual(accepted.status_code, 200)
+        data = accepted.json()["data"]
+        self.assertEqual(data["status"], "accepted")
+        snapshot = asyncio.run(state.stream_service.snapshot(session_id))
+        ack = next(message for message in snapshot if message.type == "decision_ack")
+        self.assertEqual(ack.payload["player_id"], 1)
+        self.assertEqual(ack.payload["public_player_id"], public_player_id)
+        self.assertEqual(ack.payload["primary_player_id"], public_player_id)
+        self.assertEqual(ack.payload["primary_player_id_source"], "public")
+
     def test_start_response_includes_parameter_manifest(self) -> None:
         from apps.server.src import state
 

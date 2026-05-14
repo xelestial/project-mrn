@@ -171,8 +171,7 @@ def test_callback_payload_preserves_protocol_identity_companions() -> None:
 
     assert callback == {
         "request_id": "req_public_1",
-        "player_id": 10,
-        "player_id_alias_role": "legacy_compatibility_alias",
+        "player_id": "player_public_10",
         "primary_player_id": "player_public_10",
         "primary_player_id_source": "public",
         "choice_id": "dice",
@@ -187,6 +186,31 @@ def test_callback_payload_preserves_protocol_identity_companions() -> None:
         "seat_id": "seat_public_1",
         "viewer_id": "viewer_public_1",
     }
+
+
+def test_callback_payload_uses_top_level_public_player_id_when_available() -> None:
+    module = _load_module()
+    pending = {
+        "request_id": "req_public_3",
+        "player_id": 10,
+        "player_id_alias_role": "legacy_compatibility_alias",
+        "primary_player_id": "player_public_10",
+        "primary_player_id_source": "public",
+        "legacy_player_id": 10,
+        "public_player_id": "player_public_10",
+    }
+    worker_response = {
+        "choice_id": "dice",
+        "choice_payload": {"source": "worker"},
+    }
+
+    callback = module._callback_payload_from_prompt_and_worker_response(pending, worker_response)
+
+    assert callback["player_id"] == "player_public_10"
+    assert "player_id_alias_role" not in callback
+    assert callback["legacy_player_id"] == 10
+    assert callback["primary_player_id"] == "player_public_10"
+    assert callback["primary_player_id_source"] == "public"
 
 
 def test_callback_payload_prefers_explicit_primary_identity_over_top_level_alias() -> None:
@@ -208,8 +232,9 @@ def test_callback_payload_prefers_explicit_primary_identity_over_top_level_alias
 
     callback = module._callback_payload_from_prompt_and_worker_response(pending, worker_response)
 
-    assert callback["player_id"] == 10
-    assert callback["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert callback["player_id"] == "player_public_10"
+    assert "player_id_alias_role" not in callback
+    assert callback["legacy_player_id"] == 10
     assert callback["primary_player_id"] == "player_public_10"
     assert callback["primary_player_id_source"] == "public"
 

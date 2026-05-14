@@ -221,10 +221,15 @@ class SessionService:
             if numeric is not None and self._has_seat(session, numeric):
                 return numeric
 
+        protocol_player_id = None
+        if self._optional_int(player_id) is None:
+            protocol_player_id = self._clean_optional_string(player_id)
         public_player_id = self._clean_optional_string(public_player_id)
         seat_id = self._clean_optional_string(seat_id)
         viewer_id = self._clean_optional_string(viewer_id)
         for seat_cfg in session.seats:
+            if protocol_player_id is not None and seat_cfg.public_player_id == protocol_player_id:
+                return seat_cfg.seat
             if public_player_id is not None and seat_cfg.public_player_id == public_player_id:
                 return seat_cfg.seat
             if seat_id is not None and seat_cfg.seat_id == seat_id:
