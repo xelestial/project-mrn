@@ -223,6 +223,11 @@ Runtime contract schemas now enforce that numeric `player_id` is only valid as a
 compatibility alias: outbound decisions, inbound prompt payloads, and external-AI requests with an
 integer `player_id` must also carry `player_id_alias_role`, `primary_player_id`, and
 `primary_player_id_source`.
+The outbound decision runtime contract now also explicitly defines the existing
+continuation identity companion fields instead of accepting them only through
+open-ended additional properties: `prompt_instance_id`,
+`public_prompt_instance_id`, frame/module/batch metadata, numeric missing/resume
+maps, and public-player/seat/viewer companion maps.
 
 ## Problem 2. Numeric Sequences Are Doing Too Much
 
@@ -1005,6 +1010,10 @@ Acceptance evidence status, 2026-05-14:
   and `test_runtime_prompt_boundary_enriches_checkpoint_payload_batch_contract` verify that prompt batch
   continuation maps include public-player, seat, and viewer companion fields next to numeric compatibility maps.
   The active batch prompt payload also runs through the recursive numeric-leak guard.
+- `apps/server/tests/test_runtime_contract_examples.py::RuntimeContractExampleTests::test_outbound_decision_schema_owns_continuation_identity_fields`
+  verifies that the frozen outbound decision schema explicitly owns the decision continuation companion
+  fields emitted by web/headless decisions and accepted by the server, and
+  `packages/runtime-contracts/ws/examples/outbound.decision.movement_roll.json` now exercises those fields.
 - `apps/server/tests/test_batch_collector.py::BatchCollectorTests::test_records_remaining_and_emits_single_batch_complete_command`
   verifies that the emitted `batch_complete` command keeps numeric `responses_by_player_id` and
   `expected_player_ids` while adding `responses_by_public_player_id` and ordered `expected_public_player_ids`

@@ -116,6 +116,37 @@ class RuntimeContractExampleTests(unittest.TestCase):
             example = _load_json(examples / example_name)
             _validate_subset(example, schema, path=f"$<{example_name}>")
 
+    def test_outbound_decision_schema_owns_continuation_identity_fields(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "outbound.decision.schema.json")
+        properties = schema["properties"]
+
+        expected_fields: dict[str, dict[str, Any]] = {
+            "prompt_instance_id": {"type": "integer", "minimum": 0},
+            "public_prompt_instance_id": {"type": "string", "minLength": 1},
+            "prompt_fingerprint": {"type": "string", "minLength": 1},
+            "prompt_fingerprint_version": {"type": "string", "minLength": 1},
+            "resume_token": {"type": "string", "minLength": 1},
+            "frame_id": {"type": "string", "minLength": 1},
+            "module_id": {"type": "string", "minLength": 1},
+            "module_type": {"type": "string", "minLength": 1},
+            "module_cursor": {"type": "string", "minLength": 1},
+            "batch_id": {"type": "string", "minLength": 1},
+            "missing_player_ids": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+            "resume_tokens_by_player_id": {"type": "object", "additionalProperties": {"type": "string"}},
+            "missing_public_player_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "resume_tokens_by_public_player_id": {"type": "object", "additionalProperties": {"type": "string"}},
+            "missing_seat_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "resume_tokens_by_seat_id": {"type": "object", "additionalProperties": {"type": "string"}},
+            "missing_viewer_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "resume_tokens_by_viewer_id": {"type": "object", "additionalProperties": {"type": "string"}},
+            "view_commit_seq_seen": {"type": "integer", "minimum": 0},
+        }
+
+        for field, expected in expected_fields.items():
+            with self.subTest(field=field):
+                assert properties.get(field) == expected
+
     def test_ws_identity_schemas_accept_public_player_id_with_legacy_alias(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
         schemas = root / "schemas"

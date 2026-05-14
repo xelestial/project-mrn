@@ -24,6 +24,14 @@ in the active plans, status index, tests, or canonical contract documents.
   `player_id` plus explicit `legacy_player_id`, `public_player_id`, `seat_id`,
   and `viewer_id` companions. Existing numeric `player_id` examples remain
   valid; this only removes the schema-level integer-only blocker.
+- The WebSocket outbound decision schema now explicitly owns the continuation
+  identity companion contract already emitted by frontend decisions and
+  accepted by the server: `prompt_instance_id`, `public_prompt_instance_id`,
+  prompt fingerprint fields, resume metadata, frame/module/batch fields,
+  numeric `missing_player_ids` and `resume_tokens_by_player_id`, plus
+  public-player, seat, and viewer companion lists/maps. The outbound decision
+  example now exercises that path, so the contract no longer relies on
+  `additionalProperties` to hide those fields.
 - WebSocket outbound decision construction now exposes `primary_player_id` and
   `primary_player_id_source`, and labels a top-level numeric `player_id` as
   `player_id_alias_role: "legacy_compatibility_alias"`. Public/protocol
@@ -76,6 +84,9 @@ builder/session identity boundary, and HTTP policy request identity labeling is
 owned by the request builder. Consumers no longer need to guess whether numeric
 ACK or HTTP-policy `player_id` values are primary identity or compatibility
 aliases.
+Runtime contract responsibility also moved: outbound decision continuation
+companion fields are now owned by the frozen schema and example instead of
+being tolerated only through open-ended `additionalProperties`.
 - Runtime fanout and session bootstrap identity helpers now keep explicit
   prefixed/list legacy companions for protocol player-id fields. Examples:
   `acting_legacy_player_id`, `owner_legacy_player_id`,

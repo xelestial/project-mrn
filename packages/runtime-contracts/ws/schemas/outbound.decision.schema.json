@@ -82,6 +82,102 @@
     "choice_payload": {
       "type": "object",
       "additionalProperties": true
+    },
+    "prompt_instance_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "public_prompt_instance_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_fingerprint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_fingerprint_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resume_token": {
+      "type": "string",
+      "minLength": 1
+    },
+    "frame_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "module_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "module_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "module_cursor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "batch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "missing_player_ids": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "resume_tokens_by_player_id": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "missing_public_player_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "resume_tokens_by_public_player_id": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "missing_seat_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "resume_tokens_by_seat_id": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "missing_viewer_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "resume_tokens_by_viewer_id": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "view_commit_seq_seen": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true
