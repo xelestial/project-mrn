@@ -940,7 +940,8 @@ Acceptance evidence status, 2026-05-14:
   returned admin pending-prompt row also runs through the recursive numeric-leak guard.
 - `tests/test_external_ai_full_stack_smoke_script.py` verifies that the external-AI full-stack smoke adapter
   preserves pending prompt request/player/seat/viewer identity companions through the worker request and
-  callback body while retaining numeric `player_id` as a compatibility alias.
+  callback body while retaining numeric `player_id` as a compatibility alias, and that explicit
+  pending-prompt `primary_player_id` metadata wins over the top-level numeric alias.
 - `tests/test_redis_restart_smoke_script.py` verifies that restart decision smoke can select a replay prompt
   whose protocol `player_id` is public by using the explicit numeric legacy bridge, and that the submitted
   decision payload preserves request/player/seat/viewer identity companions, exposes `primary_player_id`

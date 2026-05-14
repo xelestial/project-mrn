@@ -43,6 +43,10 @@ in the active plans, status index, tests, or canonical contract documents.
   `primary_player_id_source`, and
   `player_id_alias_role: "legacy_compatibility_alias"` so external worker
   requests expose the preferred identity without guessing from the numeric alias.
+  When a pending prompt already carries explicit `primary_player_id` metadata,
+  the worker request and callback now consume that primary identity before
+  falling back to `public_player_id`, protocol `player_id`, or legacy numeric
+  aliases.
 - The Redis restart decision smoke adapter now accepts replay prompts whose
   protocol `player_id` is public as long as `legacy_player_id` or another
   numeric bridge is present. Decision payload construction now preserves the

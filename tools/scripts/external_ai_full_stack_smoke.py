@@ -114,7 +114,28 @@ def _numeric_legacy_player_id(source: dict[str, Any]) -> int:
     return 0
 
 
+def _explicit_primary_player_identity(source: dict[str, Any]) -> tuple[Any, str] | None:
+    primary_player_id = source.get("primary_player_id")
+    primary_player_id_source = str(source.get("primary_player_id_source") or "").strip()
+    if primary_player_id_source not in {"public", "protocol", "legacy"}:
+        return None
+    if isinstance(primary_player_id, bool):
+        return None
+    if isinstance(primary_player_id, int):
+        return primary_player_id, primary_player_id_source
+    if isinstance(primary_player_id, str) and primary_player_id.strip():
+        stripped = primary_player_id.strip()
+        if primary_player_id_source == "legacy" and stripped.isdigit():
+            return int(stripped), primary_player_id_source
+        return stripped, primary_player_id_source
+    return None
+
+
 def _primary_player_identity(source: dict[str, Any]) -> tuple[Any, str]:
+    explicit_identity = _explicit_primary_player_identity(source)
+    if explicit_identity is not None:
+        return explicit_identity
+
     public_player_id = source.get("public_player_id")
     if isinstance(public_player_id, str) and public_player_id.strip():
         return public_player_id.strip(), "public"
