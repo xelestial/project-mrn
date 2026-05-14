@@ -6,6 +6,7 @@ import {
 } from "./domain/labels/manifestLabelCatalog";
 import { promptLabelForType } from "./domain/labels/promptTypeCatalog";
 import {
+  type PromptViewModel,
   selectActivePrompt,
   selectCurrentHandTrayCards,
   selectPromptInteractionState,
@@ -50,7 +51,7 @@ import { PlayerTrickPeek } from "./features/players/PlayerTrickPeek";
 import { PromptOverlay, type PromptWidthPercent } from "./features/prompt/PromptOverlay";
 import { SpectatorTurnPanel } from "./features/stage/SpectatorTurnPanel";
 import { CoreActionPanel } from "./features/theater/CoreActionPanel";
-import { useGameStream } from "./hooks/useGameStream";
+import { useGameStream, type StreamDecisionArgs } from "./hooks/useGameStream";
 import { useI18n } from "./i18n/useI18n";
 import {
   createSession,
@@ -118,6 +119,30 @@ function buildMatchHash(sessionId: string, token?: string): string {
   }
   const query = params.toString();
   return query ? `${MATCH_HASH}?${query}` : MATCH_HASH;
+}
+
+type PromptDecisionIdentity = Pick<
+  StreamDecisionArgs,
+  "playerId" | "legacyPlayerId" | "publicPlayerId" | "seatId" | "viewerId"
+>;
+
+function promptDecisionIdentity(prompt: PromptViewModel): PromptDecisionIdentity {
+  const publicPlayerId = optionalPromptIdentityString(prompt.publicPlayerId);
+  const seatId = optionalPromptIdentityString(prompt.seatId);
+  const viewerId = optionalPromptIdentityString(prompt.viewerId);
+  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? prompt.playerId;
+  const legacyPlayerId = typeof prompt.legacyPlayerId === "number" ? prompt.legacyPlayerId : prompt.playerId;
+  return {
+    playerId: protocolPlayerId,
+    ...(typeof protocolPlayerId === "string" ? { legacyPlayerId } : {}),
+    ...(publicPlayerId ? { publicPlayerId } : {}),
+    ...(seatId ? { seatId } : {}),
+    ...(viewerId ? { viewerId } : {}),
+  };
+}
+
+function optionalPromptIdentityString(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function inferPlayerIdFromSessionToken(token: string | undefined): number | null {
@@ -1574,7 +1599,7 @@ export function App() {
     promptSubmitRequestIdRef.current = actionablePrompt.requestId;
     const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
-      playerId: actionablePrompt.playerId,
+      ...promptDecisionIdentity(actionablePrompt),
       choiceId: shouldRemove ? "yes" : "no",
       choicePayload: {},
       continuation: actionablePrompt.continuation,
@@ -2489,7 +2514,7 @@ export function App() {
       }
       const sent = stream.sendDecision({
         requestId: actionablePrompt.requestId,
-        playerId: actionablePrompt.playerId,
+        ...promptDecisionIdentity(actionablePrompt),
         requestType: actionablePrompt.requestType,
         choiceId: "none",
         choicePayload: {
@@ -2522,7 +2547,7 @@ export function App() {
       const shouldRemoveCurrent = currentDeckIndex !== null && requestedDeckIndexes.includes(currentDeckIndex);
       const sent = stream.sendDecision({
         requestId: actionablePrompt.requestId,
-        playerId: actionablePrompt.playerId,
+        ...promptDecisionIdentity(actionablePrompt),
         requestType: actionablePrompt.requestType,
         choiceId: shouldRemoveCurrent ? "yes" : "no",
         choicePayload: {},
@@ -2545,7 +2570,7 @@ export function App() {
     setBurdenExchangeQueuedPlayerId(null);
     const sent = stream.sendDecision({
       requestId: actionablePrompt.requestId,
-      playerId: actionablePrompt.playerId,
+      ...promptDecisionIdentity(actionablePrompt),
       requestType: actionablePrompt.requestType,
       choiceId,
       choicePayload: {},

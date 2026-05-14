@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useRef } from "react";
 import type {
   ConnectionStatus,
   InboundMessage,
+  ProtocolPlayerId,
 } from "../core/contracts/stream";
 import type { PromptContinuationViewModel } from "../domain/selectors/promptSelectors";
 import {
@@ -26,6 +27,32 @@ type UseGameStreamArgs = {
 export { buildDecisionMessage, buildGameStreamKey, createDecisionRequestLedger };
 export { buildDecisionFlightKey };
 
+export type StreamDecisionArgs = {
+  requestId: string;
+  playerId: ProtocolPlayerId;
+  legacyPlayerId?: number | null;
+  publicPlayerId?: string | null;
+  seatId?: string | null;
+  viewerId?: string | null;
+  requestType?: string;
+  choiceId: string;
+  choicePayload?: Record<string, unknown>;
+  continuation?: PromptContinuationViewModel;
+};
+
+export function resolveDecisionFlightPlayerId(args: {
+  playerId: ProtocolPlayerId;
+  legacyPlayerId?: number | null;
+}): number | null {
+  if (typeof args.playerId === "number" && Number.isFinite(args.playerId)) {
+    return Math.floor(args.playerId);
+  }
+  if (typeof args.legacyPlayerId === "number" && Number.isFinite(args.legacyPlayerId)) {
+    return Math.floor(args.legacyPlayerId);
+  }
+  return null;
+}
+
 export function useGameStream({
   sessionId,
   token,
@@ -35,14 +62,7 @@ export function useGameStream({
   lastSeq: number;
   messages: InboundMessage[];
   debugMessages: InboundMessage[];
-  sendDecision: (args: {
-    requestId: string;
-    playerId: number;
-    requestType?: string;
-    choiceId: string;
-    choicePayload?: Record<string, unknown>;
-    continuation?: PromptContinuationViewModel;
-  }) => boolean;
+  sendDecision: (args: StreamDecisionArgs) => boolean;
 } {
   const client = useMemo(() => new StreamClient(), []);
   const [state, dispatch] = useReducer(
@@ -126,19 +146,30 @@ export function useGameStream({
     return () => client.disconnect();
   }, [baseUrl, client, sessionId, token]);
 
-  const sendDecision = (args: {
-    requestId: string;
-    playerId: number;
-    requestType?: string;
-    choiceId: string;
-    choicePayload?: Record<string, unknown>;
-    continuation?: PromptContinuationViewModel;
-  }): boolean => {
+  const sendDecision = (args: StreamDecisionArgs): boolean => {
     const continuation = args.continuation;
     const streamKey = activeStreamKeyRef.current;
+    const flightPlayerId = resolveDecisionFlightPlayerId({
+      playerId: args.playerId,
+      legacyPlayerId: args.legacyPlayerId,
+    });
+    if (flightPlayerId === null) {
+      logFrontendDebugEvent({
+        event: "decision_suppressed_invalid_player_identity",
+        sessionId: sessionId.trim(),
+        seq: lastCommitSeqRef.current,
+        baseUrl,
+        payload: {
+          request_id: args.requestId,
+          player_id: args.playerId,
+          choice_id: args.choiceId,
+        },
+      });
+      return false;
+    }
     const flightKey = buildDecisionFlightKey({
       requestId: args.requestId,
-      playerId: args.playerId,
+      playerId: flightPlayerId,
       requestType: args.requestType,
       continuation,
     });
@@ -194,6 +225,10 @@ export function useGameStream({
       buildDecisionMessage({
         requestId: args.requestId,
         playerId: args.playerId,
+        legacyPlayerId: args.legacyPlayerId,
+        publicPlayerId: args.publicPlayerId,
+        seatId: args.seatId,
+        viewerId: args.viewerId,
         choiceId: args.choiceId,
         choicePayload: args.choicePayload,
         continuation,
@@ -216,6 +251,10 @@ export function useGameStream({
         payload: {
           request_id: args.requestId,
           player_id: args.playerId,
+          legacy_player_id: args.legacyPlayerId,
+          public_player_id: args.publicPlayerId,
+          seat_id: args.seatId,
+          viewer_id: args.viewerId,
           choice_id: args.choiceId,
           choice_payload: args.choicePayload,
           continuation,

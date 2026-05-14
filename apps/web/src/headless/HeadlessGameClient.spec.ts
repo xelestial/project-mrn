@@ -14,6 +14,10 @@ function viewCommitMessage(args: {
   requestType?: string;
   choiceId?: string;
   choicePayload?: Record<string, unknown>;
+  publicPlayerId?: string;
+  legacyPlayerId?: number;
+  seatId?: string;
+  viewerId?: string;
   publicContext?: Record<string, unknown>;
   viewState?: Record<string, unknown>;
   choices?: Array<{
@@ -37,7 +41,11 @@ function viewCommitMessage(args: {
       turn_label: `R1-T${args.playerId}`,
       viewer: {
         role: "seat",
-        player_id: args.playerId,
+        player_id: args.publicPlayerId ?? args.playerId,
+        ...(args.legacyPlayerId !== undefined ? { legacy_player_id: args.legacyPlayerId } : {}),
+        ...(args.publicPlayerId ? { public_player_id: args.publicPlayerId } : {}),
+        ...(args.seatId ? { seat_id: args.seatId } : {}),
+        ...(args.viewerId ? { viewer_id: args.viewerId } : {}),
         seat: args.playerId,
       },
       runtime: {
@@ -55,7 +63,11 @@ function viewCommitMessage(args: {
           active: {
             request_id: args.requestId,
             request_type: args.requestType ?? "purchase_tile",
-            player_id: args.playerId,
+            player_id: args.publicPlayerId ?? args.playerId,
+            ...(args.legacyPlayerId !== undefined ? { legacy_player_id: args.legacyPlayerId } : {}),
+            ...(args.publicPlayerId ? { public_player_id: args.publicPlayerId } : {}),
+            ...(args.seatId ? { seat_id: args.seatId } : {}),
+            ...(args.viewerId ? { viewer_id: args.viewerId } : {}),
             timeout_ms: 30000,
             runner_kind: "module",
             prompt_instance_id: 17,
@@ -179,6 +191,41 @@ describe("HeadlessGameClient", () => {
     });
     expect(client.metrics.outboundDecisionCount).toBe(1);
     expect(client.metrics.illegalActionCount).toBe(0);
+  });
+
+  it("sends active prompt public player identity while preserving the legacy numeric alias", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_public_player",
+      token: "seat-2",
+      playerId: 2,
+      policy: baselineDecisionPolicy,
+    });
+
+    const outbound = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 12,
+        requestId: "req_public_player_12",
+        playerId: 2,
+        legacyPlayerId: 2,
+        publicPlayerId: "player_public_2",
+        seatId: "seat_public_2",
+        viewerId: "viewer_public_2",
+        choicePayload: { tile_index: 7, buy: true },
+      }),
+    );
+
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]).toMatchObject({
+      type: "decision",
+      request_id: "req_public_player_12",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_public_2",
+      viewer_id: "viewer_public_2",
+      choice_id: "buy",
+      choice_payload: { tile_index: 7, buy: true },
+    });
   });
 
   it("declines repeatable burden exchange by default to keep protocol playtests bounded", async () => {

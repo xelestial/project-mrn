@@ -5,6 +5,7 @@ import {
   buildGameStreamKey,
   createDecisionRequestLedger,
 } from "../domain/stream/decisionProtocol";
+import { resolveDecisionFlightPlayerId } from "./useGameStream";
 
 describe("useGameStream authoritative commit helpers", () => {
   it("builds the active stream key from the normalized session and token", () => {
@@ -109,6 +110,36 @@ describe("useGameStream authoritative commit helpers", () => {
 
     expect(duplicateWithNewRequestId).toBe(first);
     expect(nextPrompt).not.toBe(first);
+  });
+
+  it("uses the legacy numeric player id for public protocol player decision flights", () => {
+    const flightPlayerId = resolveDecisionFlightPlayerId({
+      playerId: "player_public_2",
+      legacyPlayerId: 2,
+    });
+
+    expect(flightPlayerId).toBe(2);
+    if (flightPlayerId === null) {
+      throw new Error("expected legacy numeric player id for public protocol player decision flight");
+    }
+    expect(
+      buildDecisionFlightKey({
+        requestId: "req_public_prompt",
+        playerId: flightPlayerId,
+        requestType: "purchase",
+        continuation: {
+          promptInstanceId: 93,
+          promptFingerprint: "sha256:prompt-93",
+          promptFingerprintVersion: "prompt-fingerprint-v1",
+          resumeToken: "resume-93",
+          frameId: "turn:3:p2",
+          moduleId: "mod:purchase:93",
+          moduleType: "PurchaseModule",
+          moduleCursor: "purchase:await_choice",
+          batchId: null,
+        },
+      }),
+    ).toBe("player:2\nprompt:sha256:prompt-93\naction:purchase");
   });
 
   it("blocks a different request id while the same prompt flight is still active", () => {

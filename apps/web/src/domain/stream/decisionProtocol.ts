@@ -1,4 +1,4 @@
-import type { OutboundMessage } from "../../core/contracts/stream";
+import type { OutboundMessage, ProtocolPlayerId } from "../../core/contracts/stream";
 import type { PromptContinuationViewModel } from "../selectors/promptSelectors";
 
 export function buildGameStreamKey(sessionId: string, token?: string): string {
@@ -137,7 +137,11 @@ function firstNonEmpty(values: Array<string | null | undefined>): string {
 
 export function buildDecisionMessage(args: {
   requestId: string;
-  playerId: number;
+  playerId: ProtocolPlayerId;
+  legacyPlayerId?: number | null;
+  publicPlayerId?: string | null;
+  seatId?: string | null;
+  viewerId?: string | null;
   choiceId: string;
   choicePayload?: Record<string, unknown>;
   continuation?: PromptContinuationViewModel;
@@ -145,10 +149,21 @@ export function buildDecisionMessage(args: {
   clientSeq: number;
 }): OutboundMessage {
   const continuation = args.continuation;
+  const legacyPlayerId =
+    typeof args.legacyPlayerId === "number" && Number.isFinite(args.legacyPlayerId)
+      ? Math.floor(args.legacyPlayerId)
+      : null;
+  const publicPlayerId = optionalString(args.publicPlayerId);
+  const seatId = optionalString(args.seatId);
+  const viewerId = optionalString(args.viewerId);
   return {
     type: "decision",
     request_id: args.requestId,
     player_id: args.playerId,
+    ...(legacyPlayerId !== null ? { legacy_player_id: legacyPlayerId } : {}),
+    ...(publicPlayerId ? { public_player_id: publicPlayerId } : {}),
+    ...(seatId ? { seat_id: seatId } : {}),
+    ...(viewerId ? { viewer_id: viewerId } : {}),
     choice_id: args.choiceId,
     choice_payload: args.choicePayload,
     ...(continuation?.resumeToken ? { resume_token: continuation.resumeToken } : {}),
@@ -160,6 +175,18 @@ export function buildDecisionMessage(args: {
     ...(continuation?.missingPlayerIds ? { missing_player_ids: continuation.missingPlayerIds } : {}),
     ...(continuation?.resumeTokensByPlayerId
       ? { resume_tokens_by_player_id: continuation.resumeTokensByPlayerId }
+      : {}),
+    ...(continuation?.missingPublicPlayerIds
+      ? { missing_public_player_ids: continuation.missingPublicPlayerIds }
+      : {}),
+    ...(continuation?.resumeTokensByPublicPlayerId
+      ? { resume_tokens_by_public_player_id: continuation.resumeTokensByPublicPlayerId }
+      : {}),
+    ...(continuation?.missingSeatIds ? { missing_seat_ids: continuation.missingSeatIds } : {}),
+    ...(continuation?.resumeTokensBySeatId ? { resume_tokens_by_seat_id: continuation.resumeTokensBySeatId } : {}),
+    ...(continuation?.missingViewerIds ? { missing_viewer_ids: continuation.missingViewerIds } : {}),
+    ...(continuation?.resumeTokensByViewerId
+      ? { resume_tokens_by_viewer_id: continuation.resumeTokensByViewerId }
       : {}),
     ...(typeof continuation?.promptInstanceId === "number" &&
     Number.isFinite(continuation.promptInstanceId) &&
@@ -173,4 +200,8 @@ export function buildDecisionMessage(args: {
     view_commit_seq_seen: Math.max(0, Math.floor(args.viewCommitSeqSeen)),
     client_seq: args.clientSeq,
   };
+}
+
+function optionalString(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDecisionMessage,
   buildDecisionFlightKey,
   buildGameStreamKey,
   createDecisionRequestLedger,
@@ -59,6 +60,34 @@ describe("decisionProtocol lifecycle handling", () => {
     expect(ledger.beginFlight(streamKey, flightKey, "req_stale")).toEqual({
       status: "started",
       requestId: "req_stale",
+    });
+  });
+
+  it("emits public player identity as protocol player_id while preserving legacy numeric alias", () => {
+    expect(
+      buildDecisionMessage({
+        requestId: "req_public_player",
+        playerId: "player_public_2",
+        legacyPlayerId: 2,
+        publicPlayerId: "player_public_2",
+        seatId: "seat_2",
+        viewerId: "viewer_2",
+        choiceId: "roll",
+        viewCommitSeqSeen: 12,
+        clientSeq: 13,
+      }),
+    ).toEqual({
+      type: "decision",
+      request_id: "req_public_player",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_2",
+      viewer_id: "viewer_2",
+      choice_id: "roll",
+      choice_payload: undefined,
+      view_commit_seq_seen: 12,
+      client_seq: 13,
     });
   });
 });

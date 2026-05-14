@@ -78,6 +78,19 @@ in the active plans, status index, tests, or canonical contract documents.
 - Admin external-AI pending prompt reads now expose the public canonical
   request id, legacy request alias, public player id, seat id, and viewer id
   while retaining numeric `player_id` as a compatibility routing alias.
+- Frontend/headless decision construction now accepts active prompt public
+  string `player_id` as the outbound protocol identity. `buildDecisionMessage()`
+  carries explicit `legacy_player_id`, `public_player_id`, `seat_id`, and
+  `viewer_id` companions, and pure numeric decision messages remain unchanged.
+  Active prompt selection only accepts a string protocol `player_id` when the
+  payload also carries a numeric `legacy_player_id`, preserving the current
+  engine/seat bridge instead of guessing from public IDs.
+- The rendered React UI prompt submission path now uses the same active-prompt
+  protocol identity extraction as headless. `App.tsx` passes public player,
+  legacy player, seat, and viewer companions into `useGameStream.sendDecision()`;
+  `useGameStream` still resolves duplicate-flight keys through the numeric
+  legacy bridge, so UI ownership checks and repeated-submit suppression remain
+  numeric while the outbound wire identity can be public.
 - Session bootstrap identity was aligned with the runtime protocol identity
   migration. `session_start.players`, initial snapshot players, marker owner,
   and starting pawn lists now carry public player, seat, and viewer companion
@@ -135,9 +148,13 @@ in the active plans, status index, tests, or canonical contract documents.
   before runtime fanout starts. Runtime fanout still owns post-start view
   commits. Both bootstrap and fanout helpers now also own complete
   prefixed/list legacy companion enrichment; route consumers should not patch
-  those fields after publication. Engine actor indexes remain internal numeric
-  state. Legacy request IDs now remain compatibility inputs rather than the
-  canonical storage key.
+  those fields after publication. Frontend decision construction now owns the
+  protocol outbound identity shape instead of assuming caller numeric
+  `playerId` is the wire identity. Rendered UI prompt submission now owns
+  extracting protocol identity from `PromptViewModel`, while `useGameStream`
+  owns serialization and numeric flight-key compatibility. Engine actor indexes
+  remain internal numeric state. Legacy request IDs now remain compatibility
+  inputs rather than the canonical storage key.
 
 Verification:
 
@@ -158,6 +175,8 @@ Verification:
 - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py::PromptServiceTests::test_mark_prompt_delivered_resolves_public_request_id_alias apps/server/tests/test_prompt_service.py::PromptServiceTests::test_external_decision_result_resolves_public_request_id_alias -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_batch_collector.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py -q`
+- `npm --prefix apps/web test -- src/domain/stream/decisionProtocol.spec.ts src/headless/HeadlessGameClient.spec.ts src/hooks/useGameStream.spec.ts src/headless/frontendTransportAdapter.spec.ts`
+- `npm --prefix apps/web run build`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_external_ai_decision_callback_accepts_public_player_and_request_identity -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py::SessionsApiTests::test_start_replay_session_start_includes_initial_active_faces -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_accepts_public_request_id_with_redis_prompt_store apps/server/tests/test_redis_realtime_services.py::RedisRealtimeServicesTests::test_prompt_service_expires_public_request_id_with_redis_prompt_store -q`

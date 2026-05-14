@@ -2,6 +2,7 @@ import type {
   ConnectionStatus,
   InboundMessage,
   OutboundMessage,
+  ProtocolPlayerId,
   ViewCommitPayload,
 } from "../core/contracts/stream";
 import type {
@@ -111,8 +112,39 @@ type PendingReconnectRecovery = {
   minCommitSeq: number;
 };
 
+type PromptDecisionIdentity = {
+  playerId: ProtocolPlayerId;
+  legacyPlayerId?: number;
+  publicPlayerId?: string;
+  seatId?: string;
+  viewerId?: string;
+};
+
 const DEFAULT_RAW_PROMPT_FALLBACK_DELAY_MS: number | null = null;
 const DEFAULT_UNACKED_DECISION_RETRY_LIMIT = 2;
+
+function promptDecisionIdentity(prompt: PromptViewModel, fallbackPlayerId: number): PromptDecisionIdentity {
+  const legacyPlayerId =
+    typeof prompt.legacyPlayerId === "number" && Number.isFinite(prompt.legacyPlayerId)
+      ? Math.floor(prompt.legacyPlayerId)
+      : Math.floor(fallbackPlayerId);
+  const publicPlayerId = optionalIdentityString(prompt.publicPlayerId);
+  const seatId = optionalIdentityString(prompt.seatId);
+  const viewerId = optionalIdentityString(prompt.viewerId);
+  const protocolPlayerId = publicPlayerId ?? prompt.protocolPlayerId ?? legacyPlayerId;
+  const needsLegacyAlias = typeof protocolPlayerId === "string";
+  return {
+    playerId: protocolPlayerId,
+    ...(needsLegacyAlias ? { legacyPlayerId } : {}),
+    ...(publicPlayerId ? { publicPlayerId } : {}),
+    ...(seatId ? { seatId } : {}),
+    ...(viewerId ? { viewerId } : {}),
+  };
+}
+
+function optionalIdentityString(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 type HeadlessGameClientArgs = {
   sessionId: string;
@@ -655,7 +687,7 @@ export class HeadlessGameClient {
 
       const outbound = buildDecisionMessage({
         requestId: prompt.requestId,
-        playerId: this.playerId,
+        ...promptDecisionIdentity(prompt, this.playerId),
         choiceId: selectedChoice.choiceId,
         choicePayload: policyDecision.choicePayload ?? selectedChoice.value ?? undefined,
         continuation: prompt.continuation,

@@ -1,4 +1,4 @@
-import type { InboundMessage } from "../../core/contracts/stream";
+import type { InboundMessage, ProtocolPlayerId } from "../../core/contracts/stream";
 
 export type PromptChoiceViewModel = {
   choiceId: string;
@@ -20,6 +20,12 @@ export type PromptContinuationViewModel = {
   batchId: string | null;
   missingPlayerIds?: number[];
   resumeTokensByPlayerId?: Record<string, string>;
+  missingPublicPlayerIds?: string[];
+  resumeTokensByPublicPlayerId?: Record<string, string>;
+  missingSeatIds?: string[];
+  resumeTokensBySeatId?: Record<string, string>;
+  missingViewerIds?: string[];
+  resumeTokensByViewerId?: Record<string, string>;
 };
 
 export type PromptEffectContextViewModel = {
@@ -40,6 +46,11 @@ export type PromptViewModel = {
   requestId: string;
   requestType: string;
   playerId: number;
+  protocolPlayerId?: ProtocolPlayerId;
+  legacyPlayerId?: number | null;
+  publicPlayerId?: string | null;
+  seatId?: string | null;
+  viewerId?: string | null;
   timeoutMs: number;
   choices: PromptChoiceViewModel[];
   publicContext: Record<string, unknown>;
@@ -297,6 +308,34 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function protocolPlayerIdOrNull(value: unknown): ProtocolPlayerId | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  return null;
+}
+
+function stringArrayOrNull(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const items = value.map((item) => stringOrEmpty(item)).filter((item) => item.length > 0);
+  return items.length > 0 ? items : null;
+}
+
+function stringRecordOrNull(value: unknown): Record<string, string> | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const entries = Object.entries(value)
+    .map(([key, token]) => [String(key), stringOrEmpty(token)] as const)
+    .filter(([, token]) => token.length > 0);
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
 function parsePromptEffectContext(raw: unknown): PromptEffectContextViewModel | null {
   if (!isRecord(raw)) {
     return null;
@@ -382,6 +421,12 @@ function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuati
           .filter(([, token]) => token.length > 0),
       )
     : null;
+  const missingPublicPlayerIds = stringArrayOrNull(raw["missing_public_player_ids"]);
+  const resumeTokensByPublicPlayerId = stringRecordOrNull(raw["resume_tokens_by_public_player_id"]);
+  const missingSeatIds = stringArrayOrNull(raw["missing_seat_ids"]);
+  const resumeTokensBySeatId = stringRecordOrNull(raw["resume_tokens_by_seat_id"]);
+  const missingViewerIds = stringArrayOrNull(raw["missing_viewer_ids"]);
+  const resumeTokensByViewerId = stringRecordOrNull(raw["resume_tokens_by_viewer_id"]);
   return {
     promptInstanceId: numberOrNull(raw["prompt_instance_id"]),
     promptFingerprint: stringOrEmpty(raw["prompt_fingerprint"]) || null,
@@ -394,6 +439,12 @@ function parsePromptContinuation(raw: Record<string, unknown>): PromptContinuati
     batchId: stringOrEmpty(raw["batch_id"]) || null,
     ...(missingPlayerIds ? { missingPlayerIds } : {}),
     ...(resumeTokensByPlayerId ? { resumeTokensByPlayerId } : {}),
+    ...(missingPublicPlayerIds ? { missingPublicPlayerIds } : {}),
+    ...(resumeTokensByPublicPlayerId ? { resumeTokensByPublicPlayerId } : {}),
+    ...(missingSeatIds ? { missingSeatIds } : {}),
+    ...(resumeTokensBySeatId ? { resumeTokensBySeatId } : {}),
+    ...(missingViewerIds ? { missingViewerIds } : {}),
+    ...(resumeTokensByViewerId ? { resumeTokensByViewerId } : {}),
   };
 }
 
@@ -807,8 +858,18 @@ export function promptViewModelFromActivePromptPayload(active: Record<string, un
   }
   const requestId = active["request_id"];
   const requestType = active["request_type"];
-  const playerId = active["player_id"];
-  if (typeof requestId !== "string" || !requestId.trim() || typeof requestType !== "string" || typeof playerId !== "number") {
+  const protocolPlayerId = protocolPlayerIdOrNull(active["player_id"]);
+  const legacyPlayerId = numberOrNull(active["legacy_player_id"]) ?? numberOrNull(active["player_id"]);
+  const publicPlayerId = stringOrEmpty(active["public_player_id"]) || null;
+  const seatId = stringOrEmpty(active["seat_id"]) || null;
+  const viewerId = stringOrEmpty(active["viewer_id"]) || null;
+  if (
+    typeof requestId !== "string" ||
+    !requestId.trim() ||
+    typeof requestType !== "string" ||
+    protocolPlayerId === null ||
+    legacyPlayerId === null
+  ) {
     return null;
   }
   if (declaresModuleContinuation(active) && !hasCompleteModuleContinuation(active)) {
@@ -819,7 +880,12 @@ export function promptViewModelFromActivePromptPayload(active: Record<string, un
   return {
     requestId,
     requestType,
-    playerId,
+    playerId: legacyPlayerId,
+    protocolPlayerId,
+    legacyPlayerId,
+    publicPlayerId,
+    seatId,
+    viewerId,
     timeoutMs: typeof active["timeout_ms"] === "number" ? active["timeout_ms"] : 30000,
     choices: parseChoices(choicesRaw),
     publicContext: { ...publicContext },
