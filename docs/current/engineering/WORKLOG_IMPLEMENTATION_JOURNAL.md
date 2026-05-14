@@ -27,6 +27,12 @@ in the active plans, status index, tests, or canonical contract documents.
   lists, or `*_by_public_player_id` map keys collapse to numeric values, while
   allowing explicit numeric compatibility aliases such as `player_id`,
   `legacy_player_id`, `seat`, and `prompt_instance_id`.
+- The same guard now runs over representative runtime fanout event payloads,
+  fanout snapshots, active simultaneous batch prompt payloads, delayed prompt
+  publication payloads, WebSocket decision acks, external-AI callback decision
+  records, and admin external-AI pending-prompt rows. This expands the evidence
+  net before any future numeric alias removal; it does not remove the
+  compatibility aliases.
 - Prompt timeout fallback now preserves prompt identity companions through
   fallback execution history and timeout/resolved event publication. The
   canonical `request_id` remains the opaque public id, and

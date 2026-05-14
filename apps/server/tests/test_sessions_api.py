@@ -11,6 +11,7 @@ except ModuleNotFoundError:
     TestClient = None
     app = None
     FASTAPI_AVAILABLE = False
+from apps.server.src.domain.protocol_identity import assert_no_public_identity_numeric_leaks
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.services.runtime_service import RuntimeService
@@ -946,12 +947,14 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ack.payload["public_player_id"], seat["public_player_id"])
         self.assertEqual(ack.payload["seat_id"], seat["seat_id"])
         self.assertEqual(ack.payload["viewer_id"], seat["viewer_id"])
+        assert_no_public_identity_numeric_leaks(ack.payload, boundary="external_ai_decision_ack")
         decision = state.prompt_service.wait_for_decision("ai_req_public_1", timeout_ms=0, session_id=session_id)
         self.assertIsNotNone(decision)
         assert decision is not None
         self.assertEqual(decision["request_id"], public_request_id)
         self.assertEqual(decision["legacy_request_id"], "ai_req_public_1")
         self.assertEqual(decision["public_request_id"], public_request_id)
+        assert_no_public_identity_numeric_leaks(decision, boundary="external_ai_decision_record")
 
     def test_start_response_includes_parameter_manifest(self) -> None:
         from apps.server.src import state

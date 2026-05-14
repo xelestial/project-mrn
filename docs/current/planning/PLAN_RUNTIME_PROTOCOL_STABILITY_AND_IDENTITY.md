@@ -868,7 +868,7 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_stream_api.py::test_seat_decision_accepts_public_player_identity_with_ack`
   verifies that the WebSocket decision route accepts a public string player identity, normalizes it to the
   authenticated internal seat id, and returns public identity fields plus the compatibility `player_id` in
-  the ack payload.
+  the ack payload. The ack payload also runs through `assert_no_public_identity_numeric_leaks()`.
 - `apps/web/src/domain/stream/decisionProtocol.spec.ts` and
   `apps/web/src/headless/HeadlessGameClient.spec.ts` verify that frontend/headless decision construction can
   send a public string `player_id` with explicit `legacy_player_id`, `public_player_id`, `seat_id`, and
@@ -884,9 +884,11 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_sessions_api.py::test_external_ai_decision_callback_accepts_public_player_identity`
   verifies that the external-AI HTTP decision callback accepts a public string player identity, normalizes it
   to the internal seat id, and returns public identity fields plus the compatibility `player_id` in the ack payload.
+  The ack payload and recorded decision payload also run through the recursive numeric-leak guard.
 - `apps/server/tests/test_admin_api.py::AdminApiTests::test_admin_external_ai_pending_prompts_requires_admin_and_filters_ai_provider`
   verifies that external-AI pending prompt reads return the public canonical request id, legacy request alias,
-  public player id, seat id, and viewer id while preserving the numeric `player_id` compatibility alias.
+  public player id, seat id, and viewer id while preserving the numeric `player_id` compatibility alias. The
+  returned admin pending-prompt row also runs through the recursive numeric-leak guard.
 - `apps/server/tests/test_sessions_api.py::SessionsApiTests::test_start_replay_session_start_includes_initial_active_faces`
   verifies that bootstrap `session_start` replay payloads expose public player, seat, and viewer companions for
   player lists plus marker owner and pawn-id snapshot fields while preserving numeric compatibility aliases and
@@ -896,7 +898,8 @@ Acceptance evidence status, 2026-05-14:
   runtime or route handlers.
 - `apps/server/tests/test_runtime_service.py::test_runtime_prompt_boundary_can_publish_after_view_commit_guardrail`
   verifies that runtime prompt boundary payloads and their paired `decision_requested` events include the
-  same public identity fields while keeping numeric compatibility aliases.
+  same public identity fields while keeping numeric compatibility aliases. Both published payloads also run
+  through the recursive numeric-leak guard.
 - `apps/server/tests/test_protocol_ids.py::test_prompt_protocol_identity_fields_are_stable_opaque_companions`
   verifies that prompt legacy request IDs now get stable opaque request and prompt-instance companions.
 - `apps/server/tests/test_prompt_boundary_builder.py::test_prompt_boundary_builder_adds_public_prompt_identity_companions`
@@ -920,6 +923,7 @@ Acceptance evidence status, 2026-05-14:
 - `apps/server/tests/test_runtime_service.py::test_runtime_prompt_boundary_enriches_active_simultaneous_batch_contract`
   and `test_runtime_prompt_boundary_enriches_checkpoint_payload_batch_contract` verify that prompt batch
   continuation maps include public-player, seat, and viewer companion fields next to numeric compatibility maps.
+  The active batch prompt payload also runs through the recursive numeric-leak guard.
 - `apps/server/tests/test_batch_collector.py::BatchCollectorTests::test_records_remaining_and_emits_single_batch_complete_command`
   verifies that the emitted `batch_complete` command keeps numeric `responses_by_player_id` and
   `expected_player_ids` while adding `responses_by_public_player_id` and ordered `expected_public_player_ids`
@@ -931,16 +935,22 @@ Acceptance evidence status, 2026-05-14:
   engine's internal numeric actor-index bridge before applying collected batch responses.
 - `apps/server/tests/test_runtime_service.py::test_fanout_event_payload_adds_public_identity_for_direct_player`
   verifies that runtime fanout events with direct `player_id` include public identity fields while preserving
-  the numeric compatibility alias.
+  the numeric compatibility alias. The resulting event payload also runs through the recursive numeric-leak guard.
 - `apps/server/tests/test_runtime_service.py::test_fanout_event_payload_adds_actor_public_identity_for_acting_player`
   verifies that runtime fanout events with `acting_player_id` include actor-prefixed public and legacy identity
-  fields while preserving the numeric actor alias.
+  fields while preserving the numeric actor alias. The resulting event payload also runs through the recursive
+  numeric-leak guard.
 - `apps/server/tests/test_runtime_service.py::test_fanout_event_payload_adds_prefixed_identity_for_related_players`
   verifies that top-level fanout event fields such as `payer_player_id` and `owner_player_id` include prefixed
-  public and legacy identity fields.
+  public and legacy identity fields and runs the resulting event payload through the recursive numeric-leak guard.
 - `apps/server/tests/test_runtime_service.py::test_fanout_event_payload_adds_public_identity_lists_for_player_id_lists`
   verifies that top-level `*_player_ids` lists and the legacy `winner_ids` list include public identity companion
-  lists plus explicit legacy companion lists while preserving the original numeric lists.
+  lists plus explicit legacy companion lists while preserving the original numeric lists. The resulting event
+  payload also runs through the recursive numeric-leak guard.
+- `apps/server/tests/test_runtime_service.py::test_fanout_snapshot_payload_adds_public_identity_companions`
+  verifies that fanout snapshot player, marker-owner, tile-owner, and pawn-list identity companions stay public
+  while preserving numeric compatibility aliases. The resulting snapshot payload also runs through the recursive
+  numeric-leak guard.
 - `apps/server/tests/test_redis_realtime_services.py` verifies Redis stream/view-commit sequence persistence, monotonic command offsets, non-monotonic view-commit rejection, stale previous-commit rejection, and cached next-commit sequencing.
 - `apps/server/tests/test_prompt_service.py`, `apps/server/tests/test_prompt_module_continuation.py`, and `apps/server/tests/test_stream_api.py` verify prompt lifecycle states, active prompt persistence, resume tokens, required commit sequence handling, reconnect/resume repair, and target-scoped prompt delivery.
 - `apps/server/tests/test_stream_service.py`, `apps/server/tests/test_visibility_projection.py`, and `apps/server/tests/test_stream_api.py::test_spectator_does_not_receive_prompt_or_decision_ack_for_seat` verify private prompt and `decision_ack` projection boundaries.

@@ -18,6 +18,7 @@ except ModuleNotFoundError:
 
 from apps.server.src.config.runtime_settings import RuntimeSettings
 from apps.server.src.core.admin_auth import extract_admin_token
+from apps.server.src.domain.protocol_identity import assert_no_public_identity_numeric_leaks
 from apps.server.src.services.archive_service import LocalJsonArchiveService
 from apps.server.src.services.prompt_service import PromptService
 from apps.server.src.services.runtime_service import RuntimeService
@@ -270,6 +271,7 @@ class AdminApiTests(unittest.TestCase):
         self.assertEqual([choice["choice_id"] for choice in prompt["legal_choices"]], ["roll", "skip"])
         self.assertTrue(prompt["prompt_fingerprint"])
         self.assertEqual(prompt["public_context"], {"turn_index": 0})
+        assert_no_public_identity_numeric_leaks(prompt, boundary="admin_external_ai_pending_prompt")
 
 
 class _GameStateStoreStub:

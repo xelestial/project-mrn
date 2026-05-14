@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
+from apps.server.src.domain.protocol_identity import assert_no_public_identity_numeric_leaks
 from apps.server.src.services.decision_gateway import (
     build_decision_invocation,
     build_decision_invocation_from_request,
@@ -1283,6 +1284,10 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(stream.published_payloads[0]["public_player_id"], "player_2")
             self.assertEqual(stream.published_payloads[0]["seat_id"], "seat_2")
             self.assertEqual(stream.published_payloads[0]["viewer_id"], "viewer_2")
+            assert_no_public_identity_numeric_leaks(
+                stream.published_payloads[0],
+                boundary="fanout_direct_player_event",
+            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1317,6 +1322,10 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(stream.published_payloads[0]["acting_public_player_id"], "player_3")
             self.assertEqual(stream.published_payloads[0]["acting_seat_id"], "seat_3")
             self.assertEqual(stream.published_payloads[0]["acting_viewer_id"], "viewer_3")
+            assert_no_public_identity_numeric_leaks(
+                stream.published_payloads[0],
+                boundary="fanout_acting_player_event",
+            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1365,6 +1374,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(payload["owner_public_player_id"], "player_4")
             self.assertEqual(payload["owner_seat_id"], "seat_4")
             self.assertEqual(payload["owner_viewer_id"], "viewer_4")
+            assert_no_public_identity_numeric_leaks(payload, boundary="fanout_related_player_event")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1413,6 +1423,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(payload["winner_public_player_ids"], ["player_2", "player_4"])
             self.assertEqual(payload["winner_seat_ids"], ["seat_2", "seat_4"])
             self.assertEqual(payload["winner_viewer_ids"], ["viewer_2", "viewer_4"])
+            assert_no_public_identity_numeric_leaks(payload, boundary="fanout_player_list_event")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1491,6 +1502,7 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(tile["pawn_seat_ids"], ["seat_1", "seat_2"])
             self.assertEqual(tile["pawn_viewer_ids"], ["viewer_1", "viewer_2"])
             self.assertEqual(snapshot["active_by_card"], {"1": "Architect"})
+            assert_no_public_identity_numeric_leaks(snapshot, boundary="fanout_snapshot_payload")
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1746,6 +1758,10 @@ class RuntimeServiceTests(unittest.TestCase):
                 },
             )
             self.assertEqual(pending.payload["runtime_module"]["frame_type"], "simultaneous")
+            assert_no_public_identity_numeric_leaks(
+                pending.payload,
+                boundary="active_batch_prompt_payload",
+            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -9142,6 +9158,14 @@ class RuntimeServiceTests(unittest.TestCase):
             self.assertEqual(messages_after_publish[1].payload["public_player_id"], seat.public_player_id)
             self.assertEqual(messages_after_publish[1].payload["seat_id"], seat.seat_id)
             self.assertEqual(messages_after_publish[1].payload["viewer_id"], seat.viewer_id)
+            assert_no_public_identity_numeric_leaks(
+                messages_after_publish[0].payload,
+                boundary="runtime_prompt_message",
+            )
+            assert_no_public_identity_numeric_leaks(
+                messages_after_publish[1].payload,
+                boundary="runtime_decision_requested_event",
+            )
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
