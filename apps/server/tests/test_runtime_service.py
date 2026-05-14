@@ -1313,10 +1313,10 @@ class RuntimeServiceTests(unittest.TestCase):
             fanout.append(_DebugEventStub({"event_type": "turn_start", "acting_player_id": 3}))
 
             self.assertEqual(stream.published_payloads[0]["acting_player_id"], 3)
+            self.assertEqual(stream.published_payloads[0]["acting_legacy_player_id"], 3)
             self.assertEqual(stream.published_payloads[0]["acting_public_player_id"], "player_3")
             self.assertEqual(stream.published_payloads[0]["acting_seat_id"], "seat_3")
             self.assertEqual(stream.published_payloads[0]["acting_viewer_id"], "viewer_3")
-            self.assertNotIn("acting_legacy_player_id", stream.published_payloads[0])
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1356,15 +1356,15 @@ class RuntimeServiceTests(unittest.TestCase):
 
             payload = stream.published_payloads[0]
             self.assertEqual(payload["payer_player_id"], 2)
+            self.assertEqual(payload["payer_legacy_player_id"], 2)
             self.assertEqual(payload["payer_public_player_id"], "player_2")
             self.assertEqual(payload["payer_seat_id"], "seat_2")
             self.assertEqual(payload["payer_viewer_id"], "viewer_2")
-            self.assertNotIn("payer_legacy_player_id", payload)
             self.assertEqual(payload["owner_player_id"], 4)
+            self.assertEqual(payload["owner_legacy_player_id"], 4)
             self.assertEqual(payload["owner_public_player_id"], "player_4")
             self.assertEqual(payload["owner_seat_id"], "seat_4")
             self.assertEqual(payload["owner_viewer_id"], "viewer_4")
-            self.assertNotIn("owner_legacy_player_id", payload)
         finally:
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
@@ -1404,10 +1404,12 @@ class RuntimeServiceTests(unittest.TestCase):
 
             payload = stream.published_payloads[0]
             self.assertEqual(payload["alive_player_ids"], [1, 3])
+            self.assertEqual(payload["alive_legacy_player_ids"], [1, 3])
             self.assertEqual(payload["alive_public_player_ids"], ["player_1", "player_3"])
             self.assertEqual(payload["alive_seat_ids"], ["seat_1", "seat_3"])
             self.assertEqual(payload["alive_viewer_ids"], ["viewer_1", "viewer_3"])
             self.assertEqual(payload["winner_ids"], [2, 4])
+            self.assertEqual(payload["winner_legacy_player_ids"], [2, 4])
             self.assertEqual(payload["winner_public_player_ids"], ["player_2", "player_4"])
             self.assertEqual(payload["winner_seat_ids"], ["seat_2", "seat_4"])
             self.assertEqual(payload["winner_viewer_ids"], ["viewer_2", "viewer_4"])
@@ -1472,16 +1474,19 @@ class RuntimeServiceTests(unittest.TestCase):
 
             board = snapshot["board"]
             self.assertEqual(board["marker_owner_player_id"], 2)
+            self.assertEqual(board["marker_owner_legacy_player_id"], 2)
             self.assertEqual(board["marker_owner_public_player_id"], "player_2")
             self.assertEqual(board["marker_owner_seat_id"], "seat_2")
             self.assertEqual(board["marker_owner_viewer_id"], "viewer_2")
 
             tile = board["tiles"][0]
             self.assertEqual(tile["owner_player_id"], 1)
+            self.assertEqual(tile["owner_legacy_player_id"], 1)
             self.assertEqual(tile["owner_public_player_id"], "player_1")
             self.assertEqual(tile["owner_seat_id"], "seat_1")
             self.assertEqual(tile["owner_viewer_id"], "viewer_1")
             self.assertEqual(tile["pawn_player_ids"], [1, 2])
+            self.assertEqual(tile["pawn_legacy_player_ids"], [1, 2])
             self.assertEqual(tile["pawn_public_player_ids"], ["player_1", "player_2"])
             self.assertEqual(tile["pawn_seat_ids"], ["seat_1", "seat_2"])
             self.assertEqual(tile["pawn_viewer_ids"], ["viewer_1", "viewer_2"])

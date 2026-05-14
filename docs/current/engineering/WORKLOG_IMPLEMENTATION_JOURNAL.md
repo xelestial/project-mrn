@@ -13,6 +13,23 @@ in the active plans, status index, tests, or canonical contract documents.
 
 ## 2026-05-14 Runtime Protocol Identity Continuation
 
+- Runtime fanout and session bootstrap identity helpers now keep explicit
+  prefixed/list legacy companions for protocol player-id fields. Examples:
+  `acting_legacy_player_id`, `owner_legacy_player_id`,
+  `alive_legacy_player_ids`, `marker_owner_legacy_player_id`, and
+  `pawn_legacy_player_ids`. Numeric `*_player_id` aliases still remain for
+  compatibility; this only makes the companion shape complete while public
+  string IDs are additive.
+- Prompt timeout fallback now preserves prompt identity companions through
+  fallback execution history and timeout/resolved event publication. The
+  canonical `request_id` remains the opaque public id, and
+  `legacy_request_id` remains the compatibility/debug alias.
+- `PromptBoundaryBuilder` now attaches prompt protocol identity companions at
+  boundary construction time. Explicit-request prompts and module continuation
+  prompts carry `legacy_request_id`, `public_request_id`, and
+  `public_prompt_instance_id` before they reach prompt persistence or gateway
+  publication; numeric `prompt_instance_id` remains the compatibility lifecycle
+  key.
 - Flipped new `PromptService` prompt storage and command-resume payloads to use
   the opaque public request id as the canonical `request_id`.
 - Legacy semantic request IDs remain as `legacy_request_id` plus bounded
@@ -116,12 +133,18 @@ in the active plans, status index, tests, or canonical contract documents.
   lookup responsibility moved into the prompt service/store alias indexes.
   Bootstrap event construction now owns additive public identity enrichment
   before runtime fanout starts. Runtime fanout still owns post-start view
-  commits, and engine actor indexes remain internal numeric state. Legacy
-  request IDs now remain compatibility inputs rather than the canonical storage
-  key.
+  commits. Both bootstrap and fanout helpers now also own complete
+  prefixed/list legacy companion enrichment; route consumers should not patch
+  those fields after publication. Engine actor indexes remain internal numeric
+  state. Legacy request IDs now remain compatibility inputs rather than the
+  canonical storage key.
 
 Verification:
 
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -k "fanout_event_payload_adds_actor_public_identity_for_acting_player or fanout_event_payload_adds_prefixed_identity_for_related_players or fanout_event_payload_adds_public_identity_lists_for_player_id_lists or fanout_snapshot_payload_adds_public_identity_companions" -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_sessions_api.py -k "start_replay_session_start_includes_initial_active_faces" -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event apps/server/tests/test_stream_api.py::StreamApiTests::test_resume_resends_pending_prompt_created_without_stream_event apps/server/tests/test_stream_api.py::StreamApiTests::test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history -q`
+- `PYTHONPATH=engine ./.venv/bin/python -m pytest apps/server/tests/test_session_service.py apps/server/tests/test_stream_api.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_does_not_derive_batch_id_from_batch_request_id apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_boundary_enrichment_uses_explicit_batch_and_player_for_opaque_request_id -q`
 - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_uses_collected_response apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_decision_resume_from_batch_complete_command_accepts_public_response_map apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_collected_batch_responses_are_applied_before_primary_resume -q`

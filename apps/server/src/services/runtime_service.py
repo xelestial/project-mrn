@@ -984,6 +984,18 @@ class RuntimeService:
             "choice_id": choice_id,
             "executed_at_ms": self._now_ms(),
         }
+        for key in (
+            "legacy_request_id",
+            "public_request_id",
+            "public_prompt_instance_id",
+            "legacy_player_id",
+            "public_player_id",
+            "seat_id",
+            "viewer_id",
+        ):
+            value = prompt_payload.get(key)
+            if value is not None and str(value).strip():
+                record[key] = value
         self._status.setdefault(session_id, {"status": "idle"})
         self._fallback_history.setdefault(session_id, []).append(record)
         self._touch_activity(session_id)
@@ -5442,7 +5454,7 @@ class _FanoutVisEventStream:
             return
         identity_fields = self._identity_fields_for_player(numeric_player_id)
         for name, value in identity_fields.items():
-            if name == "legacy_player_id" and (prefix is not None or not include_legacy):
+            if name == "legacy_player_id" and not include_legacy:
                 continue
             field_name = f"{prefix}_{name}" if prefix else name
             payload.setdefault(field_name, value)
@@ -5457,8 +5469,6 @@ class _FanoutVisEventStream:
                 return
             identity_fields = self._identity_fields_for_player(numeric_player_id)
             for name, value in identity_fields.items():
-                if name == "legacy_player_id":
-                    continue
                 list_name = self._identity_list_field_name(prefix, name)
                 collected.setdefault(list_name, []).append(value)
         for name, values in collected.items():

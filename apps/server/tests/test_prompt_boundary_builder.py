@@ -36,3 +36,31 @@ def test_prompt_boundary_builder_can_replace_existing_prompt_instance_for_bridge
 
     assert builder.current_prompt_sequence() == 9
     assert envelope["prompt_instance_id"] == 9
+
+
+def test_prompt_boundary_builder_adds_public_prompt_identity_companions() -> None:
+    builder = PromptBoundaryBuilder(current_prompt_sequence=4)
+
+    envelope = builder.prepare({"request_id": "s1:r1:t2:p1:movement:5"})
+
+    assert envelope["request_id"] == "s1:r1:t2:p1:movement:5"
+    assert envelope["prompt_instance_id"] == 5
+    assert envelope["legacy_request_id"] == "s1:r1:t2:p1:movement:5"
+    assert envelope["public_request_id"].startswith("req_")
+    assert envelope["public_prompt_instance_id"].startswith("pin_")
+
+
+def test_prompt_boundary_builder_does_not_rewrap_public_request_id() -> None:
+    builder = PromptBoundaryBuilder(current_prompt_sequence=4)
+
+    envelope = builder.prepare(
+        {
+            "request_id": "req_public_1",
+            "legacy_request_id": "s1:r1:t2:p1:movement:5",
+        }
+    )
+
+    assert envelope["request_id"] == "req_public_1"
+    assert envelope["public_request_id"] == "req_public_1"
+    assert envelope["legacy_request_id"] == "s1:r1:t2:p1:movement:5"
+    assert envelope["public_prompt_instance_id"].startswith("pin_")

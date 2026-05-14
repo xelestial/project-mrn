@@ -24,6 +24,7 @@ class PromptTimeoutWorker:
             prompt_payload = dict(pending.payload)
             public_context = prompt_payload.get("public_context", {})
             public_context = public_context if isinstance(public_context, dict) else {}
+            identity_fields = _prompt_timeout_identity_fields(prompt_payload)
             fallback_policy = str(prompt_payload.get("fallback_policy", "timeout_fallback"))
             fallback_result = await self._runtime_service.execute_prompt_fallback(
                 session_id=pending.session_id,
@@ -56,6 +57,7 @@ class PromptTimeoutWorker:
                     player_id=pending.player_id,
                     reason="prompt_timeout",
                     provider="human",
+                    identity_fields=identity_fields,
                 ),
             )
             await self._stream_service.publish(
@@ -70,6 +72,7 @@ class PromptTimeoutWorker:
                     provider="human",
                     round_index=public_context.get("round_index"),
                     turn_index=public_context.get("turn_index"),
+                    identity_fields=identity_fields,
                 ),
             )
             await self._stream_service.publish(
@@ -85,6 +88,7 @@ class PromptTimeoutWorker:
                     provider="human",
                     round_index=public_context.get("round_index"),
                     turn_index=public_context.get("turn_index"),
+                    identity_fields=identity_fields,
                 ),
             )
             results.append(
@@ -113,6 +117,23 @@ class PromptTimeoutWorker:
             runtime_status_lookup=load_status if callable(load_status) else None,
             lease_owner_lookup=lease_owner if callable(lease_owner) else None,
         )
+
+
+def _prompt_timeout_identity_fields(prompt_payload: dict) -> dict:
+    result: dict = {}
+    for key in (
+        "legacy_request_id",
+        "public_request_id",
+        "public_prompt_instance_id",
+        "legacy_player_id",
+        "public_player_id",
+        "seat_id",
+        "viewer_id",
+    ):
+        value = prompt_payload.get(key)
+        if value is not None and str(value).strip():
+            result[key] = value
+    return result
 
 
 def _command_seq(command_ref: dict) -> int | None:

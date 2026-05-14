@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from apps.server.src.domain.protocol_ids import prompt_protocol_identity_fields
 from apps.server.src.domain.prompt_sequence import PromptInstanceSequencer, prepare_prompt_boundary_envelope
 
 
@@ -39,6 +40,7 @@ class PromptBoundaryBuilder:
             active_call=active_call,
             replace_prompt_instance_id=replace_prompt_instance_id,
         )
+        _attach_prompt_protocol_identity(envelope)
         if active_call is not None:
             attach_active_module_continuation_to_envelope(
                 envelope,
@@ -46,6 +48,7 @@ class PromptBoundaryBuilder:
                 stable_request_id_resolver=self._stable_request_id_resolver,
                 ensure_engine_import_path=self._ensure_engine_import_path,
             )
+            _attach_prompt_protocol_identity(envelope)
         return envelope
 
 
@@ -205,6 +208,32 @@ def _active_frame_and_module(state) -> tuple[object | None, object | None]:  # n
             if getattr(module, "module_id", None) == active_module_id:
                 return frame, module
     return None, None
+
+
+def _attach_prompt_protocol_identity(envelope: dict) -> None:
+    request_id = str(envelope.get("request_id") or "").strip()
+    if not request_id:
+        return
+    identity_source = str(envelope.get("legacy_request_id") or request_id).strip()
+    if _looks_like_public_request_id(request_id):
+        envelope.setdefault("public_request_id", request_id)
+        envelope.setdefault("legacy_request_id", identity_source)
+        for key, value in prompt_protocol_identity_fields(
+            request_id=identity_source,
+            prompt_instance_id=envelope.get("prompt_instance_id"),
+        ).items():
+            if key != "public_request_id":
+                envelope.setdefault(key, value)
+        return
+    for key, value in prompt_protocol_identity_fields(
+        request_id=identity_source,
+        prompt_instance_id=envelope.get("prompt_instance_id"),
+    ).items():
+        envelope.setdefault(key, value)
+
+
+def _looks_like_public_request_id(request_id: str) -> bool:
+    return str(request_id or "").strip().startswith("req_")
 
 
 __all__ = ["PromptBoundaryBuilder", "attach_active_module_continuation_to_envelope"]

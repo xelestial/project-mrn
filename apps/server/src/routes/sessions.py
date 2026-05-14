@@ -161,7 +161,9 @@ def _identity_fields_by_player_id(session) -> dict[int, dict]:
     identity_by_player_id: dict[int, dict] = {}
     for fallback_index, seat in enumerate(session.seats, start=1):
         player_id = seat.player_id if isinstance(seat.player_id, int) else fallback_index
-        identity_by_player_id[player_id] = seat_protocol_fields(seat)
+        identity_fields = seat_protocol_fields(seat)
+        identity_fields.setdefault("legacy_player_id", player_id)
+        identity_by_player_id[player_id] = identity_fields
     return identity_by_player_id
 
 
@@ -179,7 +181,7 @@ def _merge_identity_fields(
     if not identity_fields:
         return
     for name, value in identity_fields.items():
-        if name == "legacy_player_id" and (prefix is not None or not include_legacy):
+        if name == "legacy_player_id" and not include_legacy:
             continue
         field_name = f"{prefix}_{name}" if prefix else name
         payload.setdefault(field_name, value)
@@ -210,8 +212,6 @@ def _merge_identity_list_fields(
         if not identity_fields:
             return
         for name, value in identity_fields.items():
-            if name == "legacy_player_id":
-                continue
             collected.setdefault(_identity_list_field_name(prefix, name), []).append(value)
     for name, values in collected.items():
         payload.setdefault(name, values)

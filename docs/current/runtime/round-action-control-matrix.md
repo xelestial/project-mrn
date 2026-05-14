@@ -70,6 +70,12 @@ the prompt. The backend/Redis layer persists this identity; WebSocket forwards
 it; the frontend returns it unchanged. The frontend does not invent request ids
 or resume tokens.
 
+Single-player prompt envelopes must carry `request_id`, `legacy_request_id`,
+`public_request_id`, `public_prompt_instance_id`, `player_id`, `frame_id`,
+`module_id`, `module_type`, and `module_cursor` once the prompt boundary is
+created. `prompt_instance_id` remains a numeric compatibility lifecycle key;
+the opaque `public_prompt_instance_id` is the protocol-facing companion.
+
 | request_type | Frame contract | Owner modules | Resume contract | Structural replay ban |
 | --- | --- | --- | --- | --- |
 | `mark_target` | `TurnFrame` | `CharacterStartModule`, `TargetJudicatorModule` | `PromptContinuation` | must not reopen `CharacterStartModule` |

@@ -338,7 +338,9 @@ class StreamApiTests(unittest.TestCase):
             message = ws.receive_json()
 
         self.assertEqual(message.get("type"), "prompt")
-        self.assertEqual(message.get("payload", {}).get("request_id"), "r_connect_pending_prompt")
+        payload = message.get("payload", {})
+        self.assertTrue(str(payload.get("request_id") or "").startswith("req_"))
+        self.assertEqual(payload.get("legacy_request_id"), "r_connect_pending_prompt")
         lifecycle = state.prompt_service.get_prompt_lifecycle("r_connect_pending_prompt", session_id=session.session_id)
         self.assertIsNotNone(lifecycle)
         assert lifecycle is not None
@@ -374,7 +376,9 @@ class StreamApiTests(unittest.TestCase):
                     break
 
         self.assertEqual(len(prompts), 1)
-        self.assertEqual(prompts[0].get("payload", {}).get("request_id"), "r_resume_pending_prompt")
+        payload = prompts[0].get("payload", {})
+        self.assertTrue(str(payload.get("request_id") or "").startswith("req_"))
+        self.assertEqual(payload.get("legacy_request_id"), "r_resume_pending_prompt")
         lifecycle = state.prompt_service.get_prompt_lifecycle("r_resume_pending_prompt", session_id=session.session_id)
         self.assertIsNotNone(lifecycle)
         assert lifecycle is not None
@@ -1373,7 +1377,10 @@ class StreamApiTests(unittest.TestCase):
         runtime_status = state.runtime_service.runtime_status(session.session_id)
         recent = runtime_status.get("recent_fallbacks", [])
         self.assertGreaterEqual(len(recent), 1)
-        self.assertEqual(recent[-1].get("request_id"), "r_timeout_1")
+        self.assertTrue(str(recent[-1].get("request_id") or "").startswith("req_"))
+        self.assertEqual(recent[-1].get("legacy_request_id"), "r_timeout_1")
+        self.assertEqual(resolved_events[0].get("legacy_request_id"), "r_timeout_1")
+        self.assertEqual(timeout_events[0].get("legacy_request_id"), "r_timeout_1")
 
     def test_resume_returns_latest_view_commit_parameter_manifest_change(self) -> None:
         from apps.server.src import state

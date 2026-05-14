@@ -480,6 +480,9 @@ def test_local_human_prompt_created_inside_module_attaches_active_continuation()
     assert captured["runner_kind"] == "module"
     assert captured["player_id"] == 1
     assert captured["request_id"] == "s1:r1:t2:p1:trick:4"
+    assert captured["legacy_request_id"] == "s1:r1:t2:p1:trick:4"
+    assert captured["public_request_id"].startswith("req_")
+    assert captured["public_prompt_instance_id"].startswith("pin_")
     assert stable_request_input["frame_id"] == "seq:trick:1:p0"
     assert stable_request_input["module_id"] == "mod:trick_sequence:1:p0:choice"
     assert stable_request_input["module_cursor"] == "await_trick_prompt"
