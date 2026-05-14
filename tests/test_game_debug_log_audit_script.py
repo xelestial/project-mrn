@@ -239,6 +239,93 @@ def test_debug_log_audit_reports_known_turn_flow_violations(tmp_path: Path) -> N
     }.issubset(codes)
 
 
+def test_debug_log_audit_groups_duplicate_decisions_by_public_identity(tmp_path: Path) -> None:
+    script = _load_script()
+    run_dir = tmp_path / "20260504-120000-000001-p123"
+    run_dir.mkdir()
+    _write_jsonl(
+        run_dir / "frontend.jsonl",
+        [
+            _row(
+                "frontend",
+                "decision_sent",
+                session_id="sess_1",
+                payload={"request_id": "simultaneous_1", "primary_player_id": "player_public_1", "choice_id": "a"},
+            ),
+            _row(
+                "frontend",
+                "decision_sent",
+                session_id="sess_1",
+                payload={"request_id": "simultaneous_1", "primary_player_id": "player_public_2", "choice_id": "b"},
+            ),
+        ],
+    )
+    _write_jsonl(
+        run_dir / "backend.jsonl",
+        [
+            _row(
+                "backend",
+                "decision_received",
+                session_id="sess_1",
+                request_id="simultaneous_1",
+                primary_player_id="player_public_1",
+                status="accepted",
+            ),
+            _row(
+                "backend",
+                "decision_received",
+                session_id="sess_1",
+                request_id="simultaneous_1",
+                primary_player_id="player_public_2",
+                status="accepted",
+            ),
+        ],
+    )
+
+    report = script.audit_debug_log_run(run_dir)
+
+    assert report["ok"] is True
+    assert report["violations"] == []
+
+
+def test_debug_log_audit_prefers_nested_primary_identity_over_numeric_alias(tmp_path: Path) -> None:
+    script = _load_script()
+    run_dir = tmp_path / "20260504-120000-000001-p123"
+    run_dir.mkdir()
+    _write_jsonl(
+        run_dir / "frontend.jsonl",
+        [
+            _row(
+                "frontend",
+                "decision_sent",
+                session_id="sess_1",
+                payload={
+                    "request_id": "simultaneous_1",
+                    "player_id": 1,
+                    "identity": {"primary_player_id": "player_public_1"},
+                    "choice_id": "a",
+                },
+            ),
+            _row(
+                "frontend",
+                "decision_sent",
+                session_id="sess_1",
+                payload={
+                    "request_id": "simultaneous_1",
+                    "player_id": 1,
+                    "identity": {"primary_player_id": "player_public_2"},
+                    "choice_id": "b",
+                },
+            ),
+        ],
+    )
+
+    report = script.audit_debug_log_run(run_dir)
+
+    assert report["ok"] is True
+    assert report["violations"] == []
+
+
 def test_debug_log_audit_uses_latest_child_run_from_parent(tmp_path: Path) -> None:
     script = _load_script()
     older = tmp_path / "20260504-120000-000001-p123"

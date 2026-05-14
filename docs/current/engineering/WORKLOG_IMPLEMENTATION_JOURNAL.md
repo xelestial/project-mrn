@@ -680,6 +680,10 @@ intentionally remain numeric compatibility surfaces.
 - `HttpDecisionPolicyRequest` now carries top-level `primary_player_id` and
   `primary_player_id_source` while preserving existing numeric `player_id` and
   `legacy_player_id` compatibility fields.
+- `HttpDecisionPolicyRequest.player_id` now carries
+  `player_id_alias_role: "legacy_compatibility_alias"` so external policy
+  readers do not have to infer that top-level numeric `player_id` is a
+  compatibility alias when public identity is present.
 - Numeric-only prompt requests still serialize `primary_player_id: 2` with
   `primary_player_id_source: "legacy"`, making the fallback explicit instead
   of pretending numeric `player_id` is the general primary identity.
@@ -687,7 +691,7 @@ intentionally remain numeric compatibility surfaces.
 Responsibility result: HTTP policy primary identity ownership moved from an
 ambiguous top-level numeric alias to explicit primary identity fields. External
 policy compatibility remains intact because the legacy numeric aliases were not
-removed.
+removed; their role is now labeled in the request.
 
 ## 2026-05-14 Headless Trace Primary Identity
 
@@ -735,6 +739,22 @@ Responsibility result: replay artifact identity moved to explicit primary
 identity fields. Numeric player ids intentionally remain as display/training
 grouping aliases because reward and rank calculations still consume engine-seat
 snapshots.
+
+## 2026-05-14 Debug Log Audit Primary Identity Grouping
+
+- Added debug-log audit coverage for simultaneous public identities that share
+  a request id, including cases where numeric `player_id` is absent and cases
+  where nested `identity.primary_player_id` must beat a top-level numeric alias.
+- `game_debug_log_audit.py` now groups duplicate frontend decisions, backend
+  accepts, and draft-to-final prompt lifecycles with an identity key that
+  prefers `primary_player_id`, public, protocol, viewer, and seat identity
+  before falling back to numeric legacy/display fields.
+- Existing numeric-only debug logs remain supported during the compatibility
+  window.
+
+Responsibility result: human diagnostic grouping moved off the bare numeric
+`player_id` alias. Numeric values remain only as legacy/display fallback labels
+for old logs.
 
 ## 2026-05-12 Runtime Rebuild Baseline
 

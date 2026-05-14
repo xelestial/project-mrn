@@ -878,6 +878,9 @@ Acceptance evidence status, 2026-05-14:
 - Runtime contract schemas for WebSocket outbound decisions, WebSocket inbound prompts, and external-AI
   decision requests accept public string `player_id` with explicit `legacy_player_id`, `public_player_id`,
   `seat_id`, and `viewer_id` companions while preserving existing numeric `player_id` examples.
+- `tests/test_game_debug_log_audit_script.py` verifies debug-log audit duplicate grouping prefers public
+  primary identity when numeric `player_id` is absent or only a legacy top-level alias, so simultaneous
+  public identities that share a request id are not collapsed into one legacy numeric bucket.
 - `apps/server/tests/test_session_service.py` verifies `seat_index` and `player_label` stay aligned with `P1` through `P4`.
 - `apps/server/tests/test_session_service.py::test_new_protocol_identity_fields_never_serialize_numeric_player_ids`
   verifies that `public_player_id`, `seat_id`, and `viewer_id` serialize as string IDs, while numeric
@@ -956,7 +959,8 @@ Acceptance evidence status, 2026-05-14:
   rows preserve public player, seat, viewer, legacy player, and public prompt-instance companions while
   retaining numeric `player_id` and `prompt_instance_id` aliases for existing policy consumers, lifecycle
   bridging, and reward calculation. The HTTP policy request now also includes top-level and nested
-  `primary_player_id` plus `primary_player_id_source`, proving public identity is the primary policy input
+  `primary_player_id` plus `primary_player_id_source`, and labels top-level numeric `player_id` with
+  `player_id_alias_role: "legacy_compatibility_alias"`, proving public identity is the primary policy input
   when present while numeric-only prompts remain explicit legacy fallback. `HeadlessGameClient` policy contexts and compact
   decision/view traces now expose the same primary identity shape so headless policy and artifact consumers
   do not need to treat top-level numeric `player_id` as the public identity. Replay rows, observations,

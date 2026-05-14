@@ -28,6 +28,12 @@ class AuditIssue:
     source: str = ""
 
 
+@dataclass(frozen=True)
+class IdentityKey:
+    key: str
+    label: str
+
+
 def audit_debug_log_run(path: str | Path) -> dict[str, Any]:
     run_dir = resolve_run_dir(path)
     rows, parse_issues = _load_rows(run_dir)
@@ -142,23 +148,28 @@ def _audit_frontend_duplicate_decisions(rows: Iterable[dict[str, Any]]) -> list[
         if row.get("component") != "frontend" or row.get("event") != "decision_sent":
             continue
         payload = _payload(row)
+        identity = _identity_key(payload, row)
         key = (
             str(row.get("session_id") or ""),
-            str(payload.get("player_id") or ""),
+            identity.key,
             str(payload.get("request_id") or ""),
         )
         if key[2]:
             sent_by_request[key].append(row)
     issues: list[AuditIssue] = []
-    for (session_id, player_id, request_id), sent_rows in sent_by_request.items():
+    for (session_id, identity_key, request_id), sent_rows in sent_by_request.items():
         if len(sent_rows) <= 1:
             continue
         choices = sorted({str(_payload(row).get("choice_id") or "") for row in sent_rows})
+        identity = _identity_key(_payload(sent_rows[0]), sent_rows[0])
         issues.append(
             AuditIssue(
                 severity="error",
                 code="frontend_duplicate_decision_sent",
-                message=f"frontend sent request {request_id} {len(sent_rows)} times for P{player_id}; choices={choices}",
+                message=(
+                    f"frontend sent request {request_id} {len(sent_rows)} times for "
+                    f"{identity.label or identity_key}; choices={choices}"
+                ),
                 component="frontend",
                 session_id=session_id,
                 request_id=request_id,
@@ -175,22 +186,27 @@ def _audit_backend_duplicate_accepts(rows: Iterable[dict[str, Any]]) -> list[Aud
             continue
         if str(row.get("status") or "") != "accepted":
             continue
+        identity = _identity_key(row, _payload(row))
         key = (
             str(row.get("session_id") or ""),
-            str(row.get("player_id") or ""),
+            identity.key,
             str(row.get("request_id") or ""),
         )
         if key[2]:
             accepts_by_request[key].append(row)
     issues: list[AuditIssue] = []
-    for (session_id, player_id, request_id), accepted_rows in accepts_by_request.items():
+    for (session_id, identity_key, request_id), accepted_rows in accepts_by_request.items():
         if len(accepted_rows) <= 1:
             continue
+        identity = _identity_key(accepted_rows[0], _payload(accepted_rows[0]))
         issues.append(
             AuditIssue(
                 severity="error",
                 code="backend_duplicate_decision_accept",
-                message=f"backend accepted request {request_id} {len(accepted_rows)} times for P{player_id}",
+                message=(
+                    f"backend accepted request {request_id} {len(accepted_rows)} times for "
+                    f"{identity.label or identity_key}"
+                ),
                 component="backend",
                 session_id=session_id,
                 request_id=request_id,
@@ -209,11 +225,11 @@ def _audit_draft_choice_survives_final_prompt(rows: Iterable[dict[str, Any]]) ->
             continue
         session_id = str(row.get("session_id") or "")
         request_id = str(prompt.get("request_id") or "")
-        player_id = str(prompt.get("player_id") or "")
+        identity = _identity_key(prompt)
         if request_id:
             prompt_by_request[(session_id, request_id)] = prompt
-        if session_id and player_id:
-            prompts_by_session_player[(session_id, player_id)].append(prompt)
+        if session_id and identity.key:
+            prompts_by_session_player[(session_id, identity.key)].append(prompt)
 
     issues: list[AuditIssue] = []
     for row in rows:
@@ -223,11 +239,11 @@ def _audit_draft_choice_survives_final_prompt(rows: Iterable[dict[str, Any]]) ->
         session_id = str(row.get("session_id") or "")
         request_id = str(payload.get("request_id") or "")
         choice_id = str(payload.get("choice_id") or "")
-        player_id = str(payload.get("player_id") or "")
+        identity = _identity_key(payload, row)
         draft_prompt = prompt_by_request.get((session_id, request_id))
         if not draft_prompt or str(draft_prompt.get("request_type") or "") not in DRAFT_REQUEST_TYPES:
             continue
-        final_prompt = _first_final_prompt(prompts_by_session_player.get((session_id, player_id), []), request_id)
+        final_prompt = _first_final_prompt(prompts_by_session_player.get((session_id, identity.key), []), request_id)
         if final_prompt is None:
             continue
         final_choices = _prompt_choice_ids(final_prompt)
@@ -357,6 +373,41 @@ def _frontend_prompt(row: dict[str, Any]) -> dict[str, Any] | None:
 def _payload(row: dict[str, Any]) -> dict[str, Any]:
     payload = row.get("payload")
     return payload if isinstance(payload, dict) else {}
+
+
+def _identity_key(*records: dict[str, Any]) -> IdentityKey:
+    identity_fields = (
+        ("primary_player_id", "primary"),
+        ("public_player_id", "public"),
+        ("protocol_player_id", "protocol"),
+        ("viewer_id", "viewer"),
+        ("seat_id", "seat"),
+        ("legacy_player_id", "legacy"),
+        ("player_id", "legacy/display"),
+        ("seat", "legacy/display"),
+    )
+    for key, source in identity_fields:
+        for record in records:
+            value = _non_empty_identity_value(record.get(key))
+            if value is not None:
+                return IdentityKey(key=f"{source}:{value}", label=f"{source} identity {value}")
+            nested = record.get("identity")
+            if isinstance(nested, dict):
+                value = _non_empty_identity_value(nested.get(key))
+                if value is not None:
+                    return IdentityKey(key=f"{source}:{value}", label=f"{source} identity {value}")
+    return IdentityKey(key="", label="")
+
+
+def _non_empty_identity_value(value: Any) -> str | None:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return None
 
 
 def _request_id(row: dict[str, Any]) -> str:
