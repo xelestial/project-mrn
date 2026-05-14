@@ -1,7 +1,7 @@
 # PLAN Status Index
 
 Status: ACTIVE  
-Updated: 2026-05-13
+Updated: 2026-05-14
 Owner: Engine runtime
 
 ## Purpose
@@ -166,6 +166,10 @@ Those themes should reopen only if a concrete regression or rollout need appears
    `legacy_player_id` in addition to alias role and primary identity metadata,
    and server active prompt view-state now preserves public/protocol top-level
    `player_id` when available instead of forcing it through the numeric bridge.
+   Frontend decision duplicate-flight keys now prefer
+   `publicPromptInstanceId` over the numeric `promptInstanceId` lifecycle alias
+   when no prompt fingerprint is present, while decision payloads still carry
+   the numeric continuation bridge fields required by server runtime resume.
    This narrows but does not remove the compatibility bridge. The current
    local evidence pass includes server identity/lifecycle/outbox tests, frontend
    headless protocol tests, the smoke workflow gate, the live protocol gate,

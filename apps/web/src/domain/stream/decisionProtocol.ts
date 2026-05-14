@@ -40,6 +40,9 @@ export function buildDecisionFlightKey(args: {
   const continuation = args.continuation;
   const promptKey = firstNonEmpty([
     continuation?.promptFingerprint,
+    typeof continuation?.publicPromptInstanceId === "string" && continuation.publicPromptInstanceId.trim()
+      ? `public_prompt_instance:${continuation.publicPromptInstanceId.trim()}`
+      : "",
     typeof continuation?.promptInstanceId === "number" && Number.isFinite(continuation.promptInstanceId)
       ? `prompt_instance:${Math.floor(continuation.promptInstanceId)}`
       : "",

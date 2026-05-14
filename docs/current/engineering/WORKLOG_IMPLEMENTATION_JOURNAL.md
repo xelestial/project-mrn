@@ -49,6 +49,12 @@ in the active plans, status index, tests, or canonical contract documents.
   bridge. `player_id_alias_role` is emitted only for legacy-only numeric
   top-level prompts, so the public prompt target is no longer serialized through
   the numeric active-prompt bridge.
+- Frontend decision duplicate-flight keys now prefer `publicPromptInstanceId`
+  before the numeric `promptInstanceId` lifecycle alias when no prompt
+  fingerprint is present. Decision payloads still send numeric
+  `prompt_instance_id`, `missing_player_ids`, and `resume_tokens_by_player_id`
+  because the server runtime and engine continuation path still consume those
+  explicit bridge fields.
 - `PromptService.submit_decision()` now preserves the same primary identity trio
   from the pending prompt into lifecycle decision records, command payloads, and
   nested command decision payloads. This keeps the command boundary from

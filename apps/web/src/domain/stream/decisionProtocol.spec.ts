@@ -63,6 +63,28 @@ describe("decisionProtocol lifecycle handling", () => {
     });
   });
 
+  it("uses public prompt instance identity before the numeric continuation alias in flight keys", () => {
+    expect(
+      buildDecisionFlightKey({
+        requestId: "req_public_prompt_instance",
+        playerId: "player_public_2",
+        requestType: "purchase",
+        continuation: {
+          promptInstanceId: 17,
+          publicPromptInstanceId: "prompt_public_17",
+          promptFingerprint: null,
+          promptFingerprintVersion: null,
+          resumeToken: "resume-token-17",
+          frameId: "frame-17",
+          moduleId: "module-17",
+          moduleType: "PurchaseModule",
+          moduleCursor: "cursor-17",
+          batchId: "batch-17",
+        },
+      }),
+    ).toBe("player:player_public_2\nprompt:public_prompt_instance:prompt_public_17\naction:purchase");
+  });
+
   it("emits public player identity as protocol player_id while preserving legacy numeric alias", () => {
     expect(
       buildDecisionMessage({
