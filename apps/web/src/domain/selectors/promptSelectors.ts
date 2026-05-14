@@ -43,10 +43,23 @@ export type PromptEffectContextViewModel = {
   resourceDelta: Record<string, unknown> | null;
 };
 
+export type PromptIdentitySource = "public" | "protocol" | "legacy";
+
+export type PromptIdentityViewModel = {
+  primaryPlayerId: ProtocolPlayerId;
+  primaryPlayerIdSource: PromptIdentitySource;
+  protocolPlayerId: ProtocolPlayerId;
+  legacyPlayerId: number | null;
+  publicPlayerId: string | null;
+  seatId: string | null;
+  viewerId: string | null;
+};
+
 export type PromptViewModel = {
   requestId: string;
   requestType: string;
   playerId: number;
+  identity: PromptIdentityViewModel;
   protocolPlayerId?: ProtocolPlayerId;
   legacyPlayerId?: number | null;
   publicPlayerId?: string | null;
@@ -317,6 +330,29 @@ function protocolPlayerIdOrNull(value: unknown): ProtocolPlayerId | null {
     return value.trim();
   }
   return null;
+}
+
+export function promptIdentityFromActivePromptPayload(active: Record<string, unknown>): PromptIdentityViewModel | null {
+  const protocolPlayerId = protocolPlayerIdOrNull(active["player_id"]);
+  const legacyPlayerId = numberOrNull(active["legacy_player_id"]) ?? numberOrNull(active["player_id"]);
+  const publicPlayerId = stringOrEmpty(active["public_player_id"]) || null;
+  const seatId = stringOrEmpty(active["seat_id"]) || null;
+  const viewerId = stringOrEmpty(active["viewer_id"]) || null;
+  const primaryPlayerId = publicPlayerId ?? protocolPlayerId ?? legacyPlayerId;
+  if (primaryPlayerId === null) {
+    return null;
+  }
+  const primaryPlayerIdSource: PromptIdentitySource =
+    publicPlayerId !== null ? "public" : typeof protocolPlayerId === "string" ? "protocol" : "legacy";
+  return {
+    primaryPlayerId,
+    primaryPlayerIdSource,
+    protocolPlayerId: protocolPlayerId ?? primaryPlayerId,
+    legacyPlayerId,
+    publicPlayerId,
+    seatId,
+    viewerId,
+  };
 }
 
 function stringArrayOrNull(value: unknown): string[] | null {
@@ -860,15 +896,14 @@ export function promptViewModelFromActivePromptPayload(active: Record<string, un
   }
   const requestId = active["request_id"];
   const requestType = active["request_type"];
+  const identity = promptIdentityFromActivePromptPayload(active);
   const protocolPlayerId = protocolPlayerIdOrNull(active["player_id"]);
-  const legacyPlayerId = numberOrNull(active["legacy_player_id"]) ?? numberOrNull(active["player_id"]);
-  const publicPlayerId = stringOrEmpty(active["public_player_id"]) || null;
-  const seatId = stringOrEmpty(active["seat_id"]) || null;
-  const viewerId = stringOrEmpty(active["viewer_id"]) || null;
+  const legacyPlayerId = identity?.legacyPlayerId ?? null;
   if (
     typeof requestId !== "string" ||
     !requestId.trim() ||
     typeof requestType !== "string" ||
+    identity === null ||
     protocolPlayerId === null ||
     legacyPlayerId === null
   ) {
@@ -883,11 +918,12 @@ export function promptViewModelFromActivePromptPayload(active: Record<string, un
     requestId,
     requestType,
     playerId: legacyPlayerId,
+    identity,
     protocolPlayerId,
     legacyPlayerId,
-    publicPlayerId,
-    seatId,
-    viewerId,
+    publicPlayerId: identity.publicPlayerId,
+    seatId: identity.seatId,
+    viewerId: identity.viewerId,
     timeoutMs: typeof active["timeout_ms"] === "number" ? active["timeout_ms"] : 30000,
     choices: parseChoices(choicesRaw),
     publicContext: { ...publicContext },

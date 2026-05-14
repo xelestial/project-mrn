@@ -125,6 +125,10 @@ in the active plans, status index, tests, or canonical contract documents.
   `useGameStream` now resolves duplicate-flight keys through public/protocol
   identity when present and falls back to numeric identity only for legacy
   prompts. UI ownership checks still use the numeric active-prompt bridge.
+- `promptSelectors` now exposes an explicit `PromptIdentityViewModel` on
+  `PromptViewModel.identity`. The selector can parse public prompt identity
+  before the UI resolves it to a legacy engine seat, but actionable prompt
+  rendering still requires the numeric `legacy_player_id` bridge.
 - Headless external-policy and replay exports now preserve public player,
   seat, viewer, and legacy player companions. HTTP decision policy requests
   keep numeric `player_id` for existing policy consumers while adding

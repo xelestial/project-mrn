@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InboundMessage, ViewCommitPayload } from "../../core/contracts/stream";
 import {
+  promptIdentityFromActivePromptPayload,
   promptViewModelFromActivePromptPayload,
   selectActivePrompt,
   selectCurrentHandTrayCards,
@@ -451,6 +452,51 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
         "3": "resume_p3",
         "4": "resume_p4",
       },
+    });
+  });
+
+  it("projects public prompt identity separately from the legacy numeric player bridge", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_public_prompt",
+      request_type: "movement",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat:2",
+      viewer_id: "viewer:session:2",
+      choices: [{ choice_id: "roll", title: "Roll" }],
+    });
+
+    expect(prompt?.playerId).toBe(2);
+    expect(prompt?.identity).toEqual({
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: "player_public_2",
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      seatId: "seat:2",
+      viewerId: "viewer:session:2",
+    });
+  });
+
+  it("can parse a public prompt identity even before the UI can resolve its legacy seat bridge", () => {
+    expect(
+      promptIdentityFromActivePromptPayload({
+        request_id: "req_public_only",
+        request_type: "movement",
+        player_id: "player_public_3",
+        public_player_id: "player_public_3",
+        seat_id: "seat:3",
+        viewer_id: "viewer:session:3",
+      }),
+    ).toEqual({
+      primaryPlayerId: "player_public_3",
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: "player_public_3",
+      legacyPlayerId: null,
+      publicPlayerId: "player_public_3",
+      seatId: "seat:3",
+      viewerId: "viewer:session:3",
     });
   });
 
