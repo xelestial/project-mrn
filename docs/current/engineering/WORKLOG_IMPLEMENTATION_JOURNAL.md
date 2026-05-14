@@ -127,14 +127,14 @@ in the active plans, status index, tests, or canonical contract documents.
   prompts.
 - `promptSelectors` now exposes an explicit `PromptIdentityViewModel` on
   `PromptViewModel.identity`. The selector can parse public prompt identity
-  before the UI resolves it to a legacy engine seat, but actionable prompt
-  rendering still requires the numeric `legacy_player_id` bridge.
+  before the UI resolves it to a legacy engine seat; later prompt display work
+  also exposes the same primary identity on `PromptViewModel.primaryPlayerId`.
 - `App.tsx` prompt actionability now compares `LocalViewerIdentity`
   public/protocol/viewer/seat identity against `PromptViewModel.identity`
   before legacy fallback. Queued burden-exchange suppression stays on the
   prompt primary identity helper. The remaining numeric requirement is
-  actionable prompt view-model construction and display/engine-bridge selector
-  input, not the prompt target comparison itself.
+  compatibility output and engine-bridge selector input, not prompt target
+  comparison itself.
 - Headless external-policy and replay exports now preserve public player,
   seat, viewer, and legacy player companions. HTTP decision policy requests
   keep numeric `player_id` for existing policy consumers while adding
@@ -632,13 +632,28 @@ instead of silently dropping it before submit, policy input, or trace export.
 - React decision serialization now uses public/protocol prompt identity first
   and includes `legacy_player_id` only when a numeric bridge is actually
   present.
-- Prompt display strings render `P?` when only public/protocol identity is
-  available, preserving current compact UI instead of pretending a numeric seat
-  exists.
+- Prompt display strings kept their existing numeric `P2` output, while the
+  later prompt-overlay migration made public/protocol identity visible instead
+  of rendering `P?` solely because a numeric seat bridge is absent.
 
 Responsibility result: actionable prompt construction moved off the numeric
 legacy seat bridge. Numeric `PromptViewModel.playerId` intentionally remains as
 display/headless compatibility data until those remaining consumers are migrated.
+
+## 2026-05-14 Prompt Overlay Primary Identity Display
+
+- Added selector coverage for `PromptViewModel.primaryPlayerId` and
+  `primaryPlayerIdSource` on a public-only prompt with no numeric
+  `legacy_player_id`.
+- `PromptOverlay` now feeds header metadata from `prompt.primaryPlayerId`
+  instead of the legacy top-level numeric `prompt.playerId` alias.
+- Prompt i18n metadata helpers now accept `ProtocolPlayerId | null`, preserving
+  existing `P2` numeric labels while allowing public/protocol string identity
+  to be displayed when no legacy seat bridge exists.
+
+Responsibility result: prompt header display ownership moved off
+`PromptViewModel.playerId`. Numeric `playerId` remains only as the legacy
+display/engine bridge for consumers that still need engine-seat numbers.
 
 ## 2026-05-14 Headless Prompt Routing Identity
 

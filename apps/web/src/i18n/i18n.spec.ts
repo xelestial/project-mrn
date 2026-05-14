@@ -27,6 +27,14 @@ describe("i18n registry", () => {
       "Limit 30s",
       "18s left",
     ]);
+    expect(LOCALES.ko.prompt.requestCompactMetaPills("player_public_5", 18)).toEqual([
+      "player_public_5",
+      "남은 18초",
+    ]);
+    expect(LOCALES.en.prompt.requestCompactMetaPills("player_public_5", 18)).toEqual([
+      "player_public_5",
+      "18s left",
+    ]);
   });
 
   it("restores stored locale values and falls back to default", () => {

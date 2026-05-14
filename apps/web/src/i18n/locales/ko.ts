@@ -1,3 +1,12 @@
+import type { ProtocolPlayerId } from "../../core/contracts/stream";
+
+function promptPlayerLabel(playerId: ProtocolPlayerId | null): string {
+  if (playerId === null) {
+    return "P?";
+  }
+  return typeof playerId === "number" ? `P${playerId}` : playerId;
+}
+
 export const koLocale = {
   app: {
     title: "MRN",
@@ -783,17 +792,17 @@ export const koLocale = {
     collapse: "접기",
     expand: "펼치기",
     secondaryChoiceBadge: "보조 선택",
-    requestMetaPills: (playerId: number | null, timeoutMs: number, secondsLeft: number | null) => [
-      `행동자 ${playerId === null ? "P?" : `P${playerId}`}`,
+    requestMetaPills: (playerId: ProtocolPlayerId | null, timeoutMs: number, secondsLeft: number | null) => [
+      `행동자 ${promptPlayerLabel(playerId)}`,
       `제한 ${Math.ceil(timeoutMs / 1000)}초`,
       `남은 시간 ${secondsLeft ?? "-"}초`,
     ],
-    requestCompactMetaPills: (playerId: number | null, secondsLeft: number | null) => [
-      playerId === null ? "P?" : `P${playerId}`,
+    requestCompactMetaPills: (playerId: ProtocolPlayerId | null, secondsLeft: number | null) => [
+      promptPlayerLabel(playerId),
       `남은 ${secondsLeft ?? "-"}초`,
     ],
-    requestMeta: (requestId: string, playerId: number | null, timeoutMs: number, secondsLeft: number | null) =>
-      `요청 ID ${requestId} / 행동자 ${playerId === null ? "P?" : `P${playerId}`} / 제한 시간 ${Math.ceil(timeoutMs / 1000)}초 / 남은 시간 ${secondsLeft ?? "-"}초`,
+    requestMeta: (requestId: string, playerId: ProtocolPlayerId | null, timeoutMs: number, secondsLeft: number | null) =>
+      `요청 ID ${requestId} / 행동자 ${promptPlayerLabel(playerId)} / 제한 시간 ${Math.ceil(timeoutMs / 1000)}초 / 남은 시간 ${secondsLeft ?? "-"}초`,
     context: {
       currentPosition: "현재 위치",
       usableCards: "사용 가능 카드",

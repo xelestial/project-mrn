@@ -531,6 +531,21 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual(["roll"]);
   });
 
+  it("exposes the primary prompt player for display without a legacy numeric bridge", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_public_display",
+      request_type: "movement",
+      player_id: "player_public_5",
+      public_player_id: "player_public_5",
+      choices: [{ choice_id: "roll", title: "Roll" }],
+    });
+
+    expect(prompt).not.toBeNull();
+    expect(prompt?.playerId).toBeNull();
+    expect(prompt?.primaryPlayerId).toBe("player_public_5");
+    expect(prompt?.primaryPlayerIdSource).toBe("public");
+  });
+
   it("checks prompt ownership through explicit identity instead of the top-level legacy player alias", () => {
     const prompt = promptViewModelFromActivePromptPayload({
       request_id: "req_public_prompt_owner",

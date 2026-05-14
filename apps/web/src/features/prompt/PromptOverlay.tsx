@@ -1198,7 +1198,7 @@ export function PromptOverlay({
     secondsLeft !== null && prompt.timeoutMs > 0
       ? Math.max(0, Math.min(100, (secondsLeft * 1000 * 100) / prompt.timeoutMs))
       : null;
-  const headMetaPills = promptText.requestCompactMetaPills(prompt.playerId, secondsLeft).slice(0, 2);
+  const headMetaPills = promptText.requestCompactMetaPills(prompt.primaryPlayerId, secondsLeft).slice(0, 2);
   const effectAttribution = effectContext ? effectAttributionLabel(effectContext, promptText) : null;
   const effectDeltaChips = effectContext ? buildPromptEffectResourceDeltaChips(effectContext, locale) : [];
   const effectSourceChips = effectContext ? buildPromptEffectSourceChips(effectContext, locale) : [];

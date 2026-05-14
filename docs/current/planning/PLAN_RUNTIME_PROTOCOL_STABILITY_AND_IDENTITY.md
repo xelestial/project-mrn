@@ -203,7 +203,10 @@ legacy numeric aliases. The local React viewer state now uses an explicit
 resolving the numeric value only as the remaining display selector/engine bridge. The web prompt selector,
 frontend decision protocol, headless HTTP policy input, and compact headless decision trace now also
 preserve `public_prompt_instance_id` alongside the numeric `prompt_instance_id`; the numeric value
-remains the lifecycle bridge. Headless active/raw prompt routing now compares latest
+remains only a legacy lifecycle alias. Prompt overlay header metadata now consumes
+`PromptViewModel.primaryPlayerId`, so public-only prompts no longer render as unknown actor solely because
+the numeric legacy seat bridge is absent.
+Headless active/raw prompt routing now compares latest
 `view_commit.viewer` identity against `PromptViewModel.identity` through the shared prompt selector
 helper, with numeric seat fallback limited to legacy-only prompts.
 
@@ -900,10 +903,13 @@ Acceptance evidence status, 2026-05-14:
   protocol `player_id` and build duplicate-flight keys from public identity without requiring a numeric
   legacy bridge; numeric-only prompt decisions remain supported as the legacy fallback.
 - `apps/web/src/domain/selectors/promptSelectors.spec.ts` verifies that prompt selection projects public
-  prompt identity into `PromptViewModel.identity.primaryPlayerId` and can build an actionable prompt view
-  model before the UI can resolve that identity to a legacy engine seat. It also verifies that rendered UI
+  prompt identity into `PromptViewModel.identity.primaryPlayerId` and top-level
+  `PromptViewModel.primaryPlayerId`, and can build an actionable prompt view model before the UI can
+  resolve that identity to a legacy engine seat. It also verifies that rendered UI
   ownership/queued target helpers read `PromptViewModel.identity` instead of the top-level legacy
   `PromptViewModel.playerId` alias.
+- `apps/web/src/i18n/i18n.spec.ts` verifies that prompt metadata labels accept public/protocol string
+  player identity while preserving the existing numeric `P2` display.
 - `apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event`,
   `test_resume_resends_pending_prompt_created_without_stream_event`, and
   `test_prompt_timeout_emits_fallback_execution_and_runtime_tracks_history` verify that repaired pending prompt

@@ -1,3 +1,12 @@
+import type { ProtocolPlayerId } from "../../core/contracts/stream";
+
+function promptPlayerLabel(playerId: ProtocolPlayerId | null): string {
+  if (playerId === null) {
+    return "P?";
+  }
+  return typeof playerId === "number" ? `P${playerId}` : playerId;
+}
+
 export const enLocale = {
   app: {
     title: "MRN",
@@ -778,17 +787,17 @@ export const enLocale = {
     collapse: "Collapse",
     expand: "Expand",
     secondaryChoiceBadge: "Secondary",
-    requestMetaPills: (playerId: number | null, timeoutMs: number, secondsLeft: number | null) => [
-      `Actor ${playerId === null ? "P?" : `P${playerId}`}`,
+    requestMetaPills: (playerId: ProtocolPlayerId | null, timeoutMs: number, secondsLeft: number | null) => [
+      `Actor ${promptPlayerLabel(playerId)}`,
       `Limit ${Math.ceil(timeoutMs / 1000)}s`,
       `${secondsLeft ?? "-"}s left`,
     ],
-    requestCompactMetaPills: (playerId: number | null, secondsLeft: number | null) => [
-      playerId === null ? "P?" : `P${playerId}`,
+    requestCompactMetaPills: (playerId: ProtocolPlayerId | null, secondsLeft: number | null) => [
+      promptPlayerLabel(playerId),
       `${secondsLeft ?? "-"}s left`,
     ],
-    requestMeta: (_requestId: string, playerId: number | null, timeoutMs: number, secondsLeft: number | null) =>
-      `Actor ${playerId === null ? "P?" : `P${playerId}`} / limit ${Math.ceil(timeoutMs / 1000)}s / ${secondsLeft ?? "-"}s left`,
+    requestMeta: (_requestId: string, playerId: ProtocolPlayerId | null, timeoutMs: number, secondsLeft: number | null) =>
+      `Actor ${promptPlayerLabel(playerId)} / limit ${Math.ceil(timeoutMs / 1000)}s / ${secondsLeft ?? "-"}s left`,
     context: {
       currentPosition: "Current position",
       usableCards: "Usable cards",

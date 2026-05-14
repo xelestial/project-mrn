@@ -60,6 +60,8 @@ export type PromptViewModel = {
   requestType: string;
   playerId: number | null;
   identity: PromptIdentityViewModel;
+  primaryPlayerId: ProtocolPlayerId;
+  primaryPlayerIdSource: PromptIdentitySource;
   protocolPlayerId?: ProtocolPlayerId;
   legacyPlayerId?: number | null;
   publicPlayerId?: string | null;
@@ -997,6 +999,8 @@ export function promptViewModelFromActivePromptPayload(active: Record<string, un
     requestType,
     playerId: legacyPlayerId,
     identity,
+    primaryPlayerId: identity.primaryPlayerId,
+    primaryPlayerIdSource: identity.primaryPlayerIdSource,
     protocolPlayerId,
     legacyPlayerId,
     publicPlayerId: identity.publicPlayerId,
