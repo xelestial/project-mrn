@@ -24,11 +24,25 @@ in the active plans, status index, tests, or canonical contract documents.
   `player_id` plus explicit `legacy_player_id`, `public_player_id`, `seat_id`,
   and `viewer_id` companions. Existing numeric `player_id` examples remain
   valid; this only removes the schema-level integer-only blocker.
+- WebSocket outbound decision construction now exposes `primary_player_id` and
+  `primary_player_id_source`, and labels a top-level numeric `player_id` as
+  `player_id_alias_role: "legacy_compatibility_alias"`. Public/protocol
+  `player_id` values remain primary protocol identities, while numeric-only
+  decisions are explicitly marked as the legacy fallback path.
+- `PromptService.create_prompt()` and server active prompt view-state now emit
+  `primary_player_id`, `primary_player_id_source`, and label numeric top-level
+  `player_id` as `player_id_alias_role: "legacy_compatibility_alias"`. The
+  frontend prompt selector consumes those explicit primary fields first, then
+  keeps the existing public/protocol/legacy fallback path for mixed migration
+  payloads.
 - The external-AI full-stack smoke adapter now preserves pending prompt
   `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the
   worker request and callback body while keeping numeric `player_id` as the
-  compatibility alias.
+  compatibility alias. It also emits `primary_player_id`,
+  `primary_player_id_source`, and
+  `player_id_alias_role: "legacy_compatibility_alias"` so external worker
+  requests expose the preferred identity without guessing from the numeric alias.
 - The Redis restart decision smoke adapter now accepts replay prompts whose
   protocol `player_id` is public as long as `legacy_player_id` or another
   numeric bridge is present, and decision payload construction preserves the

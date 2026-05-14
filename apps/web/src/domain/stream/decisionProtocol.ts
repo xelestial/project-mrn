@@ -145,6 +145,35 @@ function decisionFlightPlayerKey(playerId: ProtocolPlayerId): string {
   return "unknown";
 }
 
+type PrimaryPlayerIdentity = {
+  playerId: ProtocolPlayerId;
+  source: "public" | "protocol" | "legacy";
+};
+
+function primaryPlayerIdentity(args: {
+  playerId: ProtocolPlayerId;
+  legacyPlayerId: number | null;
+  publicPlayerId: string | null;
+}): PrimaryPlayerIdentity {
+  if (args.publicPlayerId) {
+    return { playerId: args.publicPlayerId, source: "public" };
+  }
+  if (typeof args.playerId === "string" && args.playerId.trim()) {
+    return { playerId: args.playerId.trim(), source: "protocol" };
+  }
+  return {
+    playerId: args.legacyPlayerId ?? numericProtocolPlayerId(args.playerId) ?? args.playerId,
+    source: "legacy",
+  };
+}
+
+function numericProtocolPlayerId(playerId: ProtocolPlayerId): number | null {
+  if (typeof playerId === "number" && Number.isFinite(playerId)) {
+    return Math.floor(playerId);
+  }
+  return null;
+}
+
 export function buildDecisionMessage(args: {
   requestId: string;
   playerId: ProtocolPlayerId;
@@ -164,6 +193,12 @@ export function buildDecisionMessage(args: {
       ? Math.floor(args.legacyPlayerId)
       : null;
   const publicPlayerId = optionalString(args.publicPlayerId);
+  const primaryPlayer = primaryPlayerIdentity({
+    playerId: args.playerId,
+    legacyPlayerId,
+    publicPlayerId,
+  });
+  const topLevelPlayerIdIsLegacyAlias = numericProtocolPlayerId(args.playerId) !== null;
   const seatId = optionalString(args.seatId);
   const viewerId = optionalString(args.viewerId);
   const publicPromptInstanceId = optionalString(continuation?.publicPromptInstanceId);
@@ -171,6 +206,9 @@ export function buildDecisionMessage(args: {
     type: "decision",
     request_id: args.requestId,
     player_id: args.playerId,
+    ...(topLevelPlayerIdIsLegacyAlias ? { player_id_alias_role: "legacy_compatibility_alias" as const } : {}),
+    primary_player_id: primaryPlayer.playerId,
+    primary_player_id_source: primaryPlayer.source,
     ...(legacyPlayerId !== null ? { legacy_player_id: legacyPlayerId } : {}),
     ...(publicPlayerId ? { public_player_id: publicPlayerId } : {}),
     ...(seatId ? { seat_id: seatId } : {}),

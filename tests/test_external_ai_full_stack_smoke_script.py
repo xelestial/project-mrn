@@ -41,6 +41,9 @@ def test_worker_request_from_pending_prompt_uses_external_ai_contract_fields() -
         "session_id": "sess_1",
         "seat": 1,
         "player_id": 10,
+        "player_id_alias_role": "legacy_compatibility_alias",
+        "primary_player_id": 10,
+        "primary_player_id_source": "legacy",
         "decision_name": "choose_movement",
         "request_type": "movement",
         "fallback_policy": "ai",
@@ -77,6 +80,9 @@ def test_worker_request_preserves_protocol_identity_companions() -> None:
 
     assert request["request_id"] == "req_public_1"
     assert request["player_id"] == 10
+    assert request["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert request["primary_player_id"] == "player_public_10"
+    assert request["primary_player_id_source"] == "public"
     assert request["legacy_request_id"] == "ai_req_1"
     assert request["public_request_id"] == "req_public_1"
     assert request["public_prompt_instance_id"] == "ppi_public_1"
@@ -105,6 +111,9 @@ def test_callback_payload_preserves_fingerprint_and_worker_choice_payload() -> N
     assert callback == {
         "request_id": "ai_req_1",
         "player_id": 10,
+        "player_id_alias_role": "legacy_compatibility_alias",
+        "primary_player_id": 10,
+        "primary_player_id_source": "legacy",
         "choice_id": "dice",
         "choice_payload": {"source": "worker"},
         "prompt_fingerprint": "pf_123",
@@ -137,6 +146,9 @@ def test_callback_payload_preserves_protocol_identity_companions() -> None:
     assert callback == {
         "request_id": "req_public_1",
         "player_id": 10,
+        "player_id_alias_role": "legacy_compatibility_alias",
+        "primary_player_id": "player_public_10",
+        "primary_player_id_source": "public",
         "choice_id": "dice",
         "choice_payload": {"source": "worker"},
         "prompt_fingerprint": "pf_123",

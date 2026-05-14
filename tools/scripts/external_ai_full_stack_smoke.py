@@ -102,6 +102,37 @@ def _copy_identity_companions(target: dict[str, Any], source: dict[str, Any]) ->
         target[field] = str(value).strip() if isinstance(value, str) else value
 
 
+def _numeric_legacy_player_id(source: dict[str, Any]) -> int:
+    for field in ("legacy_player_id", "player_id"):
+        value = source.get(field)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+    return 0
+
+
+def _primary_player_identity(source: dict[str, Any]) -> tuple[Any, str]:
+    public_player_id = source.get("public_player_id")
+    if isinstance(public_player_id, str) and public_player_id.strip():
+        return public_player_id.strip(), "public"
+
+    player_id = source.get("player_id")
+    if isinstance(player_id, str) and player_id.strip() and not player_id.strip().isdigit():
+        return player_id.strip(), "protocol"
+
+    return _numeric_legacy_player_id(source), "legacy"
+
+
+def _add_player_identity_metadata(target: dict[str, Any], source: dict[str, Any]) -> None:
+    primary_player_id, primary_player_id_source = _primary_player_identity(source)
+    target["player_id_alias_role"] = "legacy_compatibility_alias"
+    target["primary_player_id"] = primary_player_id
+    target["primary_player_id_source"] = primary_player_id_source
+
+
 def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_seat: int) -> dict[str, Any]:
     legal_choices = pending.get("legal_choices")
     if not isinstance(legal_choices, list) or not legal_choices:
@@ -113,7 +144,7 @@ def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_sea
         "request_id": str(pending.get("request_id") or "").strip(),
         "session_id": str(pending.get("session_id") or "").strip(),
         "seat": int(pending.get("seat") or fallback_seat),
-        "player_id": int(pending.get("player_id") or 0),
+        "player_id": _numeric_legacy_player_id(pending),
         "decision_name": str(pending.get("decision_name") or request_type or "external_ai_decision").strip(),
         "request_type": request_type,
         "fallback_policy": str(pending.get("fallback_policy") or "ai").strip(),
@@ -123,6 +154,7 @@ def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_sea
         "worker_contract_version": str(pending.get("worker_contract_version") or "v1").strip(),
         "required_capabilities": list(required_capabilities) if isinstance(required_capabilities, list) else [],
     }
+    _add_player_identity_metadata(request, pending)
     _copy_identity_companions(request, pending)
     return request
 
@@ -136,7 +168,7 @@ def _callback_payload_from_prompt_and_worker_response(
         raise RuntimeError(f"worker response missing choice_id: {json.dumps(worker_response, ensure_ascii=False)}")
     callback: dict[str, Any] = {
         "request_id": str(pending.get("request_id") or "").strip(),
-        "player_id": int(pending.get("player_id") or 0),
+        "player_id": _numeric_legacy_player_id(pending),
         "choice_id": choice_id,
         "choice_payload": worker_response.get("choice_payload") if isinstance(worker_response.get("choice_payload"), dict) else {},
     }
@@ -144,6 +176,7 @@ def _callback_payload_from_prompt_and_worker_response(
         value = pending.get(field)
         if value is not None:
             callback[field] = value
+    _add_player_identity_metadata(callback, pending)
     _copy_identity_companions(callback, pending)
     return callback
 

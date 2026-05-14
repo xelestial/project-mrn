@@ -342,6 +342,9 @@ class StreamApiTests(unittest.TestCase):
         payload = message.get("payload", {})
         self.assertTrue(str(payload.get("request_id") or "").startswith("req_"))
         self.assertEqual(payload.get("legacy_request_id"), "r_connect_pending_prompt")
+        self.assertEqual(payload.get("primary_player_id"), 1)
+        self.assertEqual(payload.get("primary_player_id_source"), "legacy")
+        self.assertEqual(payload.get("player_id_alias_role"), "legacy_compatibility_alias")
         lifecycle = state.prompt_service.get_prompt_lifecycle("r_connect_pending_prompt", session_id=session.session_id)
         self.assertIsNotNone(lifecycle)
         assert lifecycle is not None

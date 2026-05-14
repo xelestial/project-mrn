@@ -57,6 +57,9 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
                     "request_id": "req_turn7_move",
                     "request_type": "movement",
                     "player_id": 1,
+                    "player_id_alias_role": "legacy_compatibility_alias",
+                    "primary_player_id": 1,
+                    "primary_player_id_source": "legacy",
                     "timeout_ms": 30000,
                     "choices": [
                         {
@@ -184,6 +187,9 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         self.assertEqual(active["public_player_id"], "ply_1")
         self.assertEqual(active["seat_id"], "seat_1")
         self.assertEqual(active["viewer_id"], "view_1")
+        self.assertEqual(active["primary_player_id"], "ply_1")
+        self.assertEqual(active["primary_player_id_source"], "public")
+        self.assertEqual(active["player_id_alias_role"], "legacy_compatibility_alias")
         self.assertEqual(active["runner_kind"], "module")
         self.assertEqual(active["prompt_instance_id"], 42)
         self.assertEqual(active["public_prompt_instance_id"], "pin_move_42")
@@ -201,6 +207,31 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         self.assertEqual(active["resume_tokens_by_public_player_id"], {"ply_1": "tok_p1", "ply_3": "tok_p3"})
         self.assertEqual(active["resume_tokens_by_seat_id"], {"seat_1": "tok_p1", "seat_3": "tok_p3"})
         self.assertEqual(active["resume_tokens_by_viewer_id"], {"view_1": "tok_p1", "view_3": "tok_p3"})
+
+    def test_build_prompt_view_state_marks_numeric_player_id_as_legacy_primary_fallback(self) -> None:
+        view_state = build_prompt_view_state(
+            [
+                {
+                    "type": "prompt",
+                    "seq": 1,
+                    "session_id": "s1",
+                    "server_time_ms": 1,
+                    "payload": {
+                        "request_id": "req_legacy_move",
+                        "request_type": "movement",
+                        "player_id": 2,
+                        "timeout_ms": 30000,
+                        "legal_choices": [{"choice_id": "roll", "title": "Roll"}],
+                        "public_context": {},
+                    },
+                }
+            ]
+        )
+
+        active = view_state["active"]
+        self.assertEqual(active["primary_player_id"], 2)
+        self.assertEqual(active["primary_player_id_source"], "legacy")
+        self.assertEqual(active["player_id_alias_role"], "legacy_compatibility_alias")
 
     def test_build_prompt_view_state_projects_effect_context(self) -> None:
         view_state = build_prompt_view_state(

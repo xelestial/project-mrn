@@ -72,6 +72,7 @@ class PromptService:
             if not request_id:
                 raise ValueError("missing_request_id")
             _ensure_prompt_protocol_identity(prompt, request_id=request_id)
+            _ensure_prompt_primary_player_identity(prompt)
             canonical_request_id = str(prompt.get("public_request_id") or request_id).strip()
             prompt["legacy_request_id"] = str(prompt.get("legacy_request_id") or request_id).strip()
             prompt["request_id"] = canonical_request_id
@@ -1422,6 +1423,32 @@ def _ensure_prompt_protocol_identity(prompt: dict, *, request_id: str) -> None:
         prompt_instance_id=prompt.get("prompt_instance_id"),
     ).items():
         prompt.setdefault(key, value)
+
+
+def _ensure_prompt_primary_player_identity(prompt: dict) -> None:
+    player_id = prompt.get("player_id")
+    public_player_id = str(prompt.get("public_player_id") or "").strip()
+    legacy_player_id = _int_or_none(prompt.get("legacy_player_id"))
+    if legacy_player_id is None:
+        legacy_player_id = _int_or_none(player_id)
+
+    if _int_or_none(player_id) is not None:
+        prompt.setdefault("player_id_alias_role", "legacy_compatibility_alias")
+
+    if str(prompt.get("primary_player_id") or "").strip() and str(prompt.get("primary_player_id_source") or "").strip():
+        return
+
+    if public_player_id:
+        prompt.setdefault("primary_player_id", public_player_id)
+        prompt.setdefault("primary_player_id_source", "public")
+        return
+    if isinstance(player_id, str) and player_id.strip() and _int_or_none(player_id) is None:
+        prompt.setdefault("primary_player_id", player_id.strip())
+        prompt.setdefault("primary_player_id_source", "protocol")
+        return
+    if legacy_player_id is not None:
+        prompt.setdefault("primary_player_id", legacy_player_id)
+        prompt.setdefault("primary_player_id_source", "legacy")
 
 
 def _looks_like_public_request_id(request_id: str) -> bool:

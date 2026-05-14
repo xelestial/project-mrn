@@ -106,6 +106,9 @@ export type OutboundMessage =
       type: "decision";
       request_id: string;
       player_id: ProtocolPlayerId;
+      player_id_alias_role?: "legacy_compatibility_alias";
+      primary_player_id?: ProtocolPlayerId;
+      primary_player_id_source?: "public" | "protocol" | "legacy";
       legacy_player_id?: number;
       public_player_id?: string;
       seat_id?: string;

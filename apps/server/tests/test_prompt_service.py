@@ -160,6 +160,9 @@ class PromptServiceTests(unittest.TestCase):
         self.assertTrue(pending.request_id.startswith("req_"))
         self.assertTrue(str(pending.payload["public_prompt_instance_id"]).startswith("pin_"))
         self.assertNotEqual(pending.request_id, legacy_request_id)
+        self.assertEqual(pending.payload["primary_player_id"], 1)
+        self.assertEqual(pending.payload["primary_player_id_source"], "legacy")
+        self.assertEqual(pending.payload["player_id_alias_role"], "legacy_compatibility_alias")
 
         result = self.service.submit_decision(
             {
@@ -521,7 +524,7 @@ class PromptServiceTests(unittest.TestCase):
     def test_decision_command_carries_prompt_player_identity_fields(self) -> None:
         command_store = CapturingCommandStore()
         service = PromptService(command_store=command_store)
-        service.create_prompt(
+        pending = service.create_prompt(
             "s1",
             {
                 "request_id": "r_public_player_identity",
@@ -535,6 +538,9 @@ class PromptServiceTests(unittest.TestCase):
                 "legal_choices": [{"choice_id": "roll"}],
             },
         )
+        self.assertEqual(pending.payload["primary_player_id"], "ply_1")
+        self.assertEqual(pending.payload["primary_player_id_source"], "public")
+        self.assertEqual(pending.payload["player_id_alias_role"], "legacy_compatibility_alias")
 
         result = service.submit_decision(
             {"session_id": "s1", "request_id": "r_public_player_identity", "player_id": 1, "choice_id": "roll"}

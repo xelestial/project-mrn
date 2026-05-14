@@ -504,6 +504,30 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     });
   });
 
+  it("prefers explicit prompt primary identity metadata over the top-level legacy player alias", () => {
+    expect(
+      promptIdentityFromActivePromptPayload({
+        request_id: "req_explicit_primary",
+        request_type: "movement",
+        player_id: 2,
+        player_id_alias_role: "legacy_compatibility_alias",
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        legacy_player_id: 2,
+        seat_id: "seat:2",
+        viewer_id: "viewer:session:2",
+      }),
+    ).toEqual({
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      protocolPlayerId: 2,
+      legacyPlayerId: 2,
+      publicPlayerId: null,
+      seatId: "seat:2",
+      viewerId: "viewer:session:2",
+    });
+  });
+
   it("builds a prompt view model from public identity before resolving the legacy seat bridge", () => {
     const prompt = promptViewModelFromActivePromptPayload({
       request_id: "req_public_only",

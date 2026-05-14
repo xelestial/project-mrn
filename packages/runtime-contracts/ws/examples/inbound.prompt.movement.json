@@ -7,6 +7,9 @@
     "request_id": "req_turn7_move",
     "request_type": "movement",
     "player_id": 1,
+    "player_id_alias_role": "legacy_compatibility_alias",
+    "primary_player_id": 1,
+    "primary_player_id_source": "legacy",
     "timeout_ms": 30000,
     "fallback_policy": "auto_roll_dice",
     "legal_choices": [
@@ -32,6 +35,9 @@
           "request_id": "req_turn7_move",
           "request_type": "movement",
           "player_id": 1,
+          "player_id_alias_role": "legacy_compatibility_alias",
+          "primary_player_id": 1,
+          "primary_player_id_source": "legacy",
           "timeout_ms": 30000,
           "choices": [
             {

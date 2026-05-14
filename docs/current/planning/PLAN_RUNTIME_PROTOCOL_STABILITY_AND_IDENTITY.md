@@ -878,6 +878,14 @@ Acceptance evidence status, 2026-05-14:
 - Runtime contract schemas for WebSocket outbound decisions, WebSocket inbound prompts, and external-AI
   decision requests accept public string `player_id` with explicit `legacy_player_id`, `public_player_id`,
   `seat_id`, and `viewer_id` companions while preserving existing numeric `player_id` examples.
+  WebSocket outbound decision examples and frontend decision construction now also expose
+  `primary_player_id` plus `primary_player_id_source`, and label top-level numeric `player_id`
+  with `player_id_alias_role: "legacy_compatibility_alias"`. `PromptService.create_prompt()`,
+  server active prompt view-state, and the WebSocket inbound prompt schema/example now expose the
+  same primary identity fields, and the frontend prompt selector consumes them before falling back
+  to public/protocol/legacy derivation.
+  External-AI request examples expose the same primary identity fields so external workers do not
+  have to infer primary identity from the numeric compatibility alias.
 - `tests/test_game_debug_log_audit_script.py` verifies debug-log audit duplicate grouping prefers public
   primary identity when numeric `player_id` is absent or only a legacy top-level alias, so simultaneous
   public identities that share a request id are not collapsed into one legacy numeric bucket.
@@ -899,9 +907,10 @@ Acceptance evidence status, 2026-05-14:
   the ack payload. The ack payload also runs through `assert_no_public_identity_numeric_leaks()`.
 - `apps/web/src/domain/stream/decisionProtocol.spec.ts` and
   `apps/web/src/headless/HeadlessGameClient.spec.ts` verify that frontend/headless decision construction can
-  send a public string `player_id` with explicit `legacy_player_id`, `public_player_id`, `seat_id`, and
-  `viewer_id`, and `public_prompt_instance_id` companions while preserving the existing numeric-only
-  decision path and numeric prompt lifecycle alias.
+  send a public string `player_id` with explicit `primary_player_id`, `primary_player_id_source`,
+  `legacy_player_id`, `public_player_id`, `seat_id`, `viewer_id`, and `public_prompt_instance_id`
+  companions while preserving the existing numeric-only decision path, marking top-level numeric
+  `player_id` as a legacy compatibility alias, and keeping the numeric prompt lifecycle alias.
 - `apps/web/src/hooks/useGameStream.spec.ts` verifies that rendered UI decision submission can use a public
   protocol `player_id` and build duplicate-flight keys from public identity without requiring a numeric
   legacy bridge; numeric-only prompt decisions remain supported as the legacy fallback.

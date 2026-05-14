@@ -342,6 +342,10 @@ function protocolPlayerIdOrNull(value: unknown): ProtocolPlayerId | null {
   return null;
 }
 
+function promptIdentitySourceOrNull(value: unknown): PromptIdentitySource | null {
+  return value === "public" || value === "protocol" || value === "legacy" ? value : null;
+}
+
 function comparableLegacyPlayerId(value: unknown): number | null {
   const normalized = numberOrNull(value);
   return normalized !== null ? Math.floor(normalized) : null;
@@ -375,12 +379,20 @@ export function promptIdentityFromActivePromptPayload(active: Record<string, unk
   const publicPlayerId = stringOrEmpty(active["public_player_id"]) || null;
   const seatId = stringOrEmpty(active["seat_id"]) || null;
   const viewerId = stringOrEmpty(active["viewer_id"]) || null;
-  const primaryPlayerId = publicPlayerId ?? protocolPlayerId ?? legacyPlayerId;
+  const explicitPrimaryPlayerId = protocolPlayerIdOrNull(active["primary_player_id"]);
+  const primaryPlayerId = explicitPrimaryPlayerId ?? publicPlayerId ?? protocolPlayerId ?? legacyPlayerId;
   if (primaryPlayerId === null) {
     return null;
   }
+  const explicitPrimaryPlayerIdSource = promptIdentitySourceOrNull(active["primary_player_id_source"]);
   const primaryPlayerIdSource: PromptIdentitySource =
-    publicPlayerId !== null ? "public" : typeof protocolPlayerId === "string" ? "protocol" : "legacy";
+    explicitPrimaryPlayerId !== null && explicitPrimaryPlayerIdSource !== null
+      ? explicitPrimaryPlayerIdSource
+      : publicPlayerId !== null
+        ? "public"
+        : typeof protocolPlayerId === "string"
+          ? "protocol"
+          : "legacy";
   return {
     primaryPlayerId,
     primaryPlayerIdSource,

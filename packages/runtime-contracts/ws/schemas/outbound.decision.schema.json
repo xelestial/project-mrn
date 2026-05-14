@@ -23,6 +23,19 @@
       "minimum": 1,
       "minLength": 1
     },
+    "player_id_alias_role": {
+      "type": "string",
+      "enum": ["legacy_compatibility_alias"]
+    },
+    "primary_player_id": {
+      "type": ["integer", "string"],
+      "minimum": 1,
+      "minLength": 1
+    },
+    "primary_player_id_source": {
+      "type": "string",
+      "enum": ["public", "protocol", "legacy"]
+    },
     "legacy_player_id": {
       "type": "integer",
       "minimum": 1

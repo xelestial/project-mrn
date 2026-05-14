@@ -55,6 +55,19 @@ def _number(value: Any) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _active_prompt_primary_identity(active_prompt: dict[str, Any]) -> tuple[int | str, str, bool] | None:
+    player_id = active_prompt.get("player_id")
+    public_player_id = _string(active_prompt.get("public_player_id"))
+    legacy_player_id = _number(active_prompt.get("legacy_player_id")) or _number(player_id)
+    if public_player_id:
+        return public_player_id, "public", _number(player_id) is not None
+    if isinstance(player_id, str) and player_id.strip():
+        return player_id.strip(), "protocol", False
+    if legacy_player_id is not None:
+        return legacy_player_id, "legacy", True
+    return None
+
+
 def _secondary_choice(choice_id: str, item: dict[str, Any]) -> bool:
     priority = item.get("priority")
     return item.get("secondary") is True or priority in {"secondary", "passive"} or choice_id in {"none", "no"}
@@ -790,6 +803,13 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
             "behavior": _prompt_behavior(active_prompt, public_context),
             "surface": _prompt_surface(active_prompt, public_context),
         }
+        primary_identity = _active_prompt_primary_identity(active_prompt)
+        if primary_identity is not None:
+            primary_player_id, primary_player_id_source, player_id_is_legacy_alias = primary_identity
+            active["primary_player_id"] = primary_player_id
+            active["primary_player_id_source"] = primary_player_id_source
+            if player_id_is_legacy_alias:
+                active["player_id_alias_role"] = "legacy_compatibility_alias"
         for field in (
             "legacy_request_id",
             "public_request_id",

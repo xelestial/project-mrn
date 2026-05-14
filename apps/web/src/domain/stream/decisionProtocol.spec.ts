@@ -80,12 +80,36 @@ describe("decisionProtocol lifecycle handling", () => {
       type: "decision",
       request_id: "req_public_player",
       player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
       legacy_player_id: 2,
       public_player_id: "player_public_2",
       seat_id: "seat_2",
       viewer_id: "viewer_2",
       choice_id: "roll",
       choice_payload: undefined,
+      view_commit_seq_seen: 12,
+      client_seq: 13,
+    });
+  });
+
+  it("labels a numeric protocol player_id as the legacy compatibility alias", () => {
+    expect(
+      buildDecisionMessage({
+        requestId: "req_legacy_player",
+        playerId: 2,
+        choiceId: "roll",
+        viewCommitSeqSeen: 12,
+        clientSeq: 13,
+      }),
+    ).toMatchObject({
+      type: "decision",
+      request_id: "req_legacy_player",
+      player_id: 2,
+      player_id_alias_role: "legacy_compatibility_alias",
+      primary_player_id: 2,
+      primary_player_id_source: "legacy",
+      choice_id: "roll",
       view_commit_seq_seen: 12,
       client_seq: 13,
     });
