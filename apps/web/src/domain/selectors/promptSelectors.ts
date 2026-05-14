@@ -610,11 +610,60 @@ function hasCompleteModuleContinuation(raw: Record<string, unknown>): boolean {
   if (!isBatchPrompt) {
     return true;
   }
+  const hasCompleteNumericBridge = hasCompleteBatchContinuationPair(
+    raw,
+    "missing_player_ids",
+    "resume_tokens_by_player_id",
+    "number",
+  );
+  const hasCompletePublicCompanion = hasCompleteBatchContinuationPair(
+    raw,
+    "missing_public_player_ids",
+    "resume_tokens_by_public_player_id",
+    "string",
+  );
+  const hasCompleteSeatCompanion = hasCompleteBatchContinuationPair(
+    raw,
+    "missing_seat_ids",
+    "resume_tokens_by_seat_id",
+    "string",
+  );
+  const hasCompleteViewerCompanion = hasCompleteBatchContinuationPair(
+    raw,
+    "missing_viewer_ids",
+    "resume_tokens_by_viewer_id",
+    "string",
+  );
   return (
     stringOrEmpty(raw["batch_id"]).length > 0 &&
-    Array.isArray(raw["missing_player_ids"]) &&
-    isRecord(raw["resume_tokens_by_player_id"])
+    (hasCompleteNumericBridge ||
+      hasCompletePublicCompanion ||
+      hasCompleteSeatCompanion ||
+      hasCompleteViewerCompanion)
   );
+}
+
+function hasCompleteBatchContinuationPair(
+  raw: Record<string, unknown>,
+  missingKey: string,
+  tokenKey: string,
+  idKind: "number" | "string",
+): boolean {
+  const missingIds = raw[missingKey];
+  const tokens = raw[tokenKey];
+  if (!Array.isArray(missingIds) || !isRecord(tokens)) {
+    return false;
+  }
+  if (missingIds.length === 0 || Object.keys(tokens).length === 0) {
+    return false;
+  }
+  return missingIds.every((item) => {
+    const id =
+      idKind === "number"
+        ? numberOrNull(item)?.toString()
+        : stringOrEmpty(item);
+    return Boolean(id && stringOrEmpty(tokens[id]).length > 0);
+  });
 }
 
 function parsePromptSurface(raw: unknown, requestType: string, publicContext: Record<string, unknown>, choicesRaw: unknown) {

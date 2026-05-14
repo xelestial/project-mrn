@@ -218,6 +218,12 @@ being tolerated only through open-ended `additionalProperties`.
   `PromptViewModel.identity`. The selector can parse public prompt identity
   before the UI resolves it to a legacy engine seat; later prompt display work
   also exposes the same primary identity on `PromptViewModel.primaryPlayerId`.
+- `promptSelectors` batch module-continuation completeness is now companion-aware.
+  A complete public-player, seat, or viewer missing/resume map is enough to
+  construct the batch prompt view model even when numeric continuation maps are
+  absent from the selector input. Numeric continuation maps remain parsed as the
+  engine bridge, and server runtime remains responsible for materializing that
+  bridge before `PromptService` and semantic guard validation.
 - `App.tsx` prompt actionability now compares `LocalViewerIdentity`
   public/protocol/viewer/seat identity against `PromptViewModel.identity`
   before legacy fallback. Queued burden-exchange suppression stays on the

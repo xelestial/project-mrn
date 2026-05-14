@@ -170,7 +170,11 @@ Those themes should reopen only if a concrete regression or rollout need appears
    `publicPromptInstanceId` over the numeric `promptInstanceId` lifecycle alias
    when no prompt fingerprint is present, while decision payloads still carry
    the numeric continuation bridge fields required by server runtime resume.
-   This narrows but does not remove the compatibility bridge. The current
+   Prompt selector batch-continuation completeness now accepts complete
+   public-player, seat, or viewer companion maps without requiring numeric
+   continuation maps in the selector input. Server runtime still materializes
+   the numeric bridge before `PromptService` and semantic guard validation, so
+   this narrows but does not remove the compatibility bridge. The current
    local evidence pass includes server identity/lifecycle/outbox tests, frontend
    headless protocol tests, the smoke workflow gate, the live protocol gate,
    bounded UI full-game progress, and the full-stack live RL smoke artifact at

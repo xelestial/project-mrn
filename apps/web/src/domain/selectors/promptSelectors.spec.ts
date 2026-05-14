@@ -417,6 +417,41 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     });
   });
 
+  it("accepts public batch continuation companions without exposing numeric continuation maps", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_public_batch_complete",
+      request_type: "burden_exchange",
+      player_id: "player_public_3",
+      public_player_id: "player_public_3",
+      legacy_player_id: 3,
+      runner_kind: "module",
+      resume_token: "resume_p3",
+      frame_id: "simul:resupply:1:92",
+      module_id: "mod:resupply:1",
+      module_type: "ResupplyModule",
+      module_cursor: "await_resupply_batch:4",
+      batch_id: "resupply:1",
+      missing_public_player_ids: ["player_public_1", "player_public_3"],
+      resume_tokens_by_public_player_id: {
+        player_public_1: "resume_p1",
+        player_public_3: "resume_p3",
+      },
+      legal_choices: [{ choice_id: "no", title: "교환 안 함", secondary: true }],
+    });
+
+    expect(prompt).not.toBeNull();
+    expect(prompt?.continuation).toMatchObject({
+      batchId: "resupply:1",
+      missingPublicPlayerIds: ["player_public_1", "player_public_3"],
+      resumeTokensByPublicPlayerId: {
+        player_public_1: "resume_p1",
+        player_public_3: "resume_p3",
+      },
+    });
+    expect(prompt?.continuation.missingPlayerIds).toBeUndefined();
+    expect(prompt?.continuation.resumeTokensByPlayerId).toBeUndefined();
+  });
+
   it("parses a raw prompt payload with the same active-prompt contract for headless clients", () => {
     const prompt = promptViewModelFromActivePromptPayload({
       request_id: "batch:simul:resupply:1:95:mod:simul:resupply:1:95:resupply:1:p2",
