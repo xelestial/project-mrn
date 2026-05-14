@@ -692,7 +692,11 @@ intentionally remain numeric compatibility surfaces.
 ## 2026-05-14 HTTP Decision Policy Primary Identity
 
 - Added HTTP policy request coverage that fails when public primary player
-  identity is only available inside the nested `identity` object.
+  identity is already resolved on `HeadlessDecisionContext.identity` but prompt
+  fields are stale or legacy-only.
+- `buildHttpDecisionPolicyRequest()` now consumes
+  `HeadlessDecisionContext.identity` directly instead of reinterpreting
+  `PromptViewModel` fields in a second helper.
 - `HttpDecisionPolicyRequest` now carries top-level `primary_player_id` and
   `primary_player_id_source` while preserving existing numeric `player_id` and
   `legacy_player_id` compatibility fields.
@@ -704,10 +708,10 @@ intentionally remain numeric compatibility surfaces.
   `primary_player_id_source: "legacy"`, making the fallback explicit instead
   of pretending numeric `player_id` is the general primary identity.
 
-Responsibility result: HTTP policy primary identity ownership moved from an
-ambiguous top-level numeric alias to explicit primary identity fields. External
-policy compatibility remains intact because the legacy numeric aliases were not
-removed; their role is now labeled in the request.
+Responsibility result: HTTP policy primary identity ownership moved from local
+prompt reinterpretation to the already-resolved headless decision context.
+External policy compatibility remains intact because the legacy numeric aliases
+were not removed; their role is still labeled in the request.
 
 ## 2026-05-14 Headless Trace Primary Identity
 

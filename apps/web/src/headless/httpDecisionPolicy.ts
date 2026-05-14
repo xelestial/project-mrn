@@ -102,7 +102,7 @@ export function createHttpDecisionPolicy(options: HttpDecisionPolicyOptions): De
 
 export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext): HttpDecisionPolicyRequest {
   const runtime = context.latestCommit?.runtime;
-  const identity = decisionPolicyIdentity(context);
+  const identity = context.identity;
   return {
     protocol_version: 1,
     session_id: context.sessionId,
@@ -141,39 +141,6 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     },
     legal_choices: context.legalChoices.map(compactLegalChoice),
     player_summary: compactPolicyPlayerSummary(context.latestCommit, context.playerId),
-  };
-}
-
-function decisionPolicyIdentity(context: HeadlessDecisionContext): {
-  protocolPlayerId: ProtocolPlayerId;
-  primaryPlayerId: ProtocolPlayerId;
-  primaryPlayerIdSource: "public" | "protocol" | "legacy";
-  legacyPlayerId: number;
-  publicPlayerId: string | null;
-  seatId: string | null;
-  viewerId: string | null;
-} {
-  const legacyPlayerId =
-    typeof context.prompt.legacyPlayerId === "number" && Number.isFinite(context.prompt.legacyPlayerId)
-      ? Math.floor(context.prompt.legacyPlayerId)
-      : Math.floor(context.playerId);
-  const publicPlayerId = stringValue(context.prompt.publicPlayerId);
-  const protocolPlayerId = publicPlayerId ?? context.prompt.protocolPlayerId ?? legacyPlayerId;
-  const primaryPlayerId = publicPlayerId ?? context.prompt.protocolPlayerId ?? legacyPlayerId;
-  const primaryPlayerIdSource =
-    publicPlayerId !== null
-      ? "public"
-      : typeof context.prompt.protocolPlayerId === "string"
-        ? "protocol"
-        : "legacy";
-  return {
-    protocolPlayerId,
-    primaryPlayerId,
-    primaryPlayerIdSource,
-    legacyPlayerId,
-    publicPlayerId,
-    seatId: stringValue(context.prompt.seatId),
-    viewerId: stringValue(context.prompt.viewerId),
   };
 }
 

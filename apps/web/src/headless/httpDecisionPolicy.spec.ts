@@ -210,6 +210,15 @@ describe("httpDecisionPolicy", () => {
     const baseContext = context();
     const request = buildHttpDecisionPolicyRequest({
       ...baseContext,
+      identity: {
+        primaryPlayerId: 2,
+        primaryPlayerIdSource: "legacy",
+        protocolPlayerId: 2,
+        legacyPlayerId: 2,
+        publicPlayerId: null,
+        seatId: null,
+        viewerId: null,
+      },
       prompt: {
         ...baseContext.prompt,
         identity: {
@@ -250,6 +259,52 @@ describe("httpDecisionPolicy", () => {
         public_player_id: null,
         seat_id: null,
         viewer_id: null,
+      },
+    });
+  });
+
+  it("uses the context decision identity instead of reinterpreting stale prompt identity fields", () => {
+    const baseContext = context();
+    const request = buildHttpDecisionPolicyRequest({
+      ...baseContext,
+      prompt: {
+        ...baseContext.prompt,
+        identity: {
+          primaryPlayerId: 2,
+          primaryPlayerIdSource: "legacy",
+          protocolPlayerId: 2,
+          legacyPlayerId: 2,
+          publicPlayerId: null,
+          seatId: null,
+          viewerId: null,
+        },
+        primaryPlayerId: 2,
+        primaryPlayerIdSource: "legacy",
+        protocolPlayerId: 2,
+        legacyPlayerId: 2,
+        publicPlayerId: null,
+        seatId: null,
+        viewerId: null,
+      },
+      legalChoices: baseContext.prompt.choices,
+    });
+
+    expect(request).toMatchObject({
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      protocol_player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_public_2",
+      viewer_id: "viewer_public_2",
+      identity: {
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
       },
     });
   });
