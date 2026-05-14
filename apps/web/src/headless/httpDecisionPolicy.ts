@@ -29,6 +29,7 @@ export type HttpDecisionPolicyRequest = {
     request_id: string;
     request_type: string;
     prompt_instance_id: number | null;
+    public_prompt_instance_id: string | null;
     module_type: string | null;
     public_context: Record<string, unknown>;
   };
@@ -110,6 +111,7 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
       request_id: context.prompt.requestId,
       request_type: context.prompt.requestType,
       prompt_instance_id: context.prompt.continuation.promptInstanceId,
+      public_prompt_instance_id: stringValue(context.prompt.continuation.publicPromptInstanceId),
       module_type: context.prompt.continuation.moduleType,
       public_context: { ...context.prompt.publicContext },
     },

@@ -113,6 +113,7 @@ export type OutboundMessage =
       choice_id: string;
       choice_payload?: Record<string, unknown>;
       prompt_instance_id?: number;
+      public_prompt_instance_id?: string;
       prompt_fingerprint?: string;
       prompt_fingerprint_version?: string;
       resume_token?: string;

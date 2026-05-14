@@ -188,7 +188,9 @@ move to the string public identity contract. 2026-05-14 frontend/headless progre
 `player_id` only when a numeric `legacy_player_id` is also present for the engine/seat bridge.
 The React UI `sendDecision` path now extracts the same protocol identity companions from the
 active prompt before serialization, while keeping numeric UI ownership and duplicate-flight checks
-on the legacy player bridge.
+on the legacy player bridge. The web prompt selector, frontend decision protocol, headless HTTP
+policy input, and compact headless decision trace now also preserve `public_prompt_instance_id`
+alongside the numeric `prompt_instance_id`; the numeric value remains the lifecycle bridge.
 
 ## Problem 2. Numeric Sequences Are Doing Too Much
 
@@ -865,7 +867,8 @@ Acceptance evidence status, 2026-05-14:
 - `apps/web/src/domain/stream/decisionProtocol.spec.ts` and
   `apps/web/src/headless/HeadlessGameClient.spec.ts` verify that frontend/headless decision construction can
   send a public string `player_id` with explicit `legacy_player_id`, `public_player_id`, `seat_id`, and
-  `viewer_id` companions while preserving the existing numeric-only decision path.
+  `viewer_id`, and `public_prompt_instance_id` companions while preserving the existing numeric-only
+  decision path and numeric prompt lifecycle alias.
 - `apps/web/src/hooks/useGameStream.spec.ts` verifies that rendered UI decision submission can use a public
   protocol `player_id` while resolving the duplicate-flight key through the numeric legacy player bridge.
 - `apps/server/tests/test_stream_api.py::StreamApiTests::test_connect_resends_pending_prompt_to_matching_seat_without_stream_event`,
@@ -902,8 +905,9 @@ Acceptance evidence status, 2026-05-14:
   `legacy_request_id`, `public_request_id`, and `public_prompt_instance_id` for compatibility and debugging.
 - `apps/web/src/headless/httpDecisionPolicy.spec.ts`, `protocolReplay.spec.ts`, and
   `HeadlessGameClient.spec.ts` verify that headless external policy input, compact trace payloads, and replay
-  rows preserve public player, seat, viewer, and legacy player companions while retaining numeric `player_id`
-  for existing policy consumers and reward calculation.
+  rows preserve public player, seat, viewer, legacy player, and public prompt-instance companions while
+  retaining numeric `player_id` and `prompt_instance_id` aliases for existing policy consumers, lifecycle
+  bridging, and reward calculation.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`
   and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_instance_from_resume_does_not_parse_legacy_request_id`
   verify that prompt sequence recovery and bridge advancement no longer parse legacy request-id suffixes when

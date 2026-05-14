@@ -156,6 +156,7 @@ export function buildDecisionMessage(args: {
   const publicPlayerId = optionalString(args.publicPlayerId);
   const seatId = optionalString(args.seatId);
   const viewerId = optionalString(args.viewerId);
+  const publicPromptInstanceId = optionalString(continuation?.publicPromptInstanceId);
   return {
     type: "decision",
     request_id: args.requestId,
@@ -193,6 +194,7 @@ export function buildDecisionMessage(args: {
     continuation.promptInstanceId >= 0
       ? { prompt_instance_id: continuation.promptInstanceId }
       : {}),
+    ...(publicPromptInstanceId ? { public_prompt_instance_id: publicPromptInstanceId } : {}),
     ...(continuation?.promptFingerprint ? { prompt_fingerprint: continuation.promptFingerprint } : {}),
     ...(continuation?.promptFingerprintVersion
       ? { prompt_fingerprint_version: continuation.promptFingerprintVersion }

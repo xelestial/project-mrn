@@ -102,6 +102,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
             module_cursor: "mark:await_target",
             batch_id: "batch_1",
             prompt_instance_id: 17,
+            public_prompt_instance_id: "prompt_public_mark_17",
             prompt_fingerprint: "sha256:mark-17",
             prompt_fingerprint_version: "prompt-fingerprint-v1",
             choices: [
@@ -180,6 +181,7 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(prompt?.choices.map((choice) => choice.choiceId)).toEqual(["target_p1", "none"]);
     expect(prompt?.continuation).toEqual({
       promptInstanceId: 17,
+      publicPromptInstanceId: "prompt_public_mark_17",
       promptFingerprint: "sha256:mark-17",
       promptFingerprintVersion: "prompt-fingerprint-v1",
       resumeToken: "resume_1",

@@ -90,4 +90,41 @@ describe("decisionProtocol lifecycle handling", () => {
       client_seq: 13,
     });
   });
+
+  it("emits public prompt instance identity while preserving the legacy numeric alias", () => {
+    expect(
+      buildDecisionMessage({
+        requestId: "req_public_prompt",
+        playerId: "player_public_2",
+        legacyPlayerId: 2,
+        publicPlayerId: "player_public_2",
+        choiceId: "roll",
+        continuation: {
+          promptInstanceId: 17,
+          publicPromptInstanceId: "prompt_public_17",
+          promptFingerprint: "sha256:prompt-17",
+          promptFingerprintVersion: "prompt-fingerprint-v1",
+          resumeToken: "resume:req_public_prompt",
+          frameId: "frame:2",
+          moduleId: "module:2",
+          moduleType: "PromptModule",
+          moduleCursor: "await_choice",
+          batchId: null,
+        },
+        viewCommitSeqSeen: 12,
+        clientSeq: 13,
+      }),
+    ).toMatchObject({
+      type: "decision",
+      request_id: "req_public_prompt",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      prompt_instance_id: 17,
+      public_prompt_instance_id: "prompt_public_17",
+      prompt_fingerprint: "sha256:prompt-17",
+      view_commit_seq_seen: 12,
+      client_seq: 13,
+    });
+  });
 });

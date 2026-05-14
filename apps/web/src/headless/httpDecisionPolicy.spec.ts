@@ -79,6 +79,7 @@ function context(): HeadlessDecisionContext {
       publicContext: {},
       continuation: {
         promptInstanceId: 7,
+        publicPromptInstanceId: "prompt_public_buy_7",
         promptFingerprint: null,
         promptFingerprintVersion: null,
         resumeToken: "resume:req_buy",
@@ -151,6 +152,8 @@ describe("httpDecisionPolicy", () => {
       prompt: {
         request_id: "req_buy",
         request_type: "purchase_tile",
+        prompt_instance_id: 7,
+        public_prompt_instance_id: "prompt_public_buy_7",
         public_context: {},
       },
       player_summary: {

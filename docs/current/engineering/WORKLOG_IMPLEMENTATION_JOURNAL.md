@@ -527,6 +527,23 @@ requires non-local endpoint URLs, auth, and platform-filled Redis commands.
 Protocol-plan responsibility also became explicit: completed additive/debug
 foundations are separated from residual identity and outbox migration work.
 
+## 2026-05-14 Frontend Prompt Instance Companion Preservation
+
+- Added frontend/headless coverage that fails when `public_prompt_instance_id`
+  is dropped after the server prompt boundary creates it.
+- `promptViewModelFromActivePromptPayload()` now maps
+  `public_prompt_instance_id` into the prompt continuation view model.
+- `buildDecisionMessage()` serializes `public_prompt_instance_id` together
+  with the numeric `prompt_instance_id`.
+- Headless HTTP policy requests and compact decision trace payloads preserve
+  the same public prompt-instance companion for external policy debugging and
+  artifact inspection.
+
+Responsibility result: no prompt lifecycle ownership moved. The numeric
+`prompt_instance_id` remains the compatibility lifecycle bridge, and the web
+decision boundary now owns preserving the already-created public companion
+instead of silently dropping it before submit, policy input, or trace export.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

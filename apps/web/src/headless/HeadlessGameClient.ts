@@ -1295,6 +1295,7 @@ function compactPromptDecisionTracePayload(
     round_index: latestCommit?.runtime.round_index ?? null,
     turn_index: latestCommit?.runtime.turn_index ?? null,
     prompt_instance_id: prompt.continuation.promptInstanceId,
+    public_prompt_instance_id: prompt.continuation.publicPromptInstanceId ?? null,
     frame_id: prompt.continuation.frameId,
     module_id: prompt.continuation.moduleId,
     module_type: prompt.continuation.moduleType,

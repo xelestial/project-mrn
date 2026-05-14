@@ -18,6 +18,7 @@ function viewCommitMessage(args: {
   legacyPlayerId?: number;
   seatId?: string;
   viewerId?: string;
+  publicPromptInstanceId?: string;
   publicContext?: Record<string, unknown>;
   viewState?: Record<string, unknown>;
   choices?: Array<{
@@ -71,6 +72,7 @@ function viewCommitMessage(args: {
             timeout_ms: 30000,
             runner_kind: "module",
             prompt_instance_id: 17,
+            ...(args.publicPromptInstanceId ? { public_prompt_instance_id: args.publicPromptInstanceId } : {}),
             resume_token: `resume:${args.requestId}`,
             frame_id: `frame:${args.playerId}`,
             module_id: `module:${args.playerId}`,
@@ -169,6 +171,7 @@ describe("HeadlessGameClient", () => {
         commitSeq: 10,
         requestId: "req_purchase_10",
         playerId: 2,
+        publicPromptInstanceId: "prompt_public_purchase_17",
         choicePayload: { tile_index: 5, buy: true },
       }),
     );
@@ -181,6 +184,7 @@ describe("HeadlessGameClient", () => {
       choice_id: "buy",
       choice_payload: { tile_index: 5, buy: true },
       prompt_instance_id: 17,
+      public_prompt_instance_id: "prompt_public_purchase_17",
       resume_token: "resume:req_purchase_10",
       frame_id: "frame:2",
       module_id: "module:2",
@@ -188,6 +192,10 @@ describe("HeadlessGameClient", () => {
       module_cursor: "await_choice",
       view_commit_seq_seen: 10,
       client_seq: 10,
+    });
+    expect(client.trace.find((event) => event.event === "decision_sent")?.payload).toMatchObject({
+      prompt_instance_id: 17,
+      public_prompt_instance_id: "prompt_public_purchase_17",
     });
     expect(client.metrics.outboundDecisionCount).toBe(1);
     expect(client.metrics.illegalActionCount).toBe(0);
