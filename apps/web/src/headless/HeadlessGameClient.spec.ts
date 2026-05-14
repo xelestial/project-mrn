@@ -370,14 +370,14 @@ describe("HeadlessGameClient", () => {
     expect(outbound[0]).toMatchObject({
       type: "decision",
       request_id: "req_explicit_primary_15",
-      player_id: 2,
-      player_id_alias_role: "legacy_compatibility_alias",
+      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       legacy_player_id: 2,
       choice_id: "buy",
       choice_payload: { tile_index: 10, buy: true },
     });
+    expect(outbound[0]).not.toHaveProperty("player_id_alias_role");
     expect(client.trace.find((event) => event.event === "decision_sent")).toMatchObject({
       player_id: 2,
       primary_player_id: "player_public_2",

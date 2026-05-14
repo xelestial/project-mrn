@@ -116,12 +116,38 @@ describe("decisionProtocol lifecycle handling", () => {
   });
 
   it("prefers explicit primary player identity over a numeric top-level alias", () => {
+    const message = buildDecisionMessage({
+      requestId: "req_explicit_primary",
+      playerId: 2,
+      primaryPlayerId: "player_public_2",
+      primaryPlayerIdSource: "public",
+      legacyPlayerId: 2,
+      choiceId: "roll",
+      viewCommitSeqSeen: 12,
+      clientSeq: 13,
+    });
+
+    expect(message).toMatchObject({
+      type: "decision",
+      request_id: "req_explicit_primary",
+      player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      legacy_player_id: 2,
+      choice_id: "roll",
+      view_commit_seq_seen: 12,
+      client_seq: 13,
+    });
+    expect(message).not.toHaveProperty("player_id_alias_role");
+  });
+
+  it("keeps explicit numeric primary identity as a legacy alias", () => {
     expect(
       buildDecisionMessage({
-        requestId: "req_explicit_primary",
+        requestId: "req_explicit_numeric_primary",
         playerId: 2,
-        primaryPlayerId: "player_public_2",
-        primaryPlayerIdSource: "public",
+        primaryPlayerId: 2,
+        primaryPlayerIdSource: "legacy",
         legacyPlayerId: 2,
         choiceId: "roll",
         viewCommitSeqSeen: 12,
@@ -129,11 +155,11 @@ describe("decisionProtocol lifecycle handling", () => {
       }),
     ).toMatchObject({
       type: "decision",
-      request_id: "req_explicit_primary",
+      request_id: "req_explicit_numeric_primary",
       player_id: 2,
       player_id_alias_role: "legacy_compatibility_alias",
-      primary_player_id: "player_public_2",
-      primary_player_id_source: "public",
+      primary_player_id: 2,
+      primary_player_id_source: "legacy",
       legacy_player_id: 2,
       choice_id: "roll",
       view_commit_seq_seen: 12,

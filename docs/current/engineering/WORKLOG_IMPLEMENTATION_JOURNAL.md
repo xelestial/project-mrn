@@ -762,7 +762,9 @@ legacy numeric fallback is still labeled in the request.
   numeric alias.
 - Numeric top-level `player_id` remains as the compatibility alias, but the
   decision now also carries `legacy_player_id` when the primary identity is not
-  legacy so receivers do not have to infer the bridge from the alias.
+  legacy so receivers do not have to infer the bridge from the alias. A later
+  submitted-decision step moved the actual outbound top-level `player_id` off
+  this numeric alias when the explicit primary identity is public/protocol.
 - Decision trace top-level identity fields now use the prompt identity for
   decision events, while the generic trace default still uses the latest viewer
   identity for non-prompt events.
@@ -882,6 +884,26 @@ instead of forcing the smoke adapter to down-convert to a numeric alias.
 Responsibility result: restart-smoke decision submission moved off the numeric
 top-level alias when public/protocol identity exists. Numeric identity remains
 only as replay lookup and legacy-only compatibility input.
+
+## 2026-05-14 Headless Submitted Decision Public Identity
+
+- Added decision-protocol and headless coverage that fails when an active prompt
+  still carries numeric top-level `player_id` but also carries explicit public
+  `primary_player_id`, and the outbound decision still submits the numeric
+  alias.
+- `buildDecisionMessage()` now chooses the submitted top-level `player_id` from
+  explicit public/protocol `primaryPlayerId` before falling back to the legacy
+  active-prompt `playerId`.
+- Legacy-only decisions still submit numeric `player_id` and label it with
+  `player_id_alias_role: "legacy_compatibility_alias"`.
+- `HeadlessGameClient` keeps numeric trace `player_id` as the local seat/debug
+  key, while the WebSocket decision payload itself now uses the public submitted
+  identity in the mixed migration case.
+
+Responsibility result: WebSocket decision submission moved from "forward the
+active prompt top-level alias" to "submit explicit public/protocol primary
+identity when available." Internal headless seat/debug identity and legacy-only
+fallback routing intentionally remain numeric compatibility surfaces.
 
 ## 2026-05-12 Runtime Rebuild Baseline
 

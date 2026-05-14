@@ -196,6 +196,19 @@ function numericProtocolPlayerId(playerId: ProtocolPlayerId): number | null {
   return null;
 }
 
+function decisionProtocolPlayerId(
+  fallbackPlayerId: ProtocolPlayerId,
+  primaryPlayer: { playerId: ProtocolPlayerId; source: PromptIdentitySource },
+): ProtocolPlayerId {
+  if (
+    (primaryPlayer.source === "public" || primaryPlayer.source === "protocol") &&
+    typeof primaryPlayer.playerId === "string"
+  ) {
+    return primaryPlayer.playerId;
+  }
+  return fallbackPlayerId;
+}
+
 export function buildDecisionMessage(args: {
   requestId: string;
   playerId: ProtocolPlayerId;
@@ -224,14 +237,15 @@ export function buildDecisionMessage(args: {
     legacyPlayerId,
     publicPlayerId,
   });
-  const topLevelPlayerIdIsLegacyAlias = numericProtocolPlayerId(args.playerId) !== null;
+  const playerId = decisionProtocolPlayerId(args.playerId, primaryPlayer);
+  const topLevelPlayerIdIsLegacyAlias = numericProtocolPlayerId(playerId) !== null;
   const seatId = optionalString(args.seatId);
   const viewerId = optionalString(args.viewerId);
   const publicPromptInstanceId = optionalString(continuation?.publicPromptInstanceId);
   return {
     type: "decision",
     request_id: args.requestId,
-    player_id: args.playerId,
+    player_id: playerId,
     ...(topLevelPlayerIdIsLegacyAlias ? { player_id_alias_role: "legacy_compatibility_alias" as const } : {}),
     primary_player_id: primaryPlayer.playerId,
     primary_player_id_source: primaryPlayer.source,

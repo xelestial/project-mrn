@@ -214,8 +214,8 @@ Headless active/raw prompt routing now compares latest
 helper, with numeric seat fallback limited to legacy-only prompts.
 Headless decision construction now also consumes `PromptViewModel.identity.primaryPlayerId`
 and source directly, so a numeric top-level active-prompt `player_id` can remain only a
-legacy compatibility alias while outbound decisions, policy context, and decision traces keep the
-explicit public primary identity.
+legacy compatibility alias while outbound decisions submit the explicit public/protocol
+primary identity and policy context plus decision traces keep that identity visible.
 Headless HTTP policy requests now consume `HeadlessDecisionContext.identity` as the single primary
 identity source instead of reinterpreting prompt fields. They now send public/protocol top-level
 `player_id` when available, with numeric top-level `player_id` and
@@ -932,8 +932,9 @@ Acceptance evidence status, 2026-05-14:
   send a public string `player_id` with explicit `primary_player_id`, `primary_player_id_source`,
   `legacy_player_id`, `public_player_id`, `seat_id`, `viewer_id`, and `public_prompt_instance_id`
   companions while preserving the existing numeric-only decision path, marking top-level numeric
-  `player_id` as a legacy compatibility alias, preferring explicit prompt primary identity over a
-  numeric top-level alias, and keeping the numeric prompt lifecycle alias.
+  `player_id` as a legacy compatibility alias, submitting explicit public/protocol primary identity
+  instead of a numeric top-level active-prompt alias when available, and keeping the numeric prompt
+  lifecycle alias.
 - `apps/web/src/hooks/useGameStream.spec.ts` verifies that rendered UI decision submission can use a public
   protocol `player_id` and build duplicate-flight keys from explicit prompt primary or public identity
   without requiring a numeric legacy bridge; numeric-only prompt decisions remain supported as the legacy
