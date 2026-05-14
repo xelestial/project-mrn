@@ -99,6 +99,10 @@ in the active plans, status index, tests, or canonical contract documents.
   when available and mirror that value in `identity.player_id`. Numeric
   `player_id` plus `player_id_alias_role: "legacy_compatibility_alias"` remains
   only for legacy-only policy input.
+- Headless view-commit trace compaction now consumes explicit active-prompt
+  `primary_player_id` plus `primary_player_id_source` before numeric aliases.
+  Numeric `active_prompt_player_id` and `active_prompt_protocol_player_id`
+  remain trace/debug compatibility fields, not the primary prompt identity.
 Responsibility result: ACK primary identity ownership moved to the server ACK
 builder/session identity boundary, and HTTP policy request protocol identity is
 owned by the request builder. Consumers no longer need to guess whether numeric

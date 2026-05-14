@@ -378,6 +378,21 @@ describe("HeadlessGameClient", () => {
       choice_payload: { tile_index: 10, buy: true },
     });
     expect(outbound[0]).not.toHaveProperty("player_id_alias_role");
+    expect(client.trace.find((event) => event.event === "view_commit_seen")?.payload).toMatchObject({
+      active_prompt_identity: {
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: 2,
+        legacy_player_id: 2,
+        public_player_id: null,
+      },
+      active_prompt_primary_player_id: "player_public_2",
+      active_prompt_primary_player_id_source: "public",
+      active_prompt_player_id: 2,
+      active_prompt_protocol_player_id: 2,
+      active_prompt_legacy_player_id: 2,
+      active_prompt_public_player_id: null,
+    });
     expect(client.trace.find((event) => event.event === "decision_sent")).toMatchObject({
       player_id: 2,
       primary_player_id: "player_public_2",

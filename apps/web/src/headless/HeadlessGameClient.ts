@@ -1549,12 +1549,23 @@ function compactActivePromptIdentity(active: Record<string, unknown> | null): Re
   const activePlayerId = active["player_id"];
   const publicPlayerId = stringValue(active["public_player_id"]);
   const legacyPlayerId = numberValue(active["legacy_player_id"]) ?? numberValue(activePlayerId);
+  const explicitPrimaryPlayerId = protocolPlayerIdValue(active["primary_player_id"]);
+  const explicitPrimaryPlayerIdSource = promptIdentitySourceValue(active["primary_player_id_source"]);
   const protocolPlayerId =
     publicPlayerId ??
     (typeof activePlayerId === "string" || typeof activePlayerId === "number" ? activePlayerId : legacyPlayerId);
-  const primaryPlayerId = publicPlayerId ?? (typeof activePlayerId === "string" ? activePlayerId : legacyPlayerId);
+  const primaryPlayerId =
+    explicitPrimaryPlayerId !== null && explicitPrimaryPlayerIdSource !== null
+      ? explicitPrimaryPlayerId
+      : publicPlayerId ?? (typeof activePlayerId === "string" ? activePlayerId : legacyPlayerId);
   const primaryPlayerIdSource =
-    publicPlayerId !== null ? "public" : typeof activePlayerId === "string" ? "protocol" : "legacy";
+    explicitPrimaryPlayerId !== null && explicitPrimaryPlayerIdSource !== null
+      ? explicitPrimaryPlayerIdSource
+      : publicPlayerId !== null
+        ? "public"
+        : typeof activePlayerId === "string"
+          ? "protocol"
+          : "legacy";
   return {
     primary_player_id: primaryPlayerId,
     primary_player_id_source: primaryPlayerId === null ? null : primaryPlayerIdSource,
@@ -1564,6 +1575,20 @@ function compactActivePromptIdentity(active: Record<string, unknown> | null): Re
     seat_id: stringValue(active["seat_id"]),
     viewer_id: stringValue(active["viewer_id"]),
   };
+}
+
+function protocolPlayerIdValue(value: unknown): ProtocolPlayerId | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+  return null;
+}
+
+function promptIdentitySourceValue(value: unknown): "public" | "protocol" | "legacy" | null {
+  return value === "public" || value === "protocol" || value === "legacy" ? value : null;
 }
 
 function compactPlayerSummaries(viewState: Record<string, unknown>): Array<Record<string, unknown>> {

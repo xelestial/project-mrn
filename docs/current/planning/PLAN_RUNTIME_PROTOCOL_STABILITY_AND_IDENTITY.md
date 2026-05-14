@@ -1005,11 +1005,13 @@ Acceptance evidence status, 2026-05-14:
   `player_id_alias_role: "legacy_compatibility_alias"` only for legacy-only policy input.
   `HeadlessGameClient` policy contexts and compact
   decision/view traces now expose the same primary identity shape so headless policy and artifact consumers
-  do not need to treat top-level numeric `player_id` as the public identity. Replay rows, observations,
-  and final player summaries now expose `primary_player_id` plus source while keeping numeric `player_id`
-  as the legacy display/grouping alias for reward and rank calculations. `HeadlessGameClient.spec.ts`
-  also verifies that headless active prompt routing answers public-only prompts without a numeric
-  `legacy_player_id` bridge while keeping legacy-only prompts routable during mixed migration commits.
+  do not need to treat top-level numeric `player_id` as the public identity. The view-commit trace path
+  specifically prefers explicit active-prompt `primary_player_id` plus source over a numeric active
+  `player_id` alias. Replay rows, observations, and final player summaries now expose
+  `primary_player_id` plus source while keeping numeric `player_id` as the legacy display/grouping alias
+  for reward and rank calculations. `HeadlessGameClient.spec.ts` also verifies that headless active prompt
+  routing answers public-only prompts without a numeric `legacy_player_id` bridge while keeping legacy-only
+  prompts routable during mixed migration commits.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`
   and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_instance_from_resume_does_not_parse_legacy_request_id`
   verify that prompt sequence recovery and bridge advancement no longer parse legacy request-id suffixes when
