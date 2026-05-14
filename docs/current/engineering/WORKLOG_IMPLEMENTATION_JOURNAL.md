@@ -743,6 +743,21 @@ local fallback inference into the prompt selector's `PromptViewModel.identity`.
 Numeric aliases remain only as compatibility fields until the protocol removal
 gates close.
 
+## 2026-05-14 Runtime Contract Numeric Alias Guard
+
+- Added schema coverage that fails when outbound WebSocket decisions, inbound
+  prompt payloads, or external-AI decision requests carry numeric `player_id`
+  without primary identity metadata.
+- Runtime contract schemas now keep numeric `player_id` compatible, but only
+  when `player_id_alias_role`, `primary_player_id`, and
+  `primary_player_id_source` are present.
+- The local subset schema validator now handles the small `allOf` plus
+  `if`/`then` subset needed by these frozen contract checks.
+
+Responsibility result: detecting unlabeled numeric public identity moved into
+the shared contract layer. Producers still own emitting the companion fields;
+numeric alias removal remains a later compatibility-gated migration.
+
 ## 2026-05-14 Headless Trace Primary Identity
 
 - Added headless trace coverage for both legacy-only and public-player decision

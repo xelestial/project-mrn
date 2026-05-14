@@ -17,6 +17,23 @@
     "worker_contract_version",
     "required_capabilities"
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["player_id"],
+        "properties": {
+          "player_id": { "type": "integer" }
+        }
+      },
+      "then": {
+        "required": [
+          "player_id_alias_role",
+          "primary_player_id",
+          "primary_player_id_source"
+        ]
+      }
+    }
+  ],
   "properties": {
     "request_id": { "type": "string", "minLength": 1 },
     "session_id": { "type": "string", "minLength": 1 },

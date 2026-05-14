@@ -33,6 +33,23 @@ def _is_type(value: Any, schema_type: str) -> bool:
 
 
 def _validate_subset(instance: Any, schema: dict[str, Any], path: str = "$") -> None:
+    for idx, sub_schema in enumerate(schema.get("allOf", [])):
+        if isinstance(sub_schema, dict):
+            _validate_subset(instance, sub_schema, f"{path}.allOf[{idx}]")
+
+    if_schema = schema.get("if")
+    if isinstance(if_schema, dict):
+        try:
+            _validate_subset(instance, if_schema, f"{path}.if")
+        except AssertionError:
+            else_schema = schema.get("else")
+            if isinstance(else_schema, dict):
+                _validate_subset(instance, else_schema, f"{path}.else")
+        else:
+            then_schema = schema.get("then")
+            if isinstance(then_schema, dict):
+                _validate_subset(instance, then_schema, f"{path}.then")
+
     if "const" in schema:
         assert instance == schema["const"], f"{path}: expected const={schema['const']!r}, got {instance!r}"
 
@@ -146,6 +163,44 @@ class RuntimeContractExampleTests(unittest.TestCase):
             inbound_prompt_schema,
             path="$<inbound.prompt.public_identity>",
         )
+
+    def test_ws_identity_schemas_require_primary_metadata_for_numeric_player_alias(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schemas = root / "schemas"
+
+        outbound_decision_schema = _load_json(schemas / "outbound.decision.schema.json")
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "decision",
+                    "request_id": "req_numeric_alias_without_primary",
+                    "player_id": 1,
+                    "choice_id": "roll",
+                    "client_seq": 12,
+                },
+                outbound_decision_schema,
+                path="$<outbound.decision.numeric_alias_without_primary>",
+            )
+
+        inbound_prompt_schema = _load_json(schemas / "inbound.prompt.schema.json")
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "prompt",
+                    "seq": 4,
+                    "session_id": "sess_numeric_alias_without_primary",
+                    "payload": {
+                        "request_id": "req_numeric_alias_without_primary",
+                        "request_type": "movement",
+                        "player_id": 1,
+                        "timeout_ms": 30000,
+                        "legal_choices": [{"choice_id": "roll"}],
+                        "public_context": {},
+                    },
+                },
+                inbound_prompt_schema,
+                path="$<inbound.prompt.numeric_alias_without_primary>",
+            )
 
     def test_ws_decision_event_sequences_validate_and_keep_order(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
@@ -325,6 +380,30 @@ class RuntimeContractExampleTests(unittest.TestCase):
             schema,
             path="$<external-ai.request.public_identity>",
         )
+
+    def test_external_ai_request_schema_requires_primary_metadata_for_numeric_player_alias(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
+        schema = _load_json(root / "schemas" / "request.schema.json")
+
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "request_id": "req_numeric_alias_without_primary",
+                    "session_id": "sess_numeric_alias_without_primary",
+                    "seat": 1,
+                    "player_id": 1,
+                    "decision_name": "movement",
+                    "request_type": "movement",
+                    "fallback_policy": "ai",
+                    "public_context": {},
+                    "legal_choices": [{"choice_id": "roll"}],
+                    "transport": "http",
+                    "worker_contract_version": "v1",
+                    "required_capabilities": [],
+                },
+                schema,
+                path="$<external-ai.request.numeric_alias_without_primary>",
+            )
 
 
 if __name__ == "__main__":

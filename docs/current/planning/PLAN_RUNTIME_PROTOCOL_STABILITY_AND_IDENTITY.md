@@ -219,6 +219,10 @@ explicit public primary identity.
 Headless HTTP policy requests now consume `HeadlessDecisionContext.identity` as the single primary
 identity source instead of reinterpreting prompt fields, while keeping top-level numeric `player_id`
 labeled as a legacy compatibility alias.
+Runtime contract schemas now enforce that numeric `player_id` is only valid as a labeled
+compatibility alias: outbound decisions, inbound prompt payloads, and external-AI requests with an
+integer `player_id` must also carry `player_id_alias_role`, `primary_player_id`, and
+`primary_player_id_source`.
 
 ## Problem 2. Numeric Sequences Are Doing Too Much
 
