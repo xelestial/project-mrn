@@ -55,6 +55,11 @@ in the active plans, status index, tests, or canonical contract documents.
   `build_decision_ack_payload()` falls back to explicit legacy-primary metadata
   if no public identity companion is available. The WebSocket ACK schema and
   examples now require that primary metadata for numeric ACK aliases.
+- The protocol identity consumer inventory already documented the WebSocket
+  inbound `decision_ack` schema as a `compat alias` boundary, but the inventory
+  integrity test did not require that row. The doc guard now includes the ACK
+  schema so this protocol boundary cannot silently disappear from the
+  inventory while numeric ACK aliases remain.
 - The external-AI full-stack smoke adapter now preserves pending prompt
   `legacy_request_id`, `public_request_id`, `public_prompt_instance_id`,
   `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id` through the

@@ -24,6 +24,7 @@ REQUIRED_CONSUMER_ENTRIES = {
     "apps/web/src/domain/selectors/promptSelectors.ts": "engine bridge",
     "packages/runtime-contracts/ws/schemas/outbound.decision.schema.json": "compat alias",
     "packages/runtime-contracts/ws/schemas/inbound.prompt.schema.json": "compat alias",
+    "packages/runtime-contracts/ws/schemas/inbound.decision_ack.schema.json": "compat alias",
     "packages/runtime-contracts/external-ai/schemas/request.schema.json": "compat alias",
     "tools/scripts/external_ai_full_stack_smoke.py": "compat alias",
     "tools/scripts/redis_restart_smoke.py": "compat alias",
