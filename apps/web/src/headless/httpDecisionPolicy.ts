@@ -12,8 +12,8 @@ export type HttpDecisionPolicyOptions = {
 export type HttpDecisionPolicyRequest = {
   protocol_version: 1;
   session_id: string;
-  player_id: number;
-  player_id_alias_role: "legacy_compatibility_alias";
+  player_id: ProtocolPlayerId;
+  player_id_alias_role?: "legacy_compatibility_alias";
   primary_player_id: ProtocolPlayerId;
   primary_player_id_source: "public" | "protocol" | "legacy";
   protocol_player_id: ProtocolPlayerId;
@@ -22,7 +22,8 @@ export type HttpDecisionPolicyRequest = {
   seat_id: string | null;
   viewer_id: string | null;
   identity: {
-    player_id_alias_role: "legacy_compatibility_alias";
+    player_id: ProtocolPlayerId;
+    player_id_alias_role?: "legacy_compatibility_alias";
     primary_player_id: ProtocolPlayerId;
     primary_player_id_source: "public" | "protocol" | "legacy";
     protocol_player_id: ProtocolPlayerId;
@@ -104,11 +105,13 @@ export function createHttpDecisionPolicy(options: HttpDecisionPolicyOptions): De
 export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext): HttpDecisionPolicyRequest {
   const runtime = context.latestCommit?.runtime;
   const identity = context.identity;
+  const policyPlayerId = protocolPolicyPlayerId(identity);
+  const policyPlayerIdIsLegacyAlias = typeof policyPlayerId === "number";
   return {
     protocol_version: 1,
     session_id: context.sessionId,
-    player_id: context.playerId,
-    player_id_alias_role: "legacy_compatibility_alias",
+    player_id: policyPlayerId,
+    ...(policyPlayerIdIsLegacyAlias ? { player_id_alias_role: "legacy_compatibility_alias" as const } : {}),
     primary_player_id: identity.primaryPlayerId,
     primary_player_id_source: identity.primaryPlayerIdSource,
     protocol_player_id: identity.protocolPlayerId,
@@ -117,7 +120,8 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     seat_id: identity.seatId,
     viewer_id: identity.viewerId,
     identity: {
-      player_id_alias_role: "legacy_compatibility_alias",
+      player_id: policyPlayerId,
+      ...(policyPlayerIdIsLegacyAlias ? { player_id_alias_role: "legacy_compatibility_alias" as const } : {}),
       primary_player_id: identity.primaryPlayerId,
       primary_player_id_source: identity.primaryPlayerIdSource,
       protocol_player_id: identity.protocolPlayerId,
@@ -144,6 +148,13 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     legal_choices: context.legalChoices.map(compactLegalChoice),
     player_summary: compactPolicyPlayerSummary(context.latestCommit, context.playerId),
   };
+}
+
+function protocolPolicyPlayerId(identity: HeadlessDecisionContext["identity"]): ProtocolPlayerId {
+  if (identity.primaryPlayerIdSource === "public" || identity.primaryPlayerIdSource === "protocol") {
+    return identity.primaryPlayerId;
+  }
+  return identity.legacyPlayerId;
 }
 
 function compactLegalChoice(choice: PromptChoiceViewModel): HttpDecisionPolicyRequest["legal_choices"][number] {

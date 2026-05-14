@@ -74,16 +74,15 @@ in the active plans, status index, tests, or canonical contract documents.
   when available. Numeric top-level `player_id` is labeled as
   `player_id_alias_role: "legacy_compatibility_alias"` only for legacy-only
   prompt input.
-- HTTP decision policy requests now label both the top-level numeric
-  `player_id` and the nested `identity` payload with
-  `player_id_alias_role: "legacy_compatibility_alias"`. This keeps external
-  policy consumers from losing the alias contract when they read only the
-  compact nested identity object.
+- HTTP decision policy requests now use public/protocol top-level `player_id`
+  when available and mirror that value in `identity.player_id`. Numeric
+  `player_id` plus `player_id_alias_role: "legacy_compatibility_alias"` remains
+  only for legacy-only policy input.
 Responsibility result: ACK primary identity ownership moved to the server ACK
-builder/session identity boundary, and HTTP policy request identity labeling is
+builder/session identity boundary, and HTTP policy request protocol identity is
 owned by the request builder. Consumers no longer need to guess whether numeric
-ACK or HTTP-policy `player_id` values are primary identity or compatibility
-aliases.
+ACK or legacy-only HTTP-policy `player_id` values are primary identity or
+compatibility aliases.
 Runtime contract responsibility also moved: outbound decision continuation
 companion fields are now owned by the frozen schema and example instead of
 being tolerated only through open-ended `additionalProperties`.
@@ -195,13 +194,12 @@ being tolerated only through open-ended `additionalProperties`.
   comparison itself.
 - Headless external-policy and replay exports now preserve public player,
   seat, viewer, and legacy player companions. HTTP decision policy requests
-  keep numeric `player_id` for existing policy consumers while adding
-  `protocol_player_id` and public companions. They now also expose an
-  `identity.primary_player_id` block with `primary_player_id_source`, so HTTP
-  policy consumers have a clear public-primary identity field instead of using
-  top-level numeric `player_id` by default. Compact trace payloads and replay
-  rows carry the same companions without changing reward calculation's numeric
-  actor-index bridge.
+  now use public/protocol `player_id` when available while retaining
+  `legacy_player_id` and numeric legacy-only fallback fields. They also expose
+  an `identity.primary_player_id` block with `primary_player_id_source`, so HTTP
+  policy consumers have a clear public-primary identity field. Compact trace
+  payloads and replay rows carry the same companions without changing reward
+  calculation's numeric actor-index bridge.
 - `HeadlessGameClient` now gives decision policies a
   `HeadlessDecisionContext.identity` object and writes compact decision/view
   trace identity blocks with `primary_player_id`. Public identity is visible as
@@ -740,20 +738,18 @@ intentionally remain numeric compatibility surfaces.
   `HeadlessDecisionContext.identity` directly instead of reinterpreting
   `PromptViewModel` fields in a second helper.
 - `HttpDecisionPolicyRequest` now carries top-level `primary_player_id` and
-  `primary_player_id_source` while preserving existing numeric `player_id` and
-  `legacy_player_id` compatibility fields.
-- `HttpDecisionPolicyRequest.player_id` now carries
-  `player_id_alias_role: "legacy_compatibility_alias"` so external policy
-  readers do not have to infer that top-level numeric `player_id` is a
-  compatibility alias when public identity is present.
+  `primary_player_id_source` while preserving `legacy_player_id` compatibility.
+- `HttpDecisionPolicyRequest.player_id` now uses public/protocol identity when
+  available and carries `player_id_alias_role: "legacy_compatibility_alias"`
+  only for legacy-only numeric fallback input.
 - Numeric-only prompt requests still serialize `primary_player_id: 2` with
   `primary_player_id_source: "legacy"`, making the fallback explicit instead
   of pretending numeric `player_id` is the general primary identity.
 
 Responsibility result: HTTP policy primary identity ownership moved from local
 prompt reinterpretation to the already-resolved headless decision context.
-External policy compatibility remains intact because the legacy numeric aliases
-were not removed; their role is still labeled in the request.
+External policy compatibility remains intact for legacy-only prompts because the
+legacy numeric fallback is still labeled in the request.
 
 ## 2026-05-14 Headless Decision Primary Identity
 

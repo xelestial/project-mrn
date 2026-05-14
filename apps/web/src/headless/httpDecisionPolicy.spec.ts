@@ -156,8 +156,7 @@ describe("httpDecisionPolicy", () => {
     expect(request).toMatchObject({
       protocol_version: 1,
       session_id: "sess_http_policy",
-      player_id: 2,
-      player_id_alias_role: "legacy_compatibility_alias",
+      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       protocol_player_id: "player_public_2",
@@ -166,7 +165,7 @@ describe("httpDecisionPolicy", () => {
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
       identity: {
-        player_id_alias_role: "legacy_compatibility_alias",
+        player_id: "player_public_2",
         primary_player_id: "player_public_2",
         primary_player_id_source: "public",
         protocol_player_id: "player_public_2",
@@ -292,6 +291,7 @@ describe("httpDecisionPolicy", () => {
     });
 
     expect(request).toMatchObject({
+      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       protocol_player_id: "player_public_2",
@@ -300,7 +300,7 @@ describe("httpDecisionPolicy", () => {
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
       identity: {
-        player_id_alias_role: "legacy_compatibility_alias",
+        player_id: "player_public_2",
         primary_player_id: "player_public_2",
         primary_player_id_source: "public",
         protocol_player_id: "player_public_2",

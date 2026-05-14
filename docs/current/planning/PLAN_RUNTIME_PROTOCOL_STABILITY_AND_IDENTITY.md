@@ -217,8 +217,9 @@ and source directly, so a numeric top-level active-prompt `player_id` can remain
 legacy compatibility alias while outbound decisions, policy context, and decision traces keep the
 explicit public primary identity.
 Headless HTTP policy requests now consume `HeadlessDecisionContext.identity` as the single primary
-identity source instead of reinterpreting prompt fields, while keeping top-level numeric `player_id`
-labeled as a legacy compatibility alias.
+identity source instead of reinterpreting prompt fields. They now send public/protocol top-level
+`player_id` when available, with numeric top-level `player_id` and
+`player_id_alias_role: "legacy_compatibility_alias"` retained only for legacy-only policy input.
 Runtime contract schemas now enforce that numeric `player_id` is only valid as a labeled
 compatibility alias: outbound decisions, inbound prompt payloads, and external-AI requests with an
 integer `player_id` must also carry `player_id_alias_role`, `primary_player_id`, and
@@ -992,11 +993,12 @@ Acceptance evidence status, 2026-05-14:
 - `apps/web/src/headless/httpDecisionPolicy.spec.ts`, `protocolReplay.spec.ts`, and
   `HeadlessGameClient.spec.ts` verify that headless external policy input, compact trace payloads, and replay
   rows preserve public player, seat, viewer, legacy player, and public prompt-instance companions while
-  retaining numeric `player_id` and `prompt_instance_id` aliases for existing policy consumers, lifecycle
-  bridging, and reward calculation. The HTTP policy request now also includes top-level and nested
-  `primary_player_id` plus `primary_player_id_source`, and labels top-level and nested numeric `player_id` usage with
-  `player_id_alias_role: "legacy_compatibility_alias"`, proving public identity is the primary policy input
-  when present while numeric-only prompts remain explicit legacy fallback. `HeadlessGameClient` policy contexts and compact
+  retaining numeric `prompt_instance_id` aliases for lifecycle bridging and reward calculation.
+  The HTTP policy request now sends public/protocol top-level `player_id` and mirrored
+  `identity.player_id` when available, includes top-level and nested `primary_player_id` plus
+  `primary_player_id_source`, and labels numeric `player_id` with
+  `player_id_alias_role: "legacy_compatibility_alias"` only for legacy-only policy input.
+  `HeadlessGameClient` policy contexts and compact
   decision/view traces now expose the same primary identity shape so headless policy and artifact consumers
   do not need to treat top-level numeric `player_id` as the public identity. Replay rows, observations,
   and final player summaries now expose `primary_player_id` plus source while keeping numeric `player_id`
