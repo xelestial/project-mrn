@@ -1314,6 +1314,9 @@ engine command boundary no longer needs them.
   `outbound.decision.public_identity.json` with string top-level `player_id`,
   matching `primary_player_id`/`public_player_id`, and explicit
   `legacy_player_id`, `seat_id`, and `viewer_id` companions.
+- Extended the same contract-example gate to `decision_ack` by adding
+  `inbound.decision_ack.public_identity.json` and allowing public string
+  payload `player_id` in the ACK schema.
 - Existing numeric WebSocket examples remain as labeled compatibility-alias
   evidence.
 

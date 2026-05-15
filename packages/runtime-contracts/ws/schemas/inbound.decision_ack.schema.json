@@ -102,8 +102,9 @@
           ]
         },
         "player_id": {
-          "type": "integer",
-          "minimum": 1
+          "type": ["integer", "string"],
+          "minimum": 1,
+          "minLength": 1
         },
         "player_id_alias_role": {
           "type": "string",

@@ -132,6 +132,11 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 "outbound.decision.public_identity.json",
                 (),
             ),
+            (
+                "inbound.decision_ack.schema.json",
+                "inbound.decision_ack.public_identity.json",
+                ("payload",),
+            ),
         ]
 
         for schema_name, example_name, payload_path in specs:

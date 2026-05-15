@@ -934,7 +934,9 @@ Acceptance evidence status, 2026-05-15:
   top-level `player_id` when available and keeps numeric `legacy_player_id` as the bridge instead
   of forcing the top-level field back to a numeric alias.
   WebSocket `decision_ack` payloads, schema, and examples now expose the same primary identity
-  fields whenever numeric `player_id` remains as the compatibility alias.
+  fields whenever numeric `player_id` remains as the compatibility alias, and
+  `inbound.decision_ack.public_identity.json` freezes the preferred public-primary ACK shape
+  with a string top-level `player_id`.
   External-AI request examples now exercise the public-primary path directly:
   top-level `player_id` and `primary_player_id` are public string identities,
   while `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id`
