@@ -1306,6 +1306,21 @@ preference interpretation. It does not validate the full request envelope or
 remove numeric target aliases; those remain compatibility inputs until the
 engine command boundary no longer needs them.
 
+## 2026-05-15 WS Public Primary Contract Examples
+
+- Added runtime-contract coverage requiring dedicated WebSocket examples for
+  the preferred public-primary identity shape.
+- Added `inbound.prompt.public_identity.json` and
+  `outbound.decision.public_identity.json` with string top-level `player_id`,
+  matching `primary_player_id`/`public_player_id`, and explicit
+  `legacy_player_id`, `seat_id`, and `viewer_id` companions.
+- Existing numeric WebSocket examples remain as labeled compatibility-alias
+  evidence.
+
+Responsibility result: runtime-contract examples now document the preferred
+public identity boundary without moving or deleting runtime compatibility
+logic. Numeric alias interpretation remains in the current adapters and schemas.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

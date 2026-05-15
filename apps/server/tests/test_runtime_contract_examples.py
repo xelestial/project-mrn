@@ -116,6 +116,48 @@ class RuntimeContractExampleTests(unittest.TestCase):
             example = _load_json(examples / example_name)
             _validate_subset(example, schema, path=f"$<{example_name}>")
 
+    def test_ws_public_primary_examples_match_preferred_identity_shape(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schemas = root / "schemas"
+        examples = root / "examples"
+
+        specs = [
+            (
+                "inbound.prompt.schema.json",
+                "inbound.prompt.public_identity.json",
+                ("payload",),
+            ),
+            (
+                "outbound.decision.schema.json",
+                "outbound.decision.public_identity.json",
+                (),
+            ),
+        ]
+
+        for schema_name, example_name, payload_path in specs:
+            schema = _load_json(schemas / schema_name)
+            example_path = examples / example_name
+            with self.subTest(example=example_name):
+                self.assertTrue(example_path.exists(), f"{example_name} must exist")
+                example = _load_json(example_path)
+                _validate_subset(example, schema, path=f"$<{example_name}>")
+
+                payload: dict[str, Any] = example
+                for key in payload_path:
+                    next_payload = payload.get(key)
+                    self.assertIsInstance(next_payload, dict)
+                    payload = next_payload
+
+                player_id = payload.get("player_id")
+                self.assertIsInstance(player_id, str)
+                self.assertNotIn("player_id_alias_role", payload)
+                self.assertEqual(payload.get("primary_player_id"), player_id)
+                self.assertEqual(payload.get("primary_player_id_source"), "public")
+                self.assertEqual(payload.get("public_player_id"), player_id)
+                self.assertIsInstance(payload.get("legacy_player_id"), int)
+                self.assertIsInstance(payload.get("seat_id"), str)
+                self.assertIsInstance(payload.get("viewer_id"), str)
+
     def test_outbound_decision_schema_owns_continuation_identity_fields(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
         schema = _load_json(root / "schemas" / "outbound.decision.schema.json")

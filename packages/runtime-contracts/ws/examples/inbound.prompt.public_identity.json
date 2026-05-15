@@ -1,0 +1,78 @@
+{
+  "type": "prompt",
+  "seq": 12,
+  "session_id": "sess_public_identity",
+  "server_time_ms": 1743210001123,
+  "payload": {
+    "request_id": "req_public_turn7_move",
+    "request_type": "movement",
+    "player_id": "ply_public_1",
+    "primary_player_id": "ply_public_1",
+    "primary_player_id_source": "public",
+    "legacy_player_id": 1,
+    "public_player_id": "ply_public_1",
+    "seat_id": "seat_public_1",
+    "viewer_id": "viewer_public_1",
+    "timeout_ms": 30000,
+    "fallback_policy": "auto_roll_dice",
+    "legal_choices": [
+      {
+        "choice_id": "roll",
+        "title": "Roll dice",
+        "description": "Normal move."
+      },
+      {
+        "choice_id": "dice_1_4",
+        "title": "Use dice cards 1,4",
+        "description": "Fixed move 5."
+      }
+    ],
+    "public_context": {
+      "round_index": 2,
+      "turn_index": 7,
+      "weather_name": "Emergency Shelter"
+    },
+    "view_state": {
+      "prompt": {
+        "active": {
+          "request_id": "req_public_turn7_move",
+          "request_type": "movement",
+          "player_id": "ply_public_1",
+          "primary_player_id": "ply_public_1",
+          "primary_player_id_source": "public",
+          "legacy_player_id": 1,
+          "public_player_id": "ply_public_1",
+          "seat_id": "seat_public_1",
+          "viewer_id": "viewer_public_1",
+          "timeout_ms": 30000,
+          "choices": [
+            {
+              "choice_id": "roll",
+              "title": "Roll dice",
+              "description": "Normal move.",
+              "value": null,
+              "secondary": false
+            },
+            {
+              "choice_id": "dice_1_4",
+              "title": "Use dice cards 1,4",
+              "description": "Fixed move 5.",
+              "value": null,
+              "secondary": false
+            }
+          ],
+          "public_context": {
+            "round_index": 2,
+            "turn_index": 7,
+            "weather_name": "Emergency Shelter"
+          },
+          "behavior": {
+            "normalized_request_type": "movement",
+            "single_surface": false,
+            "auto_continue": false
+          }
+        }
+      }
+    }
+  }
+}

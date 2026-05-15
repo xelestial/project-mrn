@@ -1,0 +1,47 @@
+{
+  "type": "decision",
+  "request_id": "req_public_turn7_move",
+  "player_id": "ply_public_1",
+  "primary_player_id": "ply_public_1",
+  "primary_player_id_source": "public",
+  "legacy_player_id": 1,
+  "public_player_id": "ply_public_1",
+  "seat_id": "seat_public_1",
+  "viewer_id": "viewer_public_1",
+  "choice_id": "roll",
+  "choice_payload": {
+    "mode": "roll"
+  },
+  "prompt_instance_id": 17,
+  "public_prompt_instance_id": "pin_req_public_turn7_move_17",
+  "prompt_fingerprint": "sha256:req_public_turn7_move",
+  "prompt_fingerprint_version": "prompt-fingerprint-v1",
+  "resume_token": "resume:req_public_turn7_move",
+  "frame_id": "round:2:turn:7",
+  "module_id": "movement-roll",
+  "module_type": "MovementRollModule",
+  "module_cursor": "await_roll",
+  "batch_id": "batch:round2:movement",
+  "missing_player_ids": [1, 3],
+  "resume_tokens_by_player_id": {
+    "1": "resume:p1",
+    "3": "resume:p3"
+  },
+  "missing_public_player_ids": ["ply_public_1", "ply_public_3"],
+  "resume_tokens_by_public_player_id": {
+    "ply_public_1": "resume:p1",
+    "ply_public_3": "resume:p3"
+  },
+  "missing_seat_ids": ["seat_public_1", "seat_public_3"],
+  "resume_tokens_by_seat_id": {
+    "seat_public_1": "resume:p1",
+    "seat_public_3": "resume:p3"
+  },
+  "missing_viewer_ids": ["viewer_public_1", "viewer_public_3"],
+  "resume_tokens_by_viewer_id": {
+    "viewer_public_1": "resume:p1",
+    "viewer_public_3": "resume:p3"
+  },
+  "view_commit_seq_seen": 42,
+  "client_seq": 1045
+}

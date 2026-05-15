@@ -921,6 +921,10 @@ Acceptance evidence status, 2026-05-15:
 - Runtime contract schemas for WebSocket outbound decisions, WebSocket inbound prompts, and external-AI
   decision requests accept public string `player_id` with explicit `legacy_player_id`, `public_player_id`,
   `seat_id`, and `viewer_id` companions while preserving existing numeric `player_id` examples.
+  WebSocket `outbound.decision.public_identity.json` and `inbound.prompt.public_identity.json`
+  now freeze the preferred public-primary path directly: top-level `player_id`,
+  `primary_player_id`, and `public_player_id` are the same public string identity,
+  while `legacy_player_id` remains the explicit numeric bridge.
   WebSocket outbound decision examples and frontend decision construction now also expose
   `primary_player_id` plus `primary_player_id_source`, and label top-level numeric `player_id`
   with `player_id_alias_role: "legacy_compatibility_alias"`. `PromptService.create_prompt()`,
