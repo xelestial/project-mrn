@@ -16,7 +16,11 @@ export type LocalViewerIdentity = {
 };
 
 type JoinResultLike = {
-  player_id?: number | null;
+  player_id?: ProtocolPlayerId | null;
+  legacy_player_id?: number | null;
+  public_player_id?: string | null;
+  seat_id?: string | null;
+  viewer_id?: string | null;
   [key: string]: unknown;
 };
 
@@ -53,16 +57,26 @@ export function localViewerIdentityFromSessionToken(token: string | undefined): 
 }
 
 export function localViewerIdentityFromJoinResult(joined: JoinResultLike | null | undefined): LocalViewerIdentity {
-  const legacyPlayerId = normalizeLegacyPlayerId(joined?.player_id);
-  if (legacyPlayerId === null) {
+  const publicPlayerId = normalizeIdentityString(joined?.public_player_id);
+  const seatId = normalizeIdentityString(joined?.seat_id);
+  const viewerId = normalizeIdentityString(joined?.viewer_id);
+  const protocolPlayerId =
+    typeof joined?.player_id === "number"
+      ? publicPlayerId
+      : normalizeProtocolPlayerId(joined?.player_id) ?? publicPlayerId;
+  const legacyPlayerId =
+    normalizeLegacyPlayerId(joined?.legacy_player_id) ??
+    (typeof joined?.player_id === "number" ? normalizeLegacyPlayerId(joined.player_id) : null);
+
+  if (legacyPlayerId === null && protocolPlayerId === null && publicPlayerId === null && seatId === null && viewerId === null) {
     return EMPTY_LOCAL_VIEWER_IDENTITY;
   }
   return {
     legacyPlayerId,
-    protocolPlayerId: null,
-    publicPlayerId: null,
-    seatId: null,
-    viewerId: null,
+    protocolPlayerId,
+    publicPlayerId,
+    seatId,
+    viewerId,
     source: "join-result",
   };
 }

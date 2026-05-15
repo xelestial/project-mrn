@@ -40,7 +40,7 @@ describe("localViewerIdentity", () => {
     expect(resolveLocalViewerLegacyPlayerId(identity, localViewerIdentityFromSessionToken("session_p1_fallback"))).toBe(2);
   });
 
-  it("uses join responses as explicit legacy ownership input while no public identity is available", () => {
+  it("uses numeric-only join responses as explicit legacy ownership input", () => {
     expect(
       localViewerIdentityFromJoinResult({
         session_id: "s1",
@@ -55,6 +55,51 @@ describe("localViewerIdentity", () => {
       publicPlayerId: null,
       seatId: null,
       viewerId: null,
+      source: "join-result",
+    });
+  });
+
+  it("keeps public protocol companions from join responses and separates the numeric bridge", () => {
+    expect(
+      localViewerIdentityFromJoinResult({
+        session_id: "s1",
+        seat: 3,
+        player_id: 3,
+        legacy_player_id: 3,
+        public_player_id: "player_public_3",
+        seat_id: "seat_public_3",
+        viewer_id: "viewer_public_3",
+        session_token: "session_p3_join",
+        role: "seat",
+      })
+    ).toEqual({
+      legacyPlayerId: 3,
+      protocolPlayerId: "player_public_3",
+      publicPlayerId: "player_public_3",
+      seatId: "seat_public_3",
+      viewerId: "viewer_public_3",
+      source: "join-result",
+    });
+  });
+
+  it("accepts string protocol player ids from future join responses without requiring a numeric bridge", () => {
+    expect(
+      localViewerIdentityFromJoinResult({
+        session_id: "s1",
+        seat: 3,
+        player_id: "player_public_3",
+        public_player_id: "player_public_3",
+        seat_id: "seat_public_3",
+        viewer_id: "viewer_public_3",
+        session_token: "session_p3_join",
+        role: "seat",
+      })
+    ).toEqual({
+      legacyPlayerId: null,
+      protocolPlayerId: "player_public_3",
+      publicPlayerId: "player_public_3",
+      seatId: "seat_public_3",
+      viewerId: "viewer_public_3",
       source: "join-result",
     });
   });

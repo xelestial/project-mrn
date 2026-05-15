@@ -59,6 +59,13 @@ export type SeatPublic = {
   seat_type: SeatType;
   ai_profile?: string | null;
   player_id?: number | null;
+  legacy_player_id?: number | null;
+  public_player_id?: string | null;
+  seat_id?: string | null;
+  viewer_id?: string | null;
+  seat_index?: number | null;
+  turn_order_index?: number | null;
+  player_label?: string | null;
   display_name?: string | null;
   connected?: boolean;
 };
@@ -89,7 +96,15 @@ export type PublicSessionResult = {
 export type JoinSessionResult = {
   session_id: string;
   seat: number;
-  player_id: number;
+  player_id: number | string;
+  legacy_player_id?: number | null;
+  public_player_id?: string | null;
+  seat_id?: string | null;
+  viewer_id?: string | null;
+  seat_index?: number | null;
+  turn_order_index?: number | null;
+  player_label?: string | null;
+  display_name?: string | null;
   session_token: string;
   role: "seat";
 };

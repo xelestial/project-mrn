@@ -806,6 +806,23 @@ moved into `promptSelectors`; `App.tsx` still owns feeding legacy numeric
 selector inputs until the remaining render selectors can consume public/protocol
 viewer identity directly.
 
+## 2026-05-15 React Join Identity Companion Consumption
+
+- Updated the frontend join-session API contract to include the public player,
+  seat, viewer, legacy, and display identity fields already emitted by the
+  server join response.
+- `localViewerIdentityFromJoinResult()` now preserves those join-result
+  companions in `LocalViewerIdentity` instead of reducing the result to numeric
+  `player_id`.
+- Numeric-only join responses still produce a legacy bridge identity for old
+  sessions, and future string protocol `player_id` join responses can populate
+  the viewer model without requiring a numeric bridge.
+
+Responsibility result: join-result viewer identity construction now preserves
+server-owned public/protocol identity at the React boundary. Numeric join
+fields remain as legacy display/engine bridge inputs rather than the whole
+local viewer identity.
+
 ## 2026-05-14 Frontend Prompt Instance Companion Preservation
 
 - Added frontend/headless coverage that fails when `public_prompt_instance_id`

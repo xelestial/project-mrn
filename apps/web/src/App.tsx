@@ -2389,14 +2389,15 @@ export function App() {
       setSessionSeats(created.seats ?? null);
       setSessionInput(created.session_id);
       setSessionId(created.session_id);
+      const joinedViewerIdentity = localViewerIdentityFromJoinResult(joined);
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
-      setLocalViewerIdentity(localViewerIdentityFromJoinResult(joined));
+      setLocalViewerIdentity(joinedViewerIdentity);
       setHostTokenInput(created.host_token);
       setLastJoinTokens(created.join_tokens);
       setJoinSeatInput("1");
       setJoinTokenInput(seat1Token);
-      setNotice(app.notices.quickStart(created.session_id, joined.player_id));
+      setNotice(app.notices.quickStart(created.session_id, joinedViewerIdentity.legacyPlayerId ?? joined.seat));
       navigateRoute("match", { sessionId: created.session_id, token: joined.session_token });
       await refreshSessions();
     } catch (e) {
@@ -2461,10 +2462,11 @@ export function App() {
       setSessionInput(current);
       setSessionId(current);
       setSessionSeats(snapshotLocal.seats ?? null);
+      const joinedViewerIdentity = localViewerIdentityFromJoinResult(joined);
       setTokenInput(joined.session_token);
       setToken(joined.session_token);
-      setLocalViewerIdentity(localViewerIdentityFromJoinResult(joined));
-      setNotice(app.notices.joinSeat(joined.player_id));
+      setLocalViewerIdentity(joinedViewerIdentity);
+      setNotice(app.notices.joinSeat(joinedViewerIdentity.legacyPlayerId ?? joined.seat));
       navigateRoute("match", { sessionId: current, token: joined.session_token });
       await refreshSessions();
     } catch (e) {
