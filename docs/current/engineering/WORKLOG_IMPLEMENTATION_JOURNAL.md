@@ -1159,6 +1159,21 @@ Responsibility result: headless trace compaction now mirrors the decision
 protocol primary-identity rule. It owns debug evidence normalization only; it
 does not change server payloads, prompt selection, or engine numeric bridges.
 
+## 2026-05-15 Protocol Replay Primary Identity Repair
+
+- Added `protocolReplay.spec.ts` coverage for replay rows receiving malformed
+  numeric `primary_player_id` with `primary_player_id_source: "public"` plus a
+  valid `public_player_id` companion.
+- `replayIdentityFieldsFromRecord()` now rejects numeric explicit primary ids
+  when the declared source is `public` or `protocol`, and falls back to
+  public/protocol companions before legacy display ids.
+- Reward/rank grouping still uses numeric `player_id` as a legacy display
+  alias.
+
+Responsibility result: replay artifact generation now shares the same primary
+identity validation rule as decision and trace boundaries. Runtime protocol
+behavior and engine numeric bridges remain unchanged.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

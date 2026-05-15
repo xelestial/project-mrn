@@ -278,6 +278,75 @@ describe("protocolReplay", () => {
     );
   });
 
+  it("repairs malformed numeric public primary identity in replay rows", () => {
+    const events: HeadlessTraceEvent[] = [
+      {
+        event: "view_commit_seen",
+        session_id: "sess_protocol_identity_repair",
+        player_id: 1,
+        commit_seq: 7,
+        payload: {
+          runtime_status: "waiting_input",
+          player_summaries: [
+            {
+              player_id: 2,
+              legacy_player_id: 2,
+              primary_player_id: 2,
+              primary_player_id_source: "public",
+              public_player_id: "player_public_2",
+              cash: 18,
+              total_score: 3,
+              alive: true,
+            },
+          ],
+        },
+      },
+      {
+        event: "decision_sent",
+        session_id: "sess_protocol_identity_repair",
+        player_id: 2,
+        commit_seq: 7,
+        request_id: "req_identity_repair",
+        choice_id: "pass",
+        payload: {
+          request_type: "identity_check",
+          primary_player_id: 2,
+          primary_player_id_source: "public",
+          legacy_player_id: 2,
+          public_player_id: "player_public_2",
+          legal_choice_ids: ["pass"],
+        },
+      },
+    ];
+
+    const [row] = protocolTraceEventsToReplayRows(events);
+
+    expect(row).toEqual(
+      expect.objectContaining({
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        player_id: 2,
+        legacy_player_id: 2,
+      }),
+    );
+    expect(row.observation).toEqual(
+      expect.objectContaining({
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        player_id: 2,
+        legacy_player_id: 2,
+      }),
+    );
+    expect(row.outcome.final_player_summary).toEqual(
+      expect.objectContaining({
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        player_id: 2,
+        legacy_player_id: 2,
+      }),
+    );
+  });
+
   it("does not serialize raw view_state or stream messages into replay rows", () => {
     const rows = protocolTraceEventsToReplayRows([
       {

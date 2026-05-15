@@ -309,11 +309,15 @@ function replayIdentityFieldsFromRecord(
   record: Record<string, unknown> | undefined,
   fallbackLegacyPlayerId: number | null,
 ): Pick<ProtocolReplayPlayerSummary, "primary_player_id" | "primary_player_id_source"> {
-  const explicitPrimary = protocolPlayerIdValue(record?.["primary_player_id"]);
+  const explicitPrimarySource = protocolIdentitySourceValueOrNull(record?.["primary_player_id_source"]);
+  const explicitPrimary =
+    explicitPrimarySource === null
+      ? protocolPlayerIdValue(record?.["primary_player_id"])
+      : explicitPrimaryProtocolPlayerIdValue(record?.["primary_player_id"], explicitPrimarySource);
   if (explicitPrimary !== null) {
     return {
       primary_player_id: explicitPrimary,
-      primary_player_id_source: protocolIdentitySourceValue(record?.["primary_player_id_source"], explicitPrimary),
+      primary_player_id_source: explicitPrimarySource ?? protocolIdentitySourceValue(null, explicitPrimary),
     };
   }
 
@@ -430,6 +434,23 @@ function protocolPlayerIdValue(value: unknown): ProtocolPlayerId | null {
     return value;
   }
   return null;
+}
+
+function explicitPrimaryProtocolPlayerIdValue(
+  value: unknown,
+  source: ProtocolReplayIdentitySource,
+): ProtocolPlayerId | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return source === "legacy" ? value : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return source === "legacy" ? null : value;
+  }
+  return null;
+}
+
+function protocolIdentitySourceValueOrNull(value: unknown): ProtocolReplayIdentitySource | null {
+  return value === "public" || value === "protocol" || value === "legacy" ? value : null;
 }
 
 function protocolIdentitySourceValue(
