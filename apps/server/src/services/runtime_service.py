@@ -3915,7 +3915,11 @@ class RuntimeService:
         if legacy_player_id is None:
             legacy_player_id = self._int_or_none(payload.get("player_id"))
         player_id = legacy_player_id or 0
-        payload = public_primary_player_wire_payload(payload, legacy_player_id=legacy_player_id)
+        payload = public_primary_player_wire_payload(
+            payload,
+            legacy_player_id=legacy_player_id,
+            omit_player_id_for_public=True,
+        )
         stream_backend = _stream_backend_of(self._stream_service)
         publish_prompt = lambda: self._stream_service.publish(session_id, "prompt", payload)
         if stream_backend is None:
@@ -3964,7 +3968,11 @@ class RuntimeService:
             public_context=public_context,
             identity_fields=identity_fields,
         )
-        requested = public_primary_player_wire_payload(requested, legacy_player_id=legacy_player_id)
+        requested = public_primary_player_wire_payload(
+            requested,
+            legacy_player_id=legacy_player_id,
+            omit_player_id_for_public=True,
+        )
         publish_event = lambda: self._stream_service.publish(session_id, "event", requested)
         if stream_backend is None:
             _run_runtime_stream_task_sync(

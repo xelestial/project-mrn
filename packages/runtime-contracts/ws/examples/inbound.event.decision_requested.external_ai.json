@@ -7,7 +7,6 @@
     "event_type": "decision_requested",
     "request_id": "req_turn4_purchase_tile",
     "request_type": "purchase_tile",
-    "player_id": "ply_public_2",
     "primary_player_id": "ply_public_2",
     "primary_player_id_source": "public",
     "legacy_player_id": 2,

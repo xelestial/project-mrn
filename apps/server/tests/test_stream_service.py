@@ -381,6 +381,58 @@ class StreamServiceTests(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_read_outbox_mode_routes_primary_only_prompt_to_public_viewer_identity(self) -> None:
+        service = StreamService(outbox_mode="read")
+
+        async def _run() -> None:
+            seat = ViewerContext(
+                role="seat",
+                session_id="s1",
+                player_id=1,
+                legacy_player_id=1,
+                public_player_id="ply_1",
+                seat_id="seat_1",
+                viewer_id="viewer_1",
+            )
+            other = ViewerContext(
+                role="seat",
+                session_id="s1",
+                player_id=2,
+                legacy_player_id=2,
+                public_player_id="ply_2",
+                seat_id="seat_2",
+                viewer_id="viewer_2",
+            )
+            spectator = ViewerContext(role="spectator", session_id="s1")
+            seat_queue = await service.subscribe("s1", "seat-1", viewer=seat)
+            other_queue = await service.subscribe("s1", "seat-2", viewer=other)
+            spectator_queue = await service.subscribe("s1", "spectator", viewer=spectator)
+
+            await service.publish(
+                "s1",
+                "prompt",
+                module_prompt(
+                    {
+                        "request_id": "r_primary_only",
+                        "legacy_player_id": 1,
+                        "primary_player_id": "ply_1",
+                        "primary_player_id_source": "public",
+                        "public_player_id": "ply_1",
+                        "seat_id": "seat_1",
+                        "viewer_id": "viewer_1",
+                    }
+                ),
+            )
+
+            seat_prompt = await asyncio.wait_for(seat_queue.get(), timeout=0.5)
+            self.assertEqual(seat_prompt["type"], "prompt")
+            self.assertEqual(seat_prompt["payload"]["request_id"], "r_primary_only")
+            self.assertNotIn("player_id", seat_prompt["payload"])
+            self.assertTrue(other_queue.empty())
+            self.assertTrue(spectator_queue.empty())
+
+        asyncio.run(_run())
+
     def test_snapshot_returns_all_buffered_messages(self) -> None:
         service = StreamService()
 

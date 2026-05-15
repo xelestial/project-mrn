@@ -110,6 +110,24 @@ def test_public_primary_player_wire_payload_uses_explicit_legacy_player_id_for_p
     assert payload["primary_player_id_source"] == "public"
 
 
+def test_public_primary_player_wire_payload_can_omit_public_top_level_player_id() -> None:
+    payload = public_primary_player_wire_payload(
+        {
+            "request_id": "req_1",
+            "player_id": 2,
+            "public_player_id": "ply_2",
+            "player_id_alias_role": "legacy_compatibility_alias",
+        },
+        omit_player_id_for_public=True,
+    )
+
+    assert "player_id" not in payload
+    assert payload["legacy_player_id"] == 2
+    assert "player_id_alias_role" not in payload
+    assert payload["primary_player_id"] == "ply_2"
+    assert payload["primary_player_id_source"] == "public"
+
+
 def test_public_primary_player_wire_payload_labels_legacy_only_payload() -> None:
     payload = public_primary_player_wire_payload(
         {

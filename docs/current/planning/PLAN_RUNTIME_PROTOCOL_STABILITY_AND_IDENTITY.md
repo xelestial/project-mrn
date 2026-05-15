@@ -954,8 +954,9 @@ Acceptance evidence status, 2026-05-15:
   with embedded view-state is now schema-checked with the same legacy alias metadata as the
   `movement` prompt example, so no frozen prompt example presents a bare numeric target identity.
   Runtime prompt publishing now applies
-  the same public-primary wire conversion to WebSocket `prompt` messages and paired
-  `decision_requested` events while preserving the numeric seat only as explicit
+  the primary-only public wire conversion to WebSocket `prompt` messages and paired
+  `decision_requested` events: top-level `player_id` is omitted when public/protocol
+  identity companions are present, and the numeric seat is preserved only as explicit
   `legacy_player_id`; the pending prompt stored in `PromptService` remains numeric for internal
   routing.
   WebSocket `decision_ack` payloads, schema, and examples now expose the same primary identity
@@ -969,10 +970,10 @@ Acceptance evidence status, 2026-05-15:
   identity example. `build_decision_ack_payload()` now uses that public
   top-level `player_id` when `public_player_id` is available and preserves the numeric
   bridge as explicit `legacy_player_id`; numeric-only ACKs remain labeled compatibility
-  aliases. The frozen external-AI `decision_requested` event example now also carries public
-  string top-level `player_id`, matching `primary_player_id`/`public_player_id`, and preserves
-  the numeric seat only as `legacy_player_id`, so the runtime contract example matches the
-  prompt publishing wire shape.
+  aliases. The frozen external-AI `decision_requested` event example now also omits top-level
+  `player_id`, carries public identity through `primary_player_id`/`public_player_id`, and
+  preserves the numeric seat only as `legacy_player_id`, so the runtime contract example
+  matches the prompt publishing wire shape.
   The frozen WebSocket decision sequence examples now also require direct numeric
   fanout `player_id` events to carry explicit legacy/public/seat/viewer companions and
   `acting_player_id` domain events to carry actor-prefixed companions, so sequence

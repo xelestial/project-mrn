@@ -156,11 +156,6 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 "inbound.decision_ack.public_identity.json",
                 ("payload",),
             ),
-            (
-                "inbound.event.schema.json",
-                "inbound.event.decision_requested.external_ai.json",
-                ("payload",),
-            ),
         ]
 
         for schema_name, example_name, payload_path in specs:
@@ -380,6 +375,26 @@ class RuntimeContractExampleTests(unittest.TestCase):
         _validate_subset(example, schema, path="$<inbound.prompt.primary_identity>")
         payload = example.get("payload")
         self.assertIsInstance(payload, dict)
+        self.assertNotIn("player_id", payload)
+        self.assertNotIn("player_id_alias_role", payload)
+        self.assertIsInstance(payload.get("primary_player_id"), str)
+        self.assertEqual(payload.get("primary_player_id_source"), "public")
+        self.assertEqual(payload.get("public_player_id"), payload.get("primary_player_id"))
+        self.assertIsInstance(payload.get("legacy_player_id"), int)
+        self.assertIsInstance(payload.get("seat_id"), str)
+        self.assertIsInstance(payload.get("viewer_id"), str)
+
+    def test_decision_requested_event_example_uses_primary_identity_without_player_id(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "inbound.event.schema.json")
+        example_path = root / "examples" / "inbound.event.decision_requested.external_ai.json"
+        self.assertTrue(example_path.exists(), "inbound.event.decision_requested.external_ai.json must exist")
+        example = _load_json(example_path)
+
+        _validate_subset(example, schema, path="$<inbound.event.decision_requested.external_ai>")
+        payload = example.get("payload")
+        self.assertIsInstance(payload, dict)
+        self.assertEqual(payload.get("event_type"), "decision_requested")
         self.assertNotIn("player_id", payload)
         self.assertNotIn("player_id_alias_role", payload)
         self.assertIsInstance(payload.get("primary_player_id"), str)

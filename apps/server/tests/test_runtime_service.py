@@ -9148,7 +9148,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 messages_after_publish[0].payload["legacy_request_id"],
                 "runtime_boundary_delayed_req_1",
             )
-            self.assertEqual(messages_after_publish[0].payload["player_id"], seat.public_player_id)
+            self.assertNotIn("player_id", messages_after_publish[0].payload)
             self.assertEqual(messages_after_publish[0].payload["legacy_player_id"], 2)
             self.assertNotIn("player_id_alias_role", messages_after_publish[0].payload)
             self.assertEqual(messages_after_publish[0].payload["primary_player_id"], seat.public_player_id)
@@ -9162,7 +9162,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 messages_after_publish[1].payload["legacy_request_id"],
                 "runtime_boundary_delayed_req_1",
             )
-            self.assertEqual(messages_after_publish[1].payload["player_id"], seat.public_player_id)
+            self.assertNotIn("player_id", messages_after_publish[1].payload)
             self.assertEqual(messages_after_publish[1].payload["legacy_player_id"], 2)
             self.assertNotIn("player_id_alias_role", messages_after_publish[1].payload)
             self.assertEqual(messages_after_publish[1].payload["primary_player_id"], seat.public_player_id)

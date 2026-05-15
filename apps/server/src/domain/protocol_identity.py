@@ -58,7 +58,12 @@ def seat_protocol_fields(seat: Any) -> dict[str, Any]:
     return fields
 
 
-def public_primary_player_wire_payload(payload: dict[str, Any], *, legacy_player_id: Any | None = None) -> dict[str, Any]:
+def public_primary_player_wire_payload(
+    payload: dict[str, Any],
+    *,
+    legacy_player_id: Any | None = None,
+    omit_player_id_for_public: bool = False,
+) -> dict[str, Any]:
     result = dict(payload)
     public_player_id = str(result.get("public_player_id") or "").strip()
     legacy_id = _int_or_none(legacy_player_id)
@@ -68,7 +73,10 @@ def public_primary_player_wire_payload(payload: dict[str, Any], *, legacy_player
         legacy_id = _int_or_none(result.get("player_id"))
 
     if public_player_id:
-        result["player_id"] = public_player_id
+        if omit_player_id_for_public:
+            result.pop("player_id", None)
+        else:
+            result["player_id"] = public_player_id
         if legacy_id is not None:
             result["legacy_player_id"] = legacy_id
         result.pop("player_id_alias_role", None)

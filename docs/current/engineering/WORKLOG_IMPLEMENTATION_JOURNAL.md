@@ -11,6 +11,24 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Runtime Prompt Primary-Only Publish
+
+- Runtime prompt publishing now calls `public_primary_player_wire_payload()` with
+  `omit_player_id_for_public=True` for WebSocket `prompt` messages and paired
+  `decision_requested` events when public identity companions are present.
+- The helper default still emits public top-level `player_id`, so ACK producers
+  and other existing callers keep their current compatibility shape until they
+  are migrated deliberately.
+- Added stream read-outbox coverage proving a primary-only prompt still routes to
+  the authorized public/seat/viewer identity and remains hidden from other seats
+  and spectators.
+- Updated the frozen external-AI `decision_requested` event example to match the
+  primary-only runtime prompt publish shape.
+
+Responsibility result: runtime prompt publishing now owns the primary-only public
+wire shape for prompt and decision-request delivery. Pending prompt storage,
+decision ACK production, and engine numeric routing remain unchanged.
+
 ## 2026-05-15 WS Prompt Primary-Only Fixture
 
 - Added frozen `inbound.prompt.primary_identity.json` so the WebSocket contract
@@ -1592,17 +1610,17 @@ indexing, and runtime storage remain unchanged.
 
 ## 2026-05-15 External AI Decision Requested Event Example
 
-- Extended the WebSocket public-primary example gate to the external-AI
-  `decision_requested` event example.
-- Updated `inbound.event.decision_requested.external_ai.json` so top-level
-  `player_id`, `primary_player_id`, and `public_player_id` are the public string
-  identity, with the numeric seat preserved only as `legacy_player_id`.
+- Re-aligned the external-AI `decision_requested` event example with the
+  runtime prompt publish contract: public/protocol identity is carried by
+  `primary_player_id`, `public_player_id`, `seat_id`, and `viewer_id`; top-level
+  `player_id` is intentionally absent.
+- The numeric seat is preserved only as `legacy_player_id`.
 - Left `inbound.event.schema.json` broad because domain events still share one
   compatibility envelope.
 
-Responsibility result: runtime-contract examples now own the public-primary
-event evidence that runtime prompt publishing already emits. Event schema
-compatibility and engine routing bridges remain unchanged.
+Responsibility result: runtime-contract examples now own primary-only public
+event evidence for the runtime prompt/decision-requested publish boundary.
+Event schema compatibility and engine routing bridges remain unchanged.
 
 ## 2026-05-15 Decision Sequence Event Identity Companions
 
