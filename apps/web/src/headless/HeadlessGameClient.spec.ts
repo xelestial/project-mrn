@@ -289,6 +289,7 @@ describe("HeadlessGameClient", () => {
     });
     expect(client.trace.find((event) => event.event === "decision_sent")).toMatchObject({
       player_id: 2,
+      player_id_alias_role: "legacy_debug_alias",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       protocol_player_id: "player_public_2",

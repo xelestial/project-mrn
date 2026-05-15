@@ -201,8 +201,9 @@ identity for legacy prompts. Rendered UI prompt actionability
 now compares `LocalViewerIdentity` public/protocol/viewer/seat identity against
 `PromptViewModel.identity` before legacy fallback, while queued burden-exchange suppression stays on
 the prompt primary identity helper. Headless trace events now expose top-level
-`primary_player_id`, source, protocol, legacy, public, seat, and viewer companions
-so JSONL consumers no longer need numeric top-level `player_id` as the only player
+`primary_player_id`, source, protocol, legacy, public, seat, and viewer companions,
+and label numeric top-level `player_id` as `player_id_alias_role: "legacy_debug_alias"`,
+so JSONL consumers no longer need numeric top-level `player_id` as the primary player
 identity. The full-stack protocol harness active-prompt pace, repetition, and
 command-latency diagnostics now consume those primary identity fields before
 legacy numeric aliases. The local React viewer state now uses an explicit

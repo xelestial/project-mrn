@@ -11,6 +11,19 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Headless Trace Alias Role Boundary
+
+- `HeadlessTraceEvent` now labels top-level numeric trace `player_id` as
+  `player_id_alias_role: "legacy_debug_alias"` through the shared
+  `recordTrace()` path.
+- Public/protocol `primary_player_id` and companion fields remain the primary
+  identity for trace consumers.
+
+Responsibility result: trace producer output now explicitly owns alias
+classification. Numeric trace `player_id` remains compatibility/debug data;
+WebSocket protocol, server runtime routing, and replay output shape did not
+move.
+
 ## 2026-05-15 Stream View-State Actor Bridge Review
 
 - `streamSelectors.ts` now resolves view-state turn-stage actors, scene

@@ -100,6 +100,7 @@ export type HeadlessTraceEvent = {
   ts_ms?: number;
   session_id: string;
   player_id: number;
+  player_id_alias_role?: "legacy_debug_alias";
   primary_player_id?: ProtocolPlayerId;
   primary_player_id_source?: "public" | "protocol" | "legacy";
   protocol_player_id?: ProtocolPlayerId;
@@ -618,6 +619,7 @@ export class HeadlessGameClient {
     this.trace.push({
       ts_ms: Date.now(),
       ...this.currentTraceIdentityFields(),
+      player_id_alias_role: "legacy_debug_alias",
       ...event,
     });
   }
