@@ -199,17 +199,19 @@ function numericProtocolPlayerId(playerId: ProtocolPlayerId): number | null {
   return null;
 }
 
-function decisionProtocolPlayerId(
-  fallbackPlayerId: ProtocolPlayerId,
-  primaryPlayer: { playerId: ProtocolPlayerId; source: PromptIdentitySource },
-): ProtocolPlayerId {
-  if (
-    (primaryPlayer.source === "public" || primaryPlayer.source === "protocol") &&
-    typeof primaryPlayer.playerId === "string"
-  ) {
-    return primaryPlayer.playerId;
+function decisionLegacyAliasPlayerId(args: {
+  fallbackPlayerId: ProtocolPlayerId;
+  primaryPlayer: { playerId: ProtocolPlayerId; source: PromptIdentitySource };
+  legacyPlayerId: number | null;
+}): number | null {
+  if (args.primaryPlayer.source !== "legacy") {
+    return null;
   }
-  return fallbackPlayerId;
+  return (
+    numericProtocolPlayerId(args.primaryPlayer.playerId) ??
+    args.legacyPlayerId ??
+    numericProtocolPlayerId(args.fallbackPlayerId)
+  );
 }
 
 export function buildDecisionMessage(args: {
@@ -240,16 +242,23 @@ export function buildDecisionMessage(args: {
     legacyPlayerId,
     publicPlayerId,
   });
-  const playerId = decisionProtocolPlayerId(args.playerId, primaryPlayer);
-  const topLevelPlayerIdIsLegacyAlias = numericProtocolPlayerId(playerId) !== null;
+  const playerId = decisionLegacyAliasPlayerId({
+    fallbackPlayerId: args.playerId,
+    primaryPlayer,
+    legacyPlayerId,
+  });
   const seatId = optionalString(args.seatId);
   const viewerId = optionalString(args.viewerId);
   const publicPromptInstanceId = optionalString(continuation?.publicPromptInstanceId);
   return {
     type: "decision",
     request_id: args.requestId,
-    player_id: playerId,
-    ...(topLevelPlayerIdIsLegacyAlias ? { player_id_alias_role: "legacy_compatibility_alias" as const } : {}),
+    ...(playerId !== null
+      ? {
+          player_id: playerId,
+          player_id_alias_role: "legacy_compatibility_alias" as const,
+        }
+      : {}),
     primary_player_id: primaryPlayer.playerId,
     primary_player_id_source: primaryPlayer.source,
     ...(legacyPlayerId !== null ? { legacy_player_id: legacyPlayerId } : {}),

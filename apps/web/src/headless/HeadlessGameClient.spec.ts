@@ -247,7 +247,8 @@ describe("HeadlessGameClient", () => {
     expect(outbound[0]).toMatchObject({
       type: "decision",
       request_id: "req_public_player_12",
-      player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
       legacy_player_id: 2,
       public_player_id: "player_public_2",
       seat_id: "seat_public_2",
@@ -255,6 +256,7 @@ describe("HeadlessGameClient", () => {
       choice_id: "buy",
       choice_payload: { tile_index: 7, buy: true },
     });
+    expect(outbound[0]).not.toHaveProperty("player_id");
     expect(client.trace.find((event) => event.event === "view_commit_seen")?.payload).toMatchObject({
       active_prompt_identity: {
         primary_player_id: "player_public_2",
@@ -333,7 +335,8 @@ describe("HeadlessGameClient", () => {
     expect(outbound[0]).toMatchObject({
       type: "decision",
       request_id: "req_public_only_player_13",
-      player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
       legacy_player_id: 2,
       public_player_id: "player_public_2",
       seat_id: "seat_public_2",
@@ -341,6 +344,7 @@ describe("HeadlessGameClient", () => {
       choice_id: "buy",
       choice_payload: { tile_index: 8, buy: true },
     });
+    expect(outbound[0]).not.toHaveProperty("player_id");
   });
 
   it("prefers explicit prompt primary identity over a numeric active prompt alias", async () => {
@@ -371,13 +375,13 @@ describe("HeadlessGameClient", () => {
     expect(outbound[0]).toMatchObject({
       type: "decision",
       request_id: "req_explicit_primary_15",
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       legacy_player_id: 2,
       choice_id: "buy",
       choice_payload: { tile_index: 10, buy: true },
     });
+    expect(outbound[0]).not.toHaveProperty("player_id");
     expect(outbound[0]).not.toHaveProperty("player_id_alias_role");
     expect(client.trace.find((event) => event.event === "view_commit_seen")?.payload).toMatchObject({
       active_prompt_identity: {
@@ -545,11 +549,13 @@ describe("HeadlessGameClient", () => {
     expect(outbound[0]).toMatchObject({
       type: "decision",
       request_id: "req_numeric_viewer_public_prompt_17",
-      player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "protocol",
       legacy_player_id: 2,
       choice_id: "buy",
       choice_payload: { tile_index: 12, buy: true },
     });
+    expect(outbound[0]).not.toHaveProperty("player_id");
   });
 
   it("declines repeatable burden exchange by default to keep protocol playtests bounded", async () => {

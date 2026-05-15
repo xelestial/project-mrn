@@ -11,6 +11,24 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 WebSocket Decision Primary-Only Publish
+
+- `buildDecisionMessage()` no longer emits top-level `player_id` for
+  public/protocol WebSocket decisions. It publishes `primary_player_id`,
+  `primary_player_id_source`, public/seat/viewer companions, and explicit
+  `legacy_player_id` instead.
+- Legacy-only numeric decisions still emit numeric `player_id` with
+  `player_id_alias_role: "legacy_compatibility_alias"`.
+- Browser and headless WebSocket decision producers now share this primary-only
+  public/protocol shape through the same builder and transport serializer.
+- `OutboundMessage.player_id` is optional so the TypeScript stream contract
+  matches the runtime WebSocket schema's primary/public identity channels.
+
+Responsibility result: WebSocket decision production moved off public
+top-level `player_id`. Server receive compatibility, `PromptService` numeric
+routing, HTTP decision policy requests, and smoke-script decision submitters
+remain separate compatibility boundaries.
+
 ## 2026-05-15 Active Prompt View-State Primary-Only Publish
 
 - `build_prompt_view_state()` no longer emits top-level `player_id` for
@@ -545,11 +563,12 @@ legacy-only prompt input.
   when available and mirror that value in `identity.player_id`. Numeric
   `player_id` plus `player_id_alias_role: "legacy_compatibility_alias"` remains
   only for legacy-only policy input.
-- Browser decision serialization, headless HTTP policy requests, external-AI
-  smoke worker/callback payloads, and Redis restart smoke decision payloads now
-  reject malformed numeric public/protocol `primary_player_id` values when a
-  public companion can repair the identity. This keeps top-level decision
-  `player_id` public/protocol-first even across mixed migration payloads.
+- Browser WebSocket decision serialization now omits top-level `player_id` for
+  public/protocol decisions, while headless HTTP policy requests,
+  external-AI smoke worker/callback payloads, and Redis restart smoke decision
+  payloads still keep their separate compatibility behavior. All of these
+  producers reject malformed numeric public/protocol `primary_player_id` values
+  when a public companion can repair the identity.
 - Headless view-commit trace compaction now consumes explicit active-prompt
   `primary_player_id` plus `primary_player_id_source` before numeric aliases.
   Numeric `active_prompt_player_id` and `active_prompt_protocol_player_id`
@@ -1386,13 +1405,13 @@ only as replay lookup and legacy-only compatibility input.
 
 ## 2026-05-14 Headless Submitted Decision Public Identity
 
-- Added decision-protocol and headless coverage that fails when an active prompt
-  still carries numeric top-level `player_id` but also carries explicit public
-  `primary_player_id`, and the outbound decision still submits the numeric
-  alias.
-- `buildDecisionMessage()` now chooses the submitted top-level `player_id` from
-  explicit public/protocol `primaryPlayerId` before falling back to the legacy
-  active-prompt `playerId`.
+- Added decision-protocol and headless coverage for the migration step where an
+  active prompt still carried numeric top-level `player_id` but also carried
+  explicit public `primary_player_id`.
+- This 2026-05-14 step first moved WebSocket decision submission from the
+  numeric active-prompt alias to public/protocol submitted identity. The
+  2026-05-15 WebSocket decision primary-only step supersedes that producer
+  shape by omitting top-level `player_id` for public/protocol decisions.
 - Legacy-only decisions still submit numeric `player_id` and label it with
   `player_id_alias_role: "legacy_compatibility_alias"`.
 - `HeadlessGameClient` keeps numeric trace `player_id` as the local seat/debug
@@ -1411,7 +1430,8 @@ fallback routing intentionally remain numeric compatibility surfaces.
   `primaryPlayerId` is public.
 - No production hook change was required: `useGameStream` already delegates
   decision payload serialization to `buildDecisionMessage()`, and that shared
-  builder now owns submitted top-level `player_id` selection.
+  builder owns WebSocket decision identity production. The current producer
+  shape is primary-only for public/protocol identity.
 - The legacy numeric-only decision test remains in the same suite and continues
   to require `player_id_alias_role: "legacy_compatibility_alias"`.
 

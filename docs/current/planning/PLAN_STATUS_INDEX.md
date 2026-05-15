@@ -167,9 +167,11 @@ Those themes should reopen only if a concrete regression or rollout need appears
    aliases and numeric `prompt_instance_id` lifecycle keys, remain explicit
    residual migration boundaries rather than hidden completion. Runtime
    contracts now require numeric `player_id` aliases to carry
-   `legacy_player_id` in addition to alias role and primary identity metadata,
-   and server active prompt view-state now preserves public/protocol top-level
-   `player_id` when available instead of forcing it through the numeric bridge.
+   `legacy_player_id` in addition to alias role and primary identity metadata.
+   Server active prompt view-state and WebSocket decision producers now omit
+   top-level `player_id` for public/protocol identity, publish
+   `primary_player_id` plus source and public/seat/viewer companions, and keep
+   `legacy_player_id` as the explicit numeric bridge.
    Frontend decision duplicate-flight keys now prefer
    `publicPromptInstanceId` over the numeric `promptInstanceId` lifecycle alias
    when no prompt fingerprint is present, while decision payloads still carry

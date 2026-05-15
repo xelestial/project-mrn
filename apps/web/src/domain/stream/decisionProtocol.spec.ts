@@ -85,7 +85,7 @@ describe("decisionProtocol lifecycle handling", () => {
     ).toBe("player:player_public_2\nprompt:public_prompt_instance:prompt_public_17\naction:purchase");
   });
 
-  it("emits public player identity as protocol player_id while preserving legacy numeric alias", () => {
+  it("emits public player identity as primary-only protocol identity while preserving legacy numeric alias", () => {
     expect(
       buildDecisionMessage({
         requestId: "req_public_player",
@@ -101,7 +101,6 @@ describe("decisionProtocol lifecycle handling", () => {
     ).toEqual({
       type: "decision",
       request_id: "req_public_player",
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       legacy_player_id: 2,
@@ -137,7 +136,7 @@ describe("decisionProtocol lifecycle handling", () => {
     });
   });
 
-  it("prefers explicit primary player identity over a numeric top-level alias", () => {
+  it("prefers explicit primary player identity without emitting a public top-level alias", () => {
     const message = buildDecisionMessage({
       requestId: "req_explicit_primary",
       playerId: 2,
@@ -152,7 +151,6 @@ describe("decisionProtocol lifecycle handling", () => {
     expect(message).toMatchObject({
       type: "decision",
       request_id: "req_explicit_primary",
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       legacy_player_id: 2,
@@ -160,6 +158,7 @@ describe("decisionProtocol lifecycle handling", () => {
       view_commit_seq_seen: 12,
       client_seq: 13,
     });
+    expect(message).not.toHaveProperty("player_id");
     expect(message).not.toHaveProperty("player_id_alias_role");
   });
 
@@ -179,7 +178,6 @@ describe("decisionProtocol lifecycle handling", () => {
     expect(message).toMatchObject({
       type: "decision",
       request_id: "req_invalid_numeric_public_primary",
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       legacy_player_id: 2,
@@ -188,6 +186,7 @@ describe("decisionProtocol lifecycle handling", () => {
       view_commit_seq_seen: 12,
       client_seq: 13,
     });
+    expect(message).not.toHaveProperty("player_id");
     expect(message).not.toHaveProperty("player_id_alias_role");
   });
 
@@ -218,39 +217,41 @@ describe("decisionProtocol lifecycle handling", () => {
   });
 
   it("emits public prompt instance identity while preserving the legacy numeric alias", () => {
-    expect(
-      buildDecisionMessage({
-        requestId: "req_public_prompt",
-        playerId: "player_public_2",
-        legacyPlayerId: 2,
-        publicPlayerId: "player_public_2",
-        choiceId: "roll",
-        continuation: {
-          promptInstanceId: 17,
-          publicPromptInstanceId: "prompt_public_17",
-          promptFingerprint: "sha256:prompt-17",
-          promptFingerprintVersion: "prompt-fingerprint-v1",
-          resumeToken: "resume:req_public_prompt",
-          frameId: "frame:2",
-          moduleId: "module:2",
-          moduleType: "PromptModule",
-          moduleCursor: "await_choice",
-          batchId: null,
-        },
-        viewCommitSeqSeen: 12,
-        clientSeq: 13,
-      }),
-    ).toMatchObject({
+    const message = buildDecisionMessage({
+      requestId: "req_public_prompt",
+      playerId: "player_public_2",
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      choiceId: "roll",
+      continuation: {
+        promptInstanceId: 17,
+        publicPromptInstanceId: "prompt_public_17",
+        promptFingerprint: "sha256:prompt-17",
+        promptFingerprintVersion: "prompt-fingerprint-v1",
+        resumeToken: "resume:req_public_prompt",
+        frameId: "frame:2",
+        moduleId: "module:2",
+        moduleType: "PromptModule",
+        moduleCursor: "await_choice",
+        batchId: null,
+      },
+      viewCommitSeqSeen: 12,
+      clientSeq: 13,
+    });
+
+    expect(message).toMatchObject({
       type: "decision",
       request_id: "req_public_prompt",
-      player_id: "player_public_2",
       legacy_player_id: 2,
       public_player_id: "player_public_2",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
       prompt_instance_id: 17,
       public_prompt_instance_id: "prompt_public_17",
       prompt_fingerprint: "sha256:prompt-17",
       view_commit_seq_seen: 12,
       client_seq: 13,
     });
+    expect(message).not.toHaveProperty("player_id");
   });
 });

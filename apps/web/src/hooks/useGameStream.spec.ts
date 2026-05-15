@@ -260,7 +260,7 @@ describe("useGameStream authoritative commit helpers", () => {
     ).toBe("player:player_public_2\nprompt:sha256:prompt-96\naction:purchase");
   });
 
-  it("builds UI decision messages from explicit primary identity instead of numeric prompt alias", () => {
+  it("builds UI decision messages from explicit primary identity without public top-level alias", () => {
     const message = buildDecisionMessage({
       requestId: "req_ui_explicit_primary",
       playerId: 2,
@@ -287,7 +287,6 @@ describe("useGameStream authoritative commit helpers", () => {
     expect(message).toMatchObject({
       type: "decision",
       request_id: "req_ui_explicit_primary",
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       legacy_player_id: 2,
@@ -304,6 +303,7 @@ describe("useGameStream authoritative commit helpers", () => {
       view_commit_seq_seen: 43,
       client_seq: 43,
     });
+    expect(message).not.toHaveProperty("player_id");
     expect(message).not.toHaveProperty("player_id_alias_role");
   });
 

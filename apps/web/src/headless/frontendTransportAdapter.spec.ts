@@ -158,7 +158,7 @@ describe("frontendTransportAdapter", () => {
     );
   });
 
-  it("preserves public decision identity at the final websocket serialization boundary", () => {
+  it("preserves primary-only public decision identity at the final websocket serialization boundary", () => {
     const decision = buildDecisionMessage({
       requestId: "req_public_transport",
       playerId: 2,
@@ -190,7 +190,6 @@ describe("frontendTransportAdapter", () => {
     expect(serialized).toMatchObject({
       type: "decision",
       request_id: "req_public_transport",
-      player_id: "ply_transport_2",
       primary_player_id: "ply_transport_2",
       primary_player_id_source: "public",
       legacy_player_id: 2,
@@ -202,6 +201,7 @@ describe("frontendTransportAdapter", () => {
       view_commit_seq_seen: 17,
       client_seq: 18,
     });
+    expect(serialized).not.toHaveProperty("player_id");
     expect(serialized).not.toHaveProperty("player_id_alias_role");
   });
 });
