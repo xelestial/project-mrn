@@ -334,6 +334,21 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["choice_id"], "3")
         self.assertEqual(payload["choice_payload"]["value"]["target_public_player_id"], "player_public_3")
 
+    def test_decide_ignores_conflicting_target_identity_companions_for_mark_target(self) -> None:
+        request = _mark_target_payload()
+        request["public_context"] = {
+            "actor_name": "Bandit",
+            "preferred_target_public_player_id": "player_public_3",
+            "preferred_target_player_id": 2,
+        }
+
+        response = self.client.post("/decide", json=request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "2")
+        self.assertEqual(payload["choice_payload"]["value"]["target_public_player_id"], "player_public_2")
+
     def test_decide_prefers_target_seat_identity_for_doctrine_relief(self) -> None:
         response = self.client.post("/decide", json=_doctrine_relief_payload())
 

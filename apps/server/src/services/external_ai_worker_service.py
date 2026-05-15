@@ -81,38 +81,30 @@ def _matches_any_int(value: int | None, candidates: tuple[Any, ...]) -> bool:
     return any(_as_int(candidate) == value for candidate in candidates)
 
 
-def _preferred_target_choice_id_from_context(
-    public_context: dict[str, Any],
+def _target_choice_id_for_string(
+    preferred: str | None,
     by_id: dict[str, dict[str, Any]],
+    candidate_fields: tuple[str, ...],
 ) -> str | None:
-    preferred_public_player_id = _as_non_empty_string(public_context.get("preferred_target_public_player_id"))
-    preferred_seat_id = _as_non_empty_string(public_context.get("preferred_target_seat_id"))
-    preferred_viewer_id = _as_non_empty_string(public_context.get("preferred_target_viewer_id"))
+    if preferred is None:
+        return None
     for choice_id, choice in by_id.items():
         value = _choice_value(choice)
-        if _matches_any_string(
-            preferred_public_player_id,
-            (
-                value.get("target_public_player_id"),
-                value.get("public_player_id"),
-            ),
-        ):
+        if _matches_any_string(preferred, tuple(value.get(field) for field in candidate_fields)):
             return choice_id
-        if _matches_any_string(preferred_seat_id, (value.get("target_seat_id"), value.get("seat_id"))):
-            return choice_id
-        if _matches_any_string(preferred_viewer_id, (value.get("target_viewer_id"), value.get("viewer_id"))):
-            return choice_id
+    return None
 
-    preferred_target = _as_int(public_context.get("preferred_target_player_id"))
-    if preferred_target is None:
+
+def _target_choice_id_for_legacy_int(preferred: int | None, by_id: dict[str, dict[str, Any]]) -> str | None:
+    if preferred is None:
         return None
-    preferred_choice_id = str(preferred_target)
+    preferred_choice_id = str(preferred)
     if preferred_choice_id in by_id:
         return preferred_choice_id
     for choice_id, choice in by_id.items():
         value = _choice_value(choice)
         if _matches_any_int(
-            preferred_target,
+            preferred,
             (
                 value.get("target_player_id"),
                 value.get("target_legacy_player_id"),
@@ -122,6 +114,35 @@ def _preferred_target_choice_id_from_context(
         ):
             return choice_id
     return None
+
+
+def _preferred_target_choice_id_from_context(
+    public_context: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+) -> str | None:
+    preferred_public_player_id = _as_non_empty_string(public_context.get("preferred_target_public_player_id"))
+    preferred_seat_id = _as_non_empty_string(public_context.get("preferred_target_seat_id"))
+    preferred_viewer_id = _as_non_empty_string(public_context.get("preferred_target_viewer_id"))
+    preferred_target = _as_int(public_context.get("preferred_target_player_id"))
+    matched_choice_ids = [
+        choice_id
+        for choice_id in (
+            _target_choice_id_for_string(
+                preferred_public_player_id,
+                by_id,
+                ("target_public_player_id", "public_player_id"),
+            ),
+            _target_choice_id_for_string(preferred_seat_id, by_id, ("target_seat_id", "seat_id")),
+            _target_choice_id_for_string(preferred_viewer_id, by_id, ("target_viewer_id", "viewer_id")),
+            _target_choice_id_for_legacy_int(preferred_target, by_id),
+        )
+        if choice_id is not None
+    ]
+    if not matched_choice_ids:
+        return None
+    if len(set(matched_choice_ids)) != 1:
+        return None
+    return matched_choice_ids[0]
 
 
 def _first_non_secondary_choice_id(by_id: dict[str, dict[str, Any]], ids: list[str]) -> str:

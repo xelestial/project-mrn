@@ -1291,6 +1291,21 @@ Responsibility result: the frontend transport adapter remains a wire
 serialization boundary. It preserves the decision protocol shape produced by
 the shared builder; it does not interpret or repair identity.
 
+## 2026-05-15 External AI Target Identity Conflict Guard
+
+- Added external AI worker API coverage for conflicting target preference
+  companions where public target identity points at one legal choice and the
+  numeric legacy target alias points at another.
+- Target preference resolution now evaluates public-player, seat, viewer, and
+  numeric legacy companions as one candidate set, and ignores the preference
+  when supplied companions resolve to different choices.
+- Raw choice payload echo and numeric target bridge fields remain unchanged.
+
+Responsibility result: external AI worker policy now owns conflict-safe target
+preference interpretation. It does not validate the full request envelope or
+remove numeric target aliases; those remain compatibility inputs until the
+engine command boundary no longer needs them.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
