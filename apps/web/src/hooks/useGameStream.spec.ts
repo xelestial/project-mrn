@@ -222,6 +222,44 @@ describe("useGameStream authoritative commit helpers", () => {
     ).toBe("player:player_public_2\nprompt:sha256:prompt-94\naction:purchase");
   });
 
+  it("repairs malformed numeric public primary identity for decision flights", () => {
+    const flightIdentity = resolveDecisionFlightIdentity({
+      playerId: 2,
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      primaryPlayerId: 2,
+      primaryPlayerIdSource: "public",
+    });
+
+    expect(flightIdentity).toEqual({
+      playerId: "player_public_2",
+      source: "public",
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+    });
+    if (flightIdentity === null) {
+      throw new Error("expected repaired public decision flight identity");
+    }
+    expect(
+      buildDecisionFlightKey({
+        requestId: "req_malformed_primary_prompt",
+        playerId: flightIdentity.playerId,
+        requestType: "purchase",
+        continuation: {
+          promptInstanceId: 96,
+          promptFingerprint: "sha256:prompt-96",
+          promptFingerprintVersion: "prompt-fingerprint-v1",
+          resumeToken: "resume-96",
+          frameId: "turn:3:p2",
+          moduleId: "mod:purchase:96",
+          moduleType: "PurchaseModule",
+          moduleCursor: "purchase:await_choice",
+          batchId: null,
+        },
+      }),
+    ).toBe("player:player_public_2\nprompt:sha256:prompt-96\naction:purchase");
+  });
+
   it("builds UI decision messages from explicit primary identity instead of numeric prompt alias", () => {
     const message = buildDecisionMessage({
       requestId: "req_ui_explicit_primary",

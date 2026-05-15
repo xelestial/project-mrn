@@ -1040,7 +1040,9 @@ Acceptance evidence status, 2026-05-15:
   decision payloads prefer public/protocol top-level `player_id` when available while preserving
   request/player/seat/viewer identity companions and `primary_player_id` metadata. Numeric top-level
   `player_id` remains only for legacy-only prompt input and is labeled as the compatibility alias; malformed
-  numeric public/protocol primary fields are ignored in favor of public companions.
+  numeric public/protocol primary fields are ignored in favor of public companions. UI duplicate-flight
+  identity resolution follows the same rule, so malformed numeric public/protocol primary fields do not
+  become decision flight keys when public companions are available.
 - `apps/server/tests/test_sessions_api.py::SessionsApiTests::test_start_replay_session_start_includes_initial_active_faces`
   verifies that bootstrap `session_start` replay payloads expose public player, seat, and viewer companions for
   player lists plus marker owner and pawn-id snapshot fields while preserving numeric compatibility aliases and

@@ -11,6 +11,19 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 UI Decision Flight Identity Repair
+
+- `resolveDecisionFlightIdentity()` now rejects numeric explicit primary ids
+  when the declared source is `public` or `protocol`, matching the outbound
+  decision builder and schema rules.
+- Added coverage for malformed public primary input where `primaryPlayerId` is
+  numeric but `publicPlayerId` is available; duplicate-flight keys now use the
+  public identity instead of recording the numeric alias as a public primary.
+
+Responsibility result: UI duplicate suppression and debug evidence now share
+the same primary identity interpretation as outbound decision serialization.
+Numeric ids remain valid only for explicit legacy decision flight identity.
+
 ## 2026-05-15 HTTP Policy Player Summary Legacy Bridge
 
 - `HttpDecisionPolicyRequest.player_summary` now finds compact player rows by

@@ -112,10 +112,12 @@ function explicitDecisionFlightIdentity(
     return null;
   }
   if (typeof playerId === "number" && Number.isFinite(playerId)) {
-    return {
-      playerId: Math.floor(playerId),
-      source,
-    };
+    return source === "legacy"
+      ? {
+          playerId: Math.floor(playerId),
+          source,
+        }
+      : null;
   }
   if (typeof playerId === "string" && playerId.trim()) {
     return {
