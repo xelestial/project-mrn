@@ -157,6 +157,13 @@ def _add_player_identity_metadata(target: dict[str, Any], source: dict[str, Any]
     target["primary_player_id_source"] = primary_player_id_source
 
 
+def _pending_prompt_identity_summary(pending: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {"player_id": pending.get("player_id")}
+    _add_player_identity_metadata(summary, pending)
+    _copy_identity_companions(summary, pending)
+    return summary
+
+
 def _protocol_player_id(source: dict[str, Any]) -> Any:
     primary_player_id, primary_player_id_source = _primary_player_identity(source)
     if primary_player_id_source in {"public", "protocol"}:
@@ -351,7 +358,7 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "worker_health": health,
         "pending_prompt": {
             "request_id": pending.get("request_id"),
-            "player_id": pending.get("player_id"),
+            **_pending_prompt_identity_summary(pending),
             "request_type": pending.get("request_type"),
             "provider": pending.get("provider"),
             "prompt_fingerprint": pending.get("prompt_fingerprint"),

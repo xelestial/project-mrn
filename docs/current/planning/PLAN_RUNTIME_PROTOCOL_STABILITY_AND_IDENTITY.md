@@ -1021,7 +1021,8 @@ Acceptance evidence status, 2026-05-15:
   callback body, sends public/protocol top-level `player_id` when available, and retains numeric `player_id`
   only as a compatibility alias for legacy-only prompt input. It also verifies that malformed numeric
   public/protocol primary fields do not leak back into worker or callback `player_id` payloads when a public
-  companion exists.
+  companion exists, and that operator-facing pending-prompt summaries expose `primary_player_id`,
+  `primary_player_id_source`, and explicit identity companions next to the raw legacy alias.
 - `tests/test_redis_restart_smoke_script.py` verifies that restart decision smoke can select a replay prompt
   whose protocol `player_id` is public by using the explicit numeric legacy bridge, and that submitted
   decision payloads prefer public/protocol top-level `player_id` when available while preserving

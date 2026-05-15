@@ -145,6 +145,31 @@ def test_worker_request_ignores_numeric_public_primary_when_public_companion_exi
     assert request["legacy_player_id"] == 10
 
 
+def test_pending_prompt_summary_exposes_primary_identity_and_companions() -> None:
+    module = _load_module()
+    pending = {
+        "request_id": "req_public_summary",
+        "player_id": 10,
+        "primary_player_id": "player_public_10",
+        "primary_player_id_source": "public",
+        "legacy_player_id": 10,
+        "public_player_id": "player_public_10",
+        "seat_id": "seat_public_1",
+        "viewer_id": "viewer_public_1",
+    }
+
+    summary = module._pending_prompt_identity_summary(pending)
+
+    assert summary["player_id"] == 10
+    assert summary["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert summary["primary_player_id"] == "player_public_10"
+    assert summary["primary_player_id_source"] == "public"
+    assert summary["legacy_player_id"] == 10
+    assert summary["public_player_id"] == "player_public_10"
+    assert summary["seat_id"] == "seat_public_1"
+    assert summary["viewer_id"] == "viewer_public_1"
+
+
 def test_callback_payload_preserves_fingerprint_and_worker_choice_payload() -> None:
     module = _load_module()
     pending = {

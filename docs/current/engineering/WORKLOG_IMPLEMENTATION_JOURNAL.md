@@ -11,6 +11,21 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 External AI Smoke Identity Summary
+
+- `external_ai_full_stack_smoke.py` now includes `primary_player_id`,
+  `primary_player_id_source`, and request/player/seat/viewer companions in the
+  returned `pending_prompt` summary. The raw pending `player_id` is still shown,
+  but it is no longer the only visible identity in operator evidence.
+- Added smoke-script coverage for the mixed migration case where raw
+  `player_id` is a numeric legacy alias and explicit public primary identity is
+  available.
+
+Responsibility result: external-AI smoke reporting moved off bare raw
+`pending_prompt.player_id` evidence. Worker/callback protocol adaptation remains
+owned by the smoke helper, and numeric legacy aliases intentionally remain for
+legacy-only prompt input.
+
 ## 2026-05-15 External AI Target Choice Identity Preference
 
 - External AI worker selection policy now honors `preferred_target_public_player_id`,
