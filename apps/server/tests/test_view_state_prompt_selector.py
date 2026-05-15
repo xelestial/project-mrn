@@ -184,7 +184,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         active = view_state["active"]
         self.assertEqual(active["legacy_request_id"], "legacy_move_1")
         self.assertEqual(active["public_request_id"], "req_public_move_1")
-        self.assertEqual(active["player_id"], "ply_1")
+        self.assertNotIn("player_id", active)
         self.assertEqual(active["public_player_id"], "ply_1")
         self.assertEqual(active["seat_id"], "seat_1")
         self.assertEqual(active["viewer_id"], "view_1")
@@ -249,7 +249,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         )
 
         active = view_state["active"]
-        self.assertEqual(active["player_id"], "ply_1")
+        self.assertNotIn("player_id", active)
         self.assertEqual(active["primary_player_id"], "ply_1")
         self.assertEqual(active["primary_player_id_source"], "public")
         self.assertEqual(active["batch_id"], "batch_public")
@@ -289,7 +289,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         self.assertEqual(active["primary_player_id_source"], "legacy")
         self.assertEqual(active["player_id_alias_role"], "legacy_compatibility_alias")
 
-    def test_build_prompt_view_state_preserves_public_primary_identity_and_legacy_bridge(self) -> None:
+    def test_build_prompt_view_state_emits_primary_only_public_identity_and_legacy_bridge(self) -> None:
         view_state = build_prompt_view_state(
             [
                 {
@@ -316,7 +316,7 @@ class ViewStatePromptSelectorTests(unittest.TestCase):
         )
 
         active = view_state["active"]
-        self.assertEqual(active["player_id"], "ply_2")
+        self.assertNotIn("player_id", active)
         self.assertEqual(active["legacy_player_id"], 2)
         self.assertEqual(active["primary_player_id"], "ply_2")
         self.assertEqual(active["primary_player_id_source"], "public")

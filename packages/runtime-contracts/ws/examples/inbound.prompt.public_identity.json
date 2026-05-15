@@ -37,7 +37,6 @@
         "active": {
           "request_id": "req_public_turn7_move",
           "request_type": "movement",
-          "player_id": "ply_public_1",
           "primary_player_id": "ply_public_1",
           "primary_player_id_source": "public",
           "legacy_player_id": 1,

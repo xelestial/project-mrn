@@ -616,6 +616,26 @@ describe("promptSelectors authoritative ViewCommit contract", () => {
     expect(prompt?.legacyPlayerId).toBe(2);
   });
 
+  it("builds an active prompt from primary-only public identity without top-level player_id", () => {
+    const prompt = promptViewModelFromActivePromptPayload({
+      request_id: "req_primary_only_active",
+      request_type: "movement",
+      primary_player_id: "player_public_2",
+      primary_player_id_source: "public",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat:2",
+      choices: [{ choice_id: "roll", title: "Roll" }],
+    });
+
+    expect(prompt).not.toBeNull();
+    expect(prompt?.protocolPlayerId).toBe("player_public_2");
+    expect(prompt?.primaryPlayerId).toBe("player_public_2");
+    expect(prompt?.primaryPlayerIdSource).toBe("public");
+    expect(prompt?.playerId).toBe(2);
+    expect(prompt?.legacyPlayerId).toBe(2);
+  });
+
   it("can parse a public prompt identity even before the UI can resolve its legacy seat bridge", () => {
     expect(
       promptIdentityFromActivePromptPayload({

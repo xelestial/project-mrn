@@ -11,6 +11,27 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Active Prompt View-State Primary-Only Publish
+
+- `build_prompt_view_state()` no longer emits top-level `player_id` for
+  public/protocol active prompts. It publishes `primary_player_id`,
+  `primary_player_id_source`, `public_player_id`, `seat_id`, `viewer_id`, and
+  explicit `legacy_player_id` instead.
+- Legacy-only numeric active prompts still emit numeric `player_id` with
+  `player_id_alias_role: "legacy_compatibility_alias"`.
+- `promptViewModelFromActivePromptPayload()` can now build a prompt view model
+  from primary/public identity companions even when top-level active-prompt
+  `player_id` is absent.
+- The nested `view_state.prompt.active` payload in
+  `inbound.prompt.public_identity.json` now freezes the primary-only active
+  prompt shape. The top-level prompt payload in that same example remains
+  public-top-level compatibility evidence.
+
+Responsibility result: active prompt view-state projection moved off public
+top-level `player_id` production. Pending prompt storage, `PromptService`
+numeric routing, outbound decision submit shape, and engine continuation maps
+remain unchanged.
+
 ## 2026-05-15 Decision ACK Primary-Only Publish
 
 - `build_decision_ack_payload()` now calls the shared public-primary wire helper
@@ -58,9 +79,10 @@ engine numeric routing remain unchanged.
   identity channel rather than the mandatory channel. Identity-less prompt
   payloads remain invalid, and numeric `player_id` still requires explicit
   legacy alias metadata.
-- `inbound.prompt.public_identity.json` remains the public top-level prompt and
-  active-view example, and numeric prompt examples remain compatibility
-  evidence.
+- `inbound.prompt.public_identity.json` remains public top-level prompt
+  compatibility evidence; its nested active view-state is now superseded by the
+  primary-only active prompt shape documented above. Numeric prompt examples
+  remain compatibility evidence.
 
 Responsibility result: WebSocket runtime contracts now own primary-only prompt
 fixture evidence. Runtime prompt producers and client consumers did not move in
@@ -440,18 +462,17 @@ legacy-only prompt input.
   `player_id_alias_role: "legacy_compatibility_alias"`. Public/protocol
   `player_id` values remain primary protocol identities, while numeric-only
   decisions are explicitly marked as the legacy fallback path.
-- `PromptService.create_prompt()` and server active prompt view-state now emit
+- `PromptService.create_prompt()` and server active prompt view-state now expose
   `primary_player_id`, `primary_player_id_source`, and label numeric top-level
   `player_id` as `player_id_alias_role: "legacy_compatibility_alias"`. The
   frontend prompt selector consumes those explicit primary fields first, then
   keeps the existing public/protocol/legacy fallback path for mixed migration
   payloads.
-- Server active prompt view-state now preserves public/protocol top-level
-  `player_id` when the source prompt exposes `public_player_id` or string
-  protocol `player_id`, while keeping `legacy_player_id` as the explicit numeric
-  bridge. `player_id_alias_role` is emitted only for legacy-only numeric
-  top-level prompts, so the public prompt target is no longer serialized through
-  the numeric active-prompt bridge.
+- Server active prompt view-state now omits top-level `player_id` when the
+  source prompt exposes public/protocol identity, while keeping
+  `legacy_player_id` as the explicit numeric bridge. `player_id_alias_role` is
+  emitted only for legacy-only numeric top-level prompts, so the public prompt
+  target is no longer serialized through the numeric active-prompt bridge.
 - Server active prompt view-state also preserves complete public-player, seat,
   and viewer batch-continuation companion maps without fabricating numeric
   `missing_player_ids`, `resume_tokens_by_player_id`, or `prompt_instance_id`

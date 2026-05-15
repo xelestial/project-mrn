@@ -80,16 +80,6 @@ def _legacy_prompt_player_id(active_prompt: dict[str, Any]) -> int | None:
     return _number(active_prompt.get("legacy_player_id")) or _number(active_prompt.get("player_id"))
 
 
-def _protocol_prompt_player_id(active_prompt: dict[str, Any]) -> int | str | None:
-    player_id = active_prompt.get("player_id")
-    public_player_id = _string(active_prompt.get("public_player_id"))
-    if public_player_id:
-        return public_player_id
-    if isinstance(player_id, str) and player_id.strip():
-        return player_id.strip()
-    return _legacy_prompt_player_id(active_prompt)
-
-
 def _active_prompt_primary_identity(active_prompt: dict[str, Any]) -> tuple[int | str, str] | None:
     player_id = active_prompt.get("player_id")
     public_player_id = _string(active_prompt.get("public_player_id"))
@@ -101,6 +91,13 @@ def _active_prompt_primary_identity(active_prompt: dict[str, Any]) -> tuple[int 
     if legacy_player_id is not None:
         return legacy_player_id, "legacy"
     return None
+
+
+def _active_prompt_legacy_alias_player_id(active_prompt: dict[str, Any]) -> int | None:
+    primary_identity = _active_prompt_primary_identity(active_prompt)
+    if primary_identity is not None and primary_identity[1] in {"public", "protocol"}:
+        return None
+    return _legacy_prompt_player_id(active_prompt)
 
 
 def _secondary_choice(choice_id: str, item: dict[str, Any]) -> bool:
@@ -827,25 +824,26 @@ def build_prompt_view_state(messages: list[dict[str, Any]]) -> PromptViewState |
     if active_prompt:
         request_id = _string(active_prompt.get("request_id"))
         request_type = _string(active_prompt.get("request_type")) or "-"
-        player_id = _protocol_prompt_player_id(active_prompt) or 0
+        legacy_alias_player_id = _active_prompt_legacy_alias_player_id(active_prompt)
         timeout_ms = _number(active_prompt.get("timeout_ms")) or 30000
         public_context = _record(active_prompt.get("public_context")) or {}
         active: ActivePromptViewState = {
             "request_id": request_id,
             "request_type": request_type,
-            "player_id": player_id,
             "timeout_ms": timeout_ms,
             "choices": _parse_choices(active_prompt.get("legal_choices")),
             "public_context": {key: value for key, value in public_context.items()},
             "behavior": _prompt_behavior(active_prompt, public_context),
             "surface": _prompt_surface(active_prompt, public_context),
         }
+        if legacy_alias_player_id is not None:
+            active["player_id"] = legacy_alias_player_id
         primary_identity = _active_prompt_primary_identity(active_prompt)
         if primary_identity is not None:
             primary_player_id, primary_player_id_source = primary_identity
             active["primary_player_id"] = primary_player_id
             active["primary_player_id_source"] = primary_player_id_source
-            if isinstance(player_id, int):
+            if legacy_alias_player_id is not None:
                 active["player_id_alias_role"] = "legacy_compatibility_alias"
         legacy_player_id = _number(active_prompt.get("legacy_player_id"))
         if legacy_player_id is not None:

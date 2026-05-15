@@ -1284,7 +1284,8 @@ export function promptViewModelFromActivePromptPayload(
   const requestId = active["request_id"];
   const requestType = active["request_type"];
   const identity = promptIdentityFromActivePromptPayload(active);
-  const protocolPlayerId = protocolPlayerIdOrNull(active["player_id"]);
+  const protocolPlayerId =
+    identity?.protocolPlayerId ?? protocolPlayerIdOrNull(active["player_id"]);
   const legacyPlayerId = identity?.legacyPlayerId ?? null;
   if (
     typeof requestId !== "string" ||

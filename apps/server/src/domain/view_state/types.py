@@ -370,7 +370,7 @@ class ActivePromptViewState(TypedDict):
     legacy_request_id: NotRequired[str]
     public_request_id: NotRequired[str]
     request_type: str
-    player_id: int | str
+    player_id: NotRequired[int | str]
     player_id_alias_role: NotRequired[Literal["legacy_compatibility_alias"]]
     primary_player_id: NotRequired[int | str]
     primary_player_id_source: NotRequired[Literal["public", "protocol", "legacy"]]
