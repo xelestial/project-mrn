@@ -5,6 +5,7 @@ import pytest
 from apps.server.src.domain.protocol_identity import (
     assert_no_public_identity_numeric_leaks,
     public_identity_numeric_leaks,
+    public_primary_player_wire_payload,
 )
 from apps.server.src.services.decision_gateway import build_decision_ack_payload
 
@@ -72,6 +73,55 @@ def test_public_identity_numeric_leak_guard_allows_legacy_numeric_aliases() -> N
 
     assert public_identity_numeric_leaks(payload) == []
     assert_no_public_identity_numeric_leaks(payload)
+
+
+def test_public_primary_player_wire_payload_prefers_public_identity_without_mutating_input() -> None:
+    source = {
+        "request_id": "req_1",
+        "player_id": 2,
+        "public_player_id": "ply_2",
+        "player_id_alias_role": "legacy_compatibility_alias",
+    }
+
+    payload = public_primary_player_wire_payload(source)
+
+    assert source["player_id"] == 2
+    assert source["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert payload["player_id"] == "ply_2"
+    assert payload["legacy_player_id"] == 2
+    assert "player_id_alias_role" not in payload
+    assert payload["primary_player_id"] == "ply_2"
+    assert payload["primary_player_id_source"] == "public"
+
+
+def test_public_primary_player_wire_payload_uses_explicit_legacy_player_id_for_public_payload() -> None:
+    payload = public_primary_player_wire_payload(
+        {
+            "request_id": "req_1",
+            "player_id": "ply_2",
+            "public_player_id": "ply_2",
+        },
+        legacy_player_id=2,
+    )
+
+    assert payload["player_id"] == "ply_2"
+    assert payload["legacy_player_id"] == 2
+    assert payload["primary_player_id"] == "ply_2"
+    assert payload["primary_player_id_source"] == "public"
+
+
+def test_public_primary_player_wire_payload_labels_legacy_only_payload() -> None:
+    payload = public_primary_player_wire_payload(
+        {
+            "request_id": "req_1",
+            "player_id": 2,
+        }
+    )
+
+    assert payload["player_id"] == 2
+    assert payload["player_id_alias_role"] == "legacy_compatibility_alias"
+    assert payload["primary_player_id"] == 2
+    assert payload["primary_player_id_source"] == "legacy"
 
 
 def test_decision_ack_builder_labels_numeric_player_id_as_legacy_alias() -> None:
