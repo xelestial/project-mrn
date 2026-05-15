@@ -7,7 +7,6 @@
     "request_id",
     "session_id",
     "seat",
-    "player_id",
     "decision_name",
     "request_type",
     "fallback_policy",
@@ -16,6 +15,23 @@
     "transport",
     "worker_contract_version",
     "required_capabilities"
+  ],
+  "anyOf": [
+    {
+      "required": ["player_id"]
+    },
+    {
+      "required": ["primary_player_id", "primary_player_id_source"]
+    },
+    {
+      "required": ["public_player_id"]
+    },
+    {
+      "required": ["seat_id"]
+    },
+    {
+      "required": ["viewer_id"]
+    }
   ],
   "allOf": [
     {

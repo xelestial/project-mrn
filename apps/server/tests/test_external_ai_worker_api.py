@@ -240,6 +240,34 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         self.assertEqual(payload["choice_id"], "yes")
         self.assertEqual(payload["choice_payload"]["choice_id"], "yes")
 
+    def test_decide_accepts_primary_identity_without_player_id(self) -> None:
+        request = _purchase_tile_payload(cash=8, cost=4)
+        request.pop("player_id")
+        request.update(
+            {
+                "primary_player_id": "player_public_1",
+                "primary_player_id_source": "public",
+                "public_player_id": "player_public_1",
+                "seat_id": "seat_public_1",
+                "viewer_id": "viewer_public_1",
+            }
+        )
+
+        response = self.client.post("/decide", json=request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "yes")
+        self.assertEqual(payload["choice_payload"]["choice_id"], "yes")
+
+    def test_decide_rejects_missing_player_identity(self) -> None:
+        request = _purchase_tile_payload(cash=8, cost=4)
+        request.pop("player_id")
+
+        response = self.client.post("/decide", json=request)
+
+        self.assertEqual(response.status_code, 422)
+
     def test_decide_rejects_invalid_player_identity(self) -> None:
         for invalid_player_id in (0, "", "   "):
             with self.subTest(invalid_player_id=invalid_player_id):

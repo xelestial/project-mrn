@@ -4,7 +4,7 @@ import os
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.services.external_ai_worker_service import ExternalAiWorkerService
@@ -14,7 +14,7 @@ class ExternalAiDecisionRequest(BaseModel):
     request_id: str = Field(..., min_length=1)
     session_id: str = Field(..., min_length=1)
     seat: int = Field(..., ge=1)
-    player_id: int | str
+    player_id: int | str | None = None
     player_id_alias_role: str | None = None
     primary_player_id: int | str | None = None
     primary_player_id_source: str | None = None
@@ -31,7 +31,22 @@ class ExternalAiDecisionRequest(BaseModel):
     worker_contract_version: str = Field(default="v1", min_length=1)
     required_capabilities: list[str] = Field(default_factory=list)
 
-    @field_validator("player_id", "primary_player_id", "legacy_player_id")
+    @model_validator(mode="after")
+    def _require_player_identity(self) -> ExternalAiDecisionRequest:
+        if any(
+            value is not None
+            for value in (
+                self.player_id,
+                self.primary_player_id,
+                self.public_player_id,
+                self.seat_id,
+                self.viewer_id,
+            )
+        ):
+            return self
+        raise ValueError("player identity is required")
+
+    @field_validator("player_id", "primary_player_id", "legacy_player_id", "public_player_id", "seat_id", "viewer_id")
     @classmethod
     def _validate_player_identity(cls, value: int | str | None) -> int | str | None:
         if value is None:

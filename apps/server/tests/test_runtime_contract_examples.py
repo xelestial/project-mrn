@@ -862,6 +862,56 @@ class RuntimeContractExampleTests(unittest.TestCase):
             path="$<external-ai.request.public_identity>",
         )
 
+    def test_external_ai_request_schema_accepts_primary_identity_without_player_id(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
+        schema = _load_json(root / "schemas" / "request.schema.json")
+
+        _validate_subset(
+            {
+                "request_id": "req_primary_only_1",
+                "session_id": "sess_primary_only",
+                "seat": 1,
+                "primary_player_id": "player_public_1",
+                "primary_player_id_source": "public",
+                "public_player_id": "player_public_1",
+                "seat_id": "seat_1",
+                "viewer_id": "viewer_1",
+                "decision_name": "movement",
+                "request_type": "movement",
+                "fallback_policy": "ai",
+                "public_context": {},
+                "legal_choices": [{"choice_id": "roll"}],
+                "transport": "http",
+                "worker_contract_version": "v1",
+                "required_capabilities": [],
+            },
+            schema,
+            path="$<external-ai.request.primary_identity_without_player_id>",
+        )
+
+    def test_external_ai_request_schema_rejects_missing_player_identity(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
+        schema = _load_json(root / "schemas" / "request.schema.json")
+
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "request_id": "req_missing_identity",
+                    "session_id": "sess_missing_identity",
+                    "seat": 1,
+                    "decision_name": "movement",
+                    "request_type": "movement",
+                    "fallback_policy": "ai",
+                    "public_context": {},
+                    "legal_choices": [{"choice_id": "roll"}],
+                    "transport": "http",
+                    "worker_contract_version": "v1",
+                    "required_capabilities": [],
+                },
+                schema,
+                path="$<external-ai.request.missing_identity>",
+            )
+
     def test_external_ai_request_schema_accepts_labeled_numeric_player_alias(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "external-ai"
         schema = _load_json(root / "schemas" / "request.schema.json")

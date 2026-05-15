@@ -982,9 +982,10 @@ Acceptance evidence status, 2026-05-15:
   when the source is `legacy`. Malformed producer payloads therefore cannot
   reintroduce numeric public primary identity or relabel public string identity
   as legacy through WS decision, WS prompt, WS decision ACK, or external-AI
-  request contracts. External-AI worker request optionalization is intentionally
-  still separate because the reference worker input model currently owns a top-level
-  `player_id` field at that boundary.
+  request contracts. The external-AI request schema and reference worker input
+  model now also accept explicit `primary_player_id` plus source,
+  `public_player_id`, `seat_id`, or `viewer_id` without a top-level `player_id`,
+  while still rejecting identity-less requests.
 - `tests/test_game_debug_log_audit_script.py` verifies debug-log audit duplicate grouping prefers public
   primary identity when numeric `player_id` is absent or only a legacy top-level alias, so simultaneous
   public identities that share a request id are not collapsed into one legacy numeric bucket.
@@ -1021,6 +1022,15 @@ Acceptance evidence status, 2026-05-15:
   verify that the WebSocket outbound decision contract no longer requires top-level `player_id`
   when explicit primary/public/seat/viewer identity is present, while still rejecting a decision
   payload with no player identity channel at all.
+- `apps/server/tests/test_external_ai_worker_api.py::test_decide_accepts_primary_identity_without_player_id`
+  and
+  `apps/server/tests/test_external_ai_worker_api.py::test_decide_rejects_missing_player_identity`
+  verify that the reference worker `/decide` input accepts explicit primary/public/seat/viewer
+  identity without top-level `player_id`, while still rejecting identity-less requests.
+- `apps/server/tests/test_runtime_contract_examples.py::test_external_ai_request_schema_accepts_primary_identity_without_player_id`
+  and
+  `apps/server/tests/test_runtime_contract_examples.py::test_external_ai_request_schema_rejects_missing_player_identity`
+  verify that the external-AI request schema matches the worker input boundary.
 - `apps/server/tests/test_prompt_service.py::test_submit_decision_rejects_conflicting_prompt_player_identity_fields`
   verifies that `PromptService.submit_decision()` itself rejects decision payload identity companions that
   contradict the pending prompt before lifecycle records or command payloads are accepted, keeping this

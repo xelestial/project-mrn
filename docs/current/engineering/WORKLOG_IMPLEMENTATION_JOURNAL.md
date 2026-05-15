@@ -11,6 +11,22 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 External-AI Worker Primary-Only Identity
+
+- `ExternalAiDecisionRequest` no longer requires top-level `player_id` when a
+  request carries explicit `primary_player_id` plus source, `public_player_id`,
+  `seat_id`, or `viewer_id`.
+- The worker API still rejects identity-less requests and blank identity
+  strings. Numeric `player_id` remains accepted only through the existing
+  compatibility validation.
+- The external-AI request contract schema now matches the worker input boundary:
+  `player_id` is one allowed identity channel, not the mandatory canonical
+  field.
+
+Responsibility result: the worker request acceptance boundary moved off a
+mandatory top-level `player_id`. Worker choice logic, server callback routing,
+`PromptService`, and the engine numeric bridge did not move.
+
 ## 2026-05-15 WS Decision Contract Primary-Only Identity
 
 - `outbound.decision.schema.json` no longer requires top-level `player_id` when
@@ -25,8 +41,7 @@ in the active plans, status index, tests, or canonical contract documents.
 
 Responsibility result: the WebSocket contract moved to match the already
 implemented route adapter boundary. External-AI worker request optionalization
-did not move here because its request model still owns top-level `player_id` as
-a separate compatibility boundary.
+moved later as a separate compatibility boundary.
 
 ## 2026-05-15 Inbound Primary Identity Adapter
 
