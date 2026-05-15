@@ -816,7 +816,7 @@ export function App() {
     localViewerIdentity,
     tokenViewerIdentity
   );
-  const promptTargetIdentity = useMemo(
+  const localProtocolIdentity = useMemo(
     () => ({
       legacyPlayerId: effectivePlayerId,
       protocolPlayerId:
@@ -852,8 +852,8 @@ export function App() {
   const situation = selectSituation(stream.messages, selectorText);
   const turnStage = selectTurnStage(stream.messages, selectorText);
   const snapshot = selectLiveSnapshot(stream.messages, selectorText);
-  const derivedPlayers = selectDerivedPlayers(stream.messages, effectivePlayerId, selectorText);
-  const markerOrderedPlayers = selectMarkerOrderedPlayers(stream.messages, effectivePlayerId, selectorText);
+  const derivedPlayers = selectDerivedPlayers(stream.messages, localProtocolIdentity, selectorText);
+  const markerOrderedPlayers = selectMarkerOrderedPlayers(stream.messages, localProtocolIdentity, selectorText);
   const lastMove = selectLastMove(stream.messages);
   const latestManifest = selectLatestManifest(stream.messages);
   const currentTurnRevealItems = useMemo(
@@ -1031,7 +1031,7 @@ export function App() {
 
   const activePrompt = selectActivePrompt(stream.messages);
   const activePromptLabel = activePrompt ? promptLabelForType(activePrompt.requestType) : null;
-  const canActOnPrompt = Boolean(token && isPromptTargetedToIdentity(activePrompt, promptTargetIdentity));
+  const canActOnPrompt = Boolean(token && isPromptTargetedToIdentity(activePrompt, localProtocolIdentity));
   const actionablePrompt = canActOnPrompt ? activePrompt : null;
   const actionablePromptBehavior = actionablePrompt?.behavior ?? null;
   const suppressQueuedBurdenPrompt = Boolean(
@@ -1281,11 +1281,11 @@ export function App() {
         : "-";
   const activeCharacterSlots = useMemo(
     () =>
-      selectActiveCharacterSlots(stream.messages, effectivePlayerId, selectorText, sessionInitialActiveByCard).map((slot) => ({
+      selectActiveCharacterSlots(stream.messages, localProtocolIdentity, selectorText, sessionInitialActiveByCard).map((slot) => ({
         ...slot,
         ability: slot.character ? characterAbilityLabels[slot.character] ?? "-" : null,
       })),
-    [stream.messages, effectivePlayerId, selectorText, sessionInitialActiveByCard, characterAbilityLabels]
+    [stream.messages, localProtocolIdentity, selectorText, sessionInitialActiveByCard, characterAbilityLabels]
   );
   const knownActiveCharacterCount = activeCharacterSlots.filter((slot) => Boolean(slot.character)).length;
   const markTargetActorName =
@@ -1300,9 +1300,9 @@ export function App() {
   const markTargetDisplaySlots = useMemo(
     () =>
       visibleActionablePrompt?.requestType === "mark_target"
-        ? selectMarkTargetCharacterSlots(stream.messages, markTargetActorName, effectivePlayerId, selectorText)
+        ? selectMarkTargetCharacterSlots(stream.messages, markTargetActorName, localProtocolIdentity, selectorText)
         : [],
-    [visibleActionablePrompt?.requestType, stream.messages, markTargetActorName, effectivePlayerId, selectorText]
+    [visibleActionablePrompt?.requestType, stream.messages, markTargetActorName, localProtocolIdentity, selectorText]
   );
 
   function clearActiveMatchState() {
@@ -2912,8 +2912,7 @@ export function App() {
                             const seatTypeLabel = seatTypeBadgeLabel(seatType, locale);
                             const isCurrentActor =
                               playerId !== null && currentActorId !== null && playerId === currentActorId;
-                            const isLocalPlayer =
-                              playerId !== null && effectivePlayerId !== null && playerId === effectivePlayerId;
+                            const isLocalPlayer = player?.isLocalPlayer ?? false;
                             const isHistoryFocusedPlayer = playerId !== null && selectedHistoryPlayerIds.has(playerId);
                             const isPromptActive = isCurrentActor && hasReadableValue(playerStageFallbackLabel);
                             const hideCharacterEmblem = shouldHideCharacterForPrompt(turnStage.promptRequestType);

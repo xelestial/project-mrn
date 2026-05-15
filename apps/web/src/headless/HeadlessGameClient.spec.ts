@@ -529,8 +529,12 @@ describe("HeadlessGameClient", () => {
       viewerId: "viewer_public_2",
       choicePayload: { tile_index: 12, buy: true },
     });
-    message.payload.viewer.player_id = 2;
-    const active = (message.payload.view_state["prompt"] as { active: Record<string, unknown> }).active;
+    const payload = message.payload as {
+      viewer: Record<string, unknown>;
+      view_state: { prompt: { active: Record<string, unknown> } };
+    };
+    payload.viewer.player_id = 2;
+    const active = payload.view_state.prompt.active;
     active.player_id = "player_public_2";
     delete active.public_player_id;
 

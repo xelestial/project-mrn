@@ -1370,6 +1370,21 @@ Responsibility result: ACK payload construction now owns preferred public wire
 identity selection. It does not remove the numeric engine bridge or change
 decision submission/routing authorization.
 
+## 2026-05-15 Frontend Related-Player Display Companions
+
+- Added selector coverage for turn-history event details whose related-player
+  fields carry public/protocol `*_player_id` values plus prefixed legacy/public
+  companions.
+- Updated `streamSelectors` display summaries for rent, marker transfer,
+  bankruptcy, game end, mark outcomes, and ability suppression to read prefixed
+  legacy/seat companions before raw related-player aliases.
+- Left turn-history participant relevance, board ownership state, and engine
+  actor routing on the existing numeric bridge.
+
+Responsibility result: human-facing event detail text now owns the related-player
+display conversion at the selector boundary. Protocol identity, participant
+indexing, and runtime storage remain unchanged.
+
 ## 2026-05-15 External AI Decision Requested Event Example
 
 - Extended the WebSocket public-primary example gate to the external-AI
@@ -1447,6 +1462,57 @@ Responsibility result: private stream projection now owns public target matching
 at the delivery/redaction boundary. Numeric viewer/player ids remain as
 compatibility fallback and visibility-scope bridge; runtime payload creation,
 auth, and engine routing remain unchanged.
+
+## 2026-05-15 Frontend Stream Selector Local Identity
+
+- Added selector coverage for a public-only local viewer identity matching
+  derived player rows, marker ordering, and active-character slots without a
+  numeric `legacyPlayerId`.
+- Updated `streamSelectors` to accept a public/protocol/viewer/seat identity
+  object for local-player matching on those surfaces while preserving numeric
+  legacy ids as fallback.
+- Updated `App.tsx` to pass the merged `LocalViewerIdentity` companion fields
+  into those stream selector calls instead of reducing local highlighting to
+  `effectivePlayerId`.
+- Updated the match-table player card strip to consume selector-owned
+  `isLocalPlayer` instead of recomputing local badges/classes by numeric
+  `effectivePlayerId`.
+
+Responsibility result: local-player highlighting for these stream selector
+surfaces and match-table player cards moved off the numeric-only React bridge.
+Board labels, turn history, prompt submission, and engine actor routing remain
+unchanged.
+
+## 2026-05-15 Frontend Turn-History Participant Companions
+
+- Added selector coverage for turn-history events whose raw related-player
+  fields and `participants` map carry public/protocol strings while explicit
+  prefixed legacy/seat companions carry the display bridge.
+- Updated `streamSelectors` participant extraction so rent and mark relevance
+  uses `*_legacy_player_id` / `*_seat_index` companions before raw
+  `*_player_id` aliases.
+- Kept public/protocol ids opaque; they are not parsed or coerced into numeric
+  display ids.
+
+Responsibility result: turn-history participant highlighting and local
+relevance moved off raw numeric related-player aliases. Board ownership labels,
+engine actor routing, and persistence schemas remain unchanged.
+
+## 2026-05-15 Frontend Board Display Companions
+
+- Added selector coverage for ViewCommit board snapshots whose marker owner,
+  tile owner, pawn list, and last-move player fields carry public/protocol
+  string ids while explicit legacy companions carry the numeric display bridge.
+- Updated `streamSelectors` board parsing to consume
+  `marker_owner_legacy_player_id`, `owner_legacy_player_id`,
+  `pawn_legacy_player_ids`, and last-move `legacy_player_id` before raw
+  `*_player_id` aliases.
+- Kept the adapter display-only: public/protocol strings are not parsed or
+  coerced into numeric player ids.
+
+Responsibility result: board marker, ownership, pawn, and last-move display
+bridging is now owned by the stream-selector board adapter. Engine actor
+routing, server fanout enrichment, and protocol alias removal remain unchanged.
 
 ## 2026-05-12 Runtime Rebuild Baseline
 

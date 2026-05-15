@@ -423,6 +423,74 @@ describe("streamSelectors authoritative ViewCommit contract", () => {
     });
   });
 
+  it("uses board identity companions when board snapshot player ids are public strings", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    const board = viewState["board"] as Record<string, unknown>;
+    board["marker_owner_player_id"] = "player_public_2";
+    board["marker_owner_legacy_player_id"] = 2;
+    board["marker_owner_public_player_id"] = "player_public_2";
+    board["marker_owner_seat_id"] = "seat_2";
+    board["last_move"] = {
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_2",
+      from_tile_index: 4,
+      to_tile_index: 8,
+      path_tile_indices: [5, 6, 7, 8],
+    };
+    board["tiles"] = [
+      {
+        tile_index: 4,
+        tile_kind: "T2",
+        zone_color: "blue",
+        purchase_cost: 4,
+        rent_cost: 2,
+        score_coin_count: 1,
+        owner_player_id: "player_public_1",
+        owner_legacy_player_id: 1,
+        owner_public_player_id: "player_public_1",
+        owner_seat_id: "seat_1",
+        pawn_player_ids: ["player_public_1"],
+        pawn_legacy_player_ids: [1],
+        pawn_public_player_ids: ["player_public_1"],
+        pawn_seat_ids: ["seat_1"],
+      },
+      {
+        tile_index: 8,
+        tile_kind: "T3",
+        zone_color: "red",
+        purchase_cost: 6,
+        rent_cost: 3,
+        score_coin_count: 2,
+        owner_player_id: "player_public_2",
+        owner_legacy_player_id: 2,
+        owner_public_player_id: "player_public_2",
+        owner_seat_id: "seat_2",
+        pawn_player_ids: ["player_public_2"],
+        pawn_legacy_player_ids: [2],
+        pawn_public_player_ids: ["player_public_2"],
+        pawn_seat_ids: ["seat_2"],
+      },
+    ];
+
+    const messages = [viewCommit(8, viewState)];
+    const snapshot = selectLatestSnapshot(messages);
+
+    expect(snapshot).toMatchObject({ markerOwnerPlayerId: 2 });
+    expect(snapshot?.tiles.map((tile) => [tile.tileIndex, tile.ownerPlayerId, tile.pawnPlayerIds])).toEqual([
+      [4, 1, [1]],
+      [8, 2, [2]],
+    ]);
+    expect(selectLiveSnapshot(messages)?.tiles).toEqual(snapshot?.tiles);
+    expect(selectLastMove(messages)).toEqual({
+      playerId: 2,
+      fromTileIndex: 4,
+      toTileIndex: 8,
+      pathTileIndices: [5, 6, 7, 8],
+    });
+  });
+
   it("uses ViewCommit player surfaces for derived players, slots, and mark targets", () => {
     const messages = [viewCommit(7, authoritativeViewState), contradictoryRawEvent()];
 
@@ -459,6 +527,44 @@ describe("streamSelectors authoritative ViewCommit contract", () => {
       { slot: 3, playerId: 1, label: "P1", character: "박수" },
     ]);
     expect(selectMarkerOrderedPlayers(messages, 2).map((player) => player.playerId)).toEqual([2, 1]);
+  });
+
+  it("matches local player surfaces by public viewer identity before legacy id", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    const players = viewState["players"] as { items: Array<Record<string, unknown>> };
+    const playerCards = viewState["player_cards"] as { items: Array<Record<string, unknown>> };
+    const activeSlots = viewState["active_slots"] as { items: Array<Record<string, unknown>> };
+    const attachPublicIdentity = (item: Record<string, unknown>) => {
+      if (item["player_id"] !== 2) {
+        return;
+      }
+      item["legacy_player_id"] = 2;
+      item["public_player_id"] = "player_public_2";
+      item["seat_id"] = "seat_2";
+      item["viewer_id"] = "viewer_2";
+    };
+    players.items.forEach(attachPublicIdentity);
+    playerCards.items.forEach(attachPublicIdentity);
+    activeSlots.items.forEach(attachPublicIdentity);
+    const publicOnlyViewerIdentity = {
+      legacyPlayerId: null,
+      protocolPlayerId: "player_public_2",
+      publicPlayerId: "player_public_2",
+      seatId: "seat_2",
+      viewerId: "viewer_2",
+    };
+    const messages = [viewCommit(8, viewState)];
+
+    expect(selectDerivedPlayers(messages, publicOnlyViewerIdentity).find((player) => player.playerId === 2)).toMatchObject({
+      isLocalPlayer: true,
+    });
+    expect(selectActiveCharacterSlots(messages, publicOnlyViewerIdentity).find((slot) => slot.playerId === 2)).toMatchObject({
+      isLocalPlayer: true,
+    });
+    expect(selectMarkerOrderedPlayers(messages, publicOnlyViewerIdentity)[0]).toMatchObject({
+      playerId: 2,
+      isLocalPlayer: true,
+    });
   });
 
   it("uses ViewCommit scene, reveal, and manifest data without replay projection", () => {
@@ -614,6 +720,168 @@ describe("streamSelectors authoritative ViewCommit contract", () => {
       detail: expect.stringContaining("P2 / 이동"),
     });
     expect(event.detail).not.toContain("player_public_2");
+  });
+
+  it("uses related-player display companions when turn history event payloads carry public player ids", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    viewState["turn_history"] = {
+      current_key: "r3:t1",
+      turns: [
+        {
+          key: "r3:t1",
+          round_index: 3,
+          turn_index: 1,
+          actor_player_id: 2,
+          event_count: 2,
+          important_count: 2,
+          events: [
+            {
+              seq: 53,
+              event_code: "rent_paid",
+              payload: {
+                event_type: "rent_paid",
+                round_index: 3,
+                turn_index: 1,
+                payer_player_id: "player_public_2",
+                payer_legacy_player_id: 2,
+                payer_public_player_id: "player_public_2",
+                payer_seat_id: "seat_2",
+                owner_player_id: "player_public_4",
+                owner_legacy_player_id: 4,
+                owner_public_player_id: "player_public_4",
+                owner_seat_id: "seat_4",
+                final_amount: 7,
+                tile_index: 3,
+              },
+              tone: "economy",
+              relevance: "important",
+              participants: { payer_player_id: 2, owner_player_id: 4 },
+              focus_tile_indices: [3],
+              resource_delta: { cash: -7 },
+              end_time_delta: null,
+            },
+            {
+              seq: 54,
+              event_code: "mark_queued",
+              payload: {
+                event_type: "mark_queued",
+                round_index: 3,
+                turn_index: 1,
+                source_player_id: "player_public_4",
+                source_legacy_player_id: 4,
+                source_public_player_id: "player_public_4",
+                source_seat_id: "seat_4",
+                target_player_id: "player_public_2",
+                target_legacy_player_id: 2,
+                target_public_player_id: "player_public_2",
+                target_seat_id: "seat_2",
+                target_character: "교리 연구관",
+                effect_type: "baksu_transfer",
+              },
+              tone: "critical",
+              relevance: "important",
+              participants: { source_player_id: 4, target_player_id: 2 },
+              focus_tile_indices: [],
+              resource_delta: null,
+              end_time_delta: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    const history = selectTurnHistory([viewCommit(11, viewState)], 2);
+    const [rentPaid, markQueued] = history.turns[0].events;
+
+    expect(rentPaid.detail).toBe("P2 -> P4 / 7냥 / 4번 칸");
+    expect(markQueued.detail).toBe("[박수] P4 -> P2 / 교리 연구관 / 대상 턴 시작 최우선 처리 예약");
+    expect(rentPaid.detail).not.toContain("player_public");
+    expect(markQueued.detail).not.toContain("player_public");
+  });
+
+  it("uses related-player companions for turn history participants and local relevance", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    viewState["turn_history"] = {
+      current_key: "r3:t1",
+      turns: [
+        {
+          key: "r3:t1",
+          round_index: 3,
+          turn_index: 1,
+          actor_player_id: 2,
+          event_count: 2,
+          important_count: 2,
+          events: [
+            {
+              seq: 55,
+              event_code: "rent_paid",
+              payload: {
+                event_type: "rent_paid",
+                round_index: 3,
+                turn_index: 1,
+                payer_player_id: "player_public_2",
+                payer_legacy_player_id: 2,
+                payer_public_player_id: "player_public_2",
+                payer_seat_id: "seat_2",
+                owner_player_id: "player_public_4",
+                owner_legacy_player_id: 4,
+                owner_public_player_id: "player_public_4",
+                owner_seat_id: "seat_4",
+                final_amount: 7,
+                tile_index: 3,
+              },
+              tone: "economy",
+              relevance: "public",
+              participants: { payer_player_id: "player_public_2", owner_player_id: "player_public_4" },
+              focus_tile_indices: [3],
+              resource_delta: { cash: -7 },
+              end_time_delta: null,
+            },
+            {
+              seq: 56,
+              event_code: "mark_queued",
+              payload: {
+                event_type: "mark_queued",
+                round_index: 3,
+                turn_index: 1,
+                source_player_id: "player_public_4",
+                source_legacy_player_id: 4,
+                source_public_player_id: "player_public_4",
+                source_seat_id: "seat_4",
+                target_player_id: "player_public_2",
+                target_legacy_player_id: 2,
+                target_public_player_id: "player_public_2",
+                target_seat_id: "seat_2",
+                target_character: "교리 연구관",
+                effect_type: "baksu_transfer",
+              },
+              tone: "critical",
+              relevance: "public",
+              participants: { source_player_id: "player_public_4", target_player_id: "player_public_2" },
+              focus_tile_indices: [],
+              resource_delta: null,
+              end_time_delta: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    const history = selectTurnHistory([viewCommit(12, viewState)], 2);
+    const [rentPaid, markQueued] = history.turns[0].events;
+
+    expect(rentPaid).toMatchObject({
+      eventCode: "rent_paid",
+      relevance: "mine-critical",
+      participants: { payer: 2, owner: 4 },
+      participantPlayerIds: [2, 4],
+    });
+    expect(markQueued).toMatchObject({
+      eventCode: "mark_queued",
+      relevance: "mine-critical",
+      participants: { source: 4, target: 2 },
+      participantPlayerIds: [2, 4],
+    });
   });
 
   it("renders unresolved mark outcomes in the current reveal layer", () => {

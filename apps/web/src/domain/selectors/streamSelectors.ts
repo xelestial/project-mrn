@@ -207,6 +207,24 @@ export type ActiveCharacterSlotViewModel = {
   isLocalPlayer: boolean;
 };
 
+export type StreamSelectorViewerIdentity = {
+  legacyPlayerId?: number | null;
+  protocolPlayerId?: unknown;
+  publicPlayerId?: string | null;
+  seatId?: string | null;
+  viewerId?: string | null;
+};
+
+export type StreamSelectorViewerIdentityInput = number | StreamSelectorViewerIdentity | null | undefined;
+
+type NormalizedStreamSelectorViewerIdentity = {
+  legacyPlayerId: number | null;
+  protocolPlayerId: string | null;
+  publicPlayerId: string | null;
+  seatId: string | null;
+  viewerId: string | null;
+};
+
 export type MarkTargetSlotViewModel = {
   slot: number;
   playerId: number | null;
@@ -277,6 +295,10 @@ type BackendActiveSlotItem = {
 
 type BackendPlayerCardItem = {
   player_id: number;
+  legacy_player_id: number | null;
+  public_player_id: string | null;
+  seat_id: string | null;
+  viewer_id: string | null;
   character: string;
   priority_slot: number | null;
   turn_order_rank: number | null;
@@ -422,6 +444,109 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeViewerIdentity(input: StreamSelectorViewerIdentityInput): NormalizedStreamSelectorViewerIdentity {
+  if (typeof input === "number" && Number.isFinite(input) && input > 0) {
+    return {
+      legacyPlayerId: Math.floor(input),
+      protocolPlayerId: null,
+      publicPlayerId: null,
+      seatId: null,
+      viewerId: null,
+    };
+  }
+  if (!isRecord(input)) {
+    return {
+      legacyPlayerId: null,
+      protocolPlayerId: null,
+      publicPlayerId: null,
+      seatId: null,
+      viewerId: null,
+    };
+  }
+  return {
+    legacyPlayerId: numberOrNull(input["legacyPlayerId"]),
+    protocolPlayerId: stringOrNull(input["protocolPlayerId"]),
+    publicPlayerId: stringOrNull(input["publicPlayerId"]),
+    seatId: stringOrNull(input["seatId"]),
+    viewerId: stringOrNull(input["viewerId"]),
+  };
+}
+
+function identityStringMatches(value: string | null, ...candidates: unknown[]): boolean {
+  if (!value) {
+    return false;
+  }
+  return candidates.some((candidate) => typeof candidate === "string" && candidate.trim() === value);
+}
+
+function viewerIdentityMatchesRecord(
+  record: Record<string, unknown>,
+  fallbackPlayerId: number | null,
+  viewer: NormalizedStreamSelectorViewerIdentity
+): boolean {
+  if (
+    identityStringMatches(
+      viewer.publicPlayerId,
+      record["public_player_id"],
+      record["target_public_player_id"],
+      record["primary_player_id"],
+      record["player_id"]
+    )
+  ) {
+    return true;
+  }
+  if (
+    identityStringMatches(
+      viewer.protocolPlayerId,
+      record["primary_player_id"],
+      record["player_id"],
+      record["public_player_id"],
+      record["target_public_player_id"]
+    )
+  ) {
+    return true;
+  }
+  if (identityStringMatches(viewer.seatId, record["seat_id"], record["target_seat_id"])) {
+    return true;
+  }
+  if (identityStringMatches(viewer.viewerId, record["viewer_id"], record["target_viewer_id"])) {
+    return true;
+  }
+  if (viewer.legacyPlayerId === null) {
+    return false;
+  }
+  return (
+    viewer.legacyPlayerId === numberOrNull(record["legacy_player_id"]) ||
+    viewer.legacyPlayerId === numberOrNull(record["target_legacy_player_id"]) ||
+    viewer.legacyPlayerId === numberOrNull(record["player_id"]) ||
+    viewer.legacyPlayerId === fallbackPlayerId
+  );
+}
+
+function viewerIdentityMatchesBackendPlayerCard(
+  playerCard: BackendPlayerCardItem | undefined,
+  viewer: NormalizedStreamSelectorViewerIdentity
+): boolean {
+  if (!playerCard) {
+    return false;
+  }
+  return viewerIdentityMatchesRecord(
+    {
+      player_id: playerCard.player_id,
+      legacy_player_id: playerCard.legacy_player_id,
+      public_player_id: playerCard.public_player_id,
+      seat_id: playerCard.seat_id,
+      viewer_id: playerCard.viewer_id,
+    },
+    playerCard.player_id,
+    viewer
+  );
+}
+
 function messageKindFromPayload(payload: Record<string, unknown>): string {
   const eventType = payload["event_type"];
   if (eventType === "engine_transition" && payload["status"] === "completed") {
@@ -467,6 +592,38 @@ function firstNumberFromPayloadFields(payload: Record<string, unknown>, fields: 
   return null;
 }
 
+function firstIntegerArrayFromPayloadFields(payload: Record<string, unknown>, fields: string[]): number[] {
+  for (const field of fields) {
+    const values = integerArray(payload[field]);
+    if (values.length > 0) {
+      return values;
+    }
+  }
+  return [];
+}
+
+function boardMarkerOwnerPlayerIdFromPayload(payload: Record<string, unknown> | null | undefined): number | null {
+  return payload
+    ? firstNumberFromPayloadFields(payload, [
+        "marker_owner_legacy_player_id",
+        "marker_owner_seat_index",
+        "marker_owner_player_id",
+      ])
+    : null;
+}
+
+function boardTileOwnerPlayerIdFromPayload(payload: Record<string, unknown>): number | null {
+  return firstNumberFromPayloadFields(payload, ["owner_legacy_player_id", "owner_seat_index", "owner_player_id"]);
+}
+
+function boardTilePawnPlayerIdsFromPayload(payload: Record<string, unknown>): number[] {
+  return firstIntegerArrayFromPayloadFields(payload, ["pawn_legacy_player_ids", "pawn_seat_indices", "pawn_player_ids"]);
+}
+
+function boardLastMovePlayerIdFromPayload(payload: Record<string, unknown>): number | null {
+  return firstNumberFromPayloadFields(payload, ["legacy_player_id", "seat_index", "player_id"]);
+}
+
 function playerLabelFromPayloadFields(
   payload: Record<string, unknown>,
   text: StreamSelectorTextResources,
@@ -481,6 +638,35 @@ function playerLabelFromPayloadFields(
   }
   const playerId = firstNumberFromPayloadFields(payload, numericFields);
   return playerId !== null ? playerLabel(playerId, text) : "-";
+}
+
+function playerTokenFromPayloadFields(payload: Record<string, unknown>, numericFields: string[]): number | "?" {
+  const playerId = firstNumberFromPayloadFields(payload, numericFields);
+  return playerId !== null ? playerId : "?";
+}
+
+function relatedPlayerTokenFromPayload(
+  payload: Record<string, unknown>,
+  prefix: string,
+  fallbackFields: string[] = []
+): number | "?" {
+  return playerTokenFromPayloadFields(payload, [
+    `${prefix}_legacy_player_id`,
+    `${prefix}_seat_index`,
+    ...fallbackFields,
+  ]);
+}
+
+function relatedPlayerNumberFromPayload(
+  payload: Record<string, unknown>,
+  prefix: string,
+  fallbackFields: string[] = []
+): number | null {
+  return firstNumberFromPayloadFields(payload, [
+    `${prefix}_legacy_player_id`,
+    `${prefix}_seat_index`,
+    ...fallbackFields,
+  ]);
 }
 
 function promptPlayerLabelFromPayload(
@@ -721,16 +907,16 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     );
   }
   if (eventType === "rent_paid") {
-    const payer = payload["payer_player_id"] ?? payload["payer"] ?? "?";
-    const owner = payload["owner_player_id"] ?? payload["owner"] ?? "?";
+    const payer = relatedPlayerTokenFromPayload(payload, "payer", ["payer_player_id", "payer"]);
+    const owner = relatedPlayerTokenFromPayload(payload, "owner", ["owner_player_id", "owner"]);
     const amount = payload["final_amount"] ?? payload["amount"] ?? payload["base_amount"] ?? "?";
     const tile = numberOrNull(payload["tile_index"]);
     return text.stream.rentPaid(payer, owner, amount, tile === null ? "?" : String(tile + 1));
   }
   if (eventType === "marker_transferred") {
-    const from = payload["from_player_id"] ?? payload["from_owner"] ?? "?";
-    const to = payload["to_player_id"] ?? payload["to_owner"] ?? "?";
-    const flipped = payload["flip_player_id"];
+    const from = relatedPlayerTokenFromPayload(payload, "from", ["from_player_id", "from_owner"]);
+    const to = relatedPlayerTokenFromPayload(payload, "to", ["to_player_id", "to_owner"]);
+    const flipped = relatedPlayerNumberFromPayload(payload, "flip", ["flip_player_id"]);
     return text.stream.markerTransferred(from, to, flipped);
   }
   if (eventType === "weather_reveal") {
@@ -787,12 +973,19 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     return position === null ? summary : text.stream.landingResultAt(summary, String(position + 1));
   }
   if (eventType === "bankruptcy") {
-    const pid = payload["player_id"] ?? payload["target_player_id"] ?? "?";
+    const pid = playerTokenFromPayloadFields(payload, [
+      "target_legacy_player_id",
+      "legacy_player_id",
+      "target_seat_index",
+      "seat_index",
+      "target_player_id",
+      "player_id",
+    ]);
     return text.stream.bankruptcy(pid);
   }
   if (eventType === "game_end") {
-    const winner = payload["winner_player_id"];
-    if (typeof winner === "number") {
+    const winner = relatedPlayerNumberFromPayload(payload, "winner", ["winner_player_id"]);
+    if (winner !== null) {
       return text.stream.winner(winner);
     }
     const reason = asString(payload["summary"] ?? payload["reason"] ?? payload["end_reason"]);
@@ -842,8 +1035,8 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
     return text.stream.manifestSync;
   }
   if (eventType === "mark_resolved") {
-    const source = payload["source_player_id"];
-    const target = payload["target_player_id"];
+    const source = relatedPlayerNumberFromPayload(payload, "source", ["source_player_id", "player_id"]);
+    const target = relatedPlayerNumberFromPayload(payload, "target", ["target_player_id"]);
     const resolution = isRecord(payload["resolution"]) ? payload["resolution"] : null;
     const explicitSummary = asString(payload["summary"] ?? resolution?.["summary"] ?? payload["effect_text"]);
     if (explicitSummary !== "-") {
@@ -859,7 +1052,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
           : effectType === "manshin_remove_burdens"
             ? "만신"
             : "지목";
-    if (typeof source === "number" && typeof target === "number") {
+    if (source !== null && target !== null) {
       if (effectType === "baksu_transfer") {
         const burdenCount = numberOrNull(resolution?.["burden_count"]);
         const rewardCount = numberOrNull(resolution?.["reward_count"]);
@@ -876,28 +1069,28 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   }
   if (eventType === "mark_queued") {
     return text.stream.markQueued(
-      payload["source_player_id"] ?? payload["player_id"] ?? "?",
-      payload["target_player_id"] ?? "?",
+      relatedPlayerTokenFromPayload(payload, "source", ["source_player_id", "player_id"]),
+      relatedPlayerTokenFromPayload(payload, "target", ["target_player_id"]),
       asString(payload["target_character"]),
       asString(payload["effect_type"])
     );
   }
   if (eventType === "mark_target_none") {
     return text.stream.markTargetNone(
-      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      relatedPlayerTokenFromPayload(payload, "source", ["source_player_id", "player_id"]),
       asString(payload["actor_name"])
     );
   }
   if (eventType === "mark_target_missing") {
     return text.stream.markTargetMissing(
-      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      relatedPlayerTokenFromPayload(payload, "source", ["source_player_id", "player_id"]),
       asString(payload["target_character"])
     );
   }
   if (eventType === "mark_blocked") {
     return text.stream.markBlocked(
-      payload["source_player_id"] ?? payload["player_id"] ?? "?",
-      payload["target_player_id"] ?? "?",
+      relatedPlayerTokenFromPayload(payload, "source", ["source_player_id", "player_id"]),
+      relatedPlayerTokenFromPayload(payload, "target", ["target_player_id"]),
       asString(payload["target_character"])
     );
   }
@@ -907,7 +1100,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
       return explicitSummary;
     }
     return text.stream.abilitySuppressed(
-      payload["source_player_id"] ?? payload["player_id"] ?? "?",
+      relatedPlayerTokenFromPayload(payload, "source", ["source_player_id", "player_id"]),
       asString(payload["actor_name"] ?? payload["character"]),
       asString(payload["reason"])
     );
@@ -1376,6 +1569,18 @@ function addParticipant(participants: Record<string, number>, key: string, value
   }
 }
 
+function addParticipantFromPayloadFields(
+  participants: Record<string, number>,
+  key: string,
+  payload: Record<string, unknown>,
+  fields: string[]
+) {
+  const value = firstNumberFromPayloadFields(payload, fields);
+  if (value !== null) {
+    participants[key] = value;
+  }
+}
+
 function participantsFromEvent(raw: Record<string, unknown>, payload: Record<string, unknown>): Record<string, number> {
   const participants: Record<string, number> = {};
   const source = isRecord(raw["participants"]) ? raw["participants"] : null;
@@ -1384,13 +1589,51 @@ function participantsFromEvent(raw: Record<string, unknown>, payload: Record<str
       addParticipant(participants, key, value);
     }
   }
-  addParticipant(participants, "actor", payload["actor_player_id"] ?? payload["acting_player_id"] ?? payload["player_id"]);
-  addParticipant(participants, "source", payload["source_player_id"]);
-  addParticipant(participants, "target", payload["target_player_id"]);
-  addParticipant(participants, "payer", payload["payer_player_id"] ?? payload["payer"]);
-  addParticipant(participants, "owner", payload["owner_player_id"] ?? payload["owner"]);
-  addParticipant(participants, "from", payload["from_player_id"] ?? payload["from_owner"]);
-  addParticipant(participants, "to", payload["to_player_id"] ?? payload["to_owner"]);
+  addParticipantFromPayloadFields(participants, "actor", payload, [
+    "actor_legacy_player_id",
+    "acting_legacy_player_id",
+    "legacy_player_id",
+    "actor_seat_index",
+    "acting_seat_index",
+    "seat_index",
+    "actor_player_id",
+    "acting_player_id",
+    "player_id",
+  ]);
+  addParticipantFromPayloadFields(participants, "source", payload, [
+    "source_legacy_player_id",
+    "source_seat_index",
+    "source_player_id",
+  ]);
+  addParticipantFromPayloadFields(participants, "target", payload, [
+    "target_legacy_player_id",
+    "target_seat_index",
+    "target_player_id",
+  ]);
+  addParticipantFromPayloadFields(participants, "payer", payload, [
+    "payer_legacy_player_id",
+    "payer_seat_index",
+    "payer_player_id",
+    "payer",
+  ]);
+  addParticipantFromPayloadFields(participants, "owner", payload, [
+    "owner_legacy_player_id",
+    "owner_seat_index",
+    "owner_player_id",
+    "owner",
+  ]);
+  addParticipantFromPayloadFields(participants, "from", payload, [
+    "from_legacy_player_id",
+    "from_seat_index",
+    "from_player_id",
+    "from_owner",
+  ]);
+  addParticipantFromPayloadFields(participants, "to", payload, [
+    "to_legacy_player_id",
+    "to_seat_index",
+    "to_player_id",
+    "to_owner",
+  ]);
   return participants;
 }
 
@@ -2111,10 +2354,8 @@ function toTileViewModel(raw: unknown, fallbackTileIndex: number | null = null):
     purchaseCost: typeof raw["purchase_cost"] === "number" ? raw["purchase_cost"] : null,
     rentCost: typeof raw["rent_cost"] === "number" ? raw["rent_cost"] : null,
     scoreCoinCount: scoreCoinCountFromRecord(raw),
-    ownerPlayerId: typeof raw["owner_player_id"] === "number" ? raw["owner_player_id"] : null,
-    pawnPlayerIds: Array.isArray(raw["pawn_player_ids"])
-      ? raw["pawn_player_ids"].filter((v): v is number => typeof v === "number")
-      : [],
+    ownerPlayerId: boardTileOwnerPlayerIdFromPayload(raw),
+    pawnPlayerIds: boardTilePawnPlayerIdsFromPayload(raw),
   };
 }
 
@@ -2144,7 +2385,7 @@ function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): 
     if (tileIndex === null) {
       continue;
     }
-    for (const pawnPlayerId of integerArray(rawTile["pawn_player_ids"])) {
+    for (const pawnPlayerId of boardTilePawnPlayerIdsFromPayload(rawTile)) {
       positionByPlayerId.set(pawnPlayerId, tileIndex);
     }
   }
@@ -2184,7 +2425,7 @@ function snapshotFromBackendViewStatePayload(payload: Record<string, unknown>): 
     playerItems.find((item) => isRecord(item) && item["is_marker_owner"] === true && typeof item["player_id"] === "number") ??
     null;
   const markerOwnerPlayerId =
-    numberOrNull(board?.["marker_owner_player_id"]) ??
+    boardMarkerOwnerPlayerIdFromPayload(board) ??
     numberOrNull(playersState?.["marker_owner_player_id"]) ??
     (isRecord(markerOwnerPlayer) ? numberOrNull(markerOwnerPlayer["player_id"]) : null);
   const turnStage = isRecord(viewState["turn_stage"]) ? viewState["turn_stage"] : null;
@@ -2605,6 +2846,10 @@ function selectBackendPlayerCardItemsFromViewState(viewState: Record<string, unk
       }
       return {
         player_id: item["player_id"],
+        legacy_player_id: numberOrNull(item["legacy_player_id"]),
+        public_player_id: stringOrNull(item["public_player_id"]),
+        seat_id: stringOrNull(item["seat_id"]),
+        viewer_id: stringOrNull(item["viewer_id"]),
         character,
         priority_slot: typeof item["priority_slot"] === "number" ? item["priority_slot"] : null,
         turn_order_rank: typeof item["turn_order_rank"] === "number" ? item["turn_order_rank"] : null,
@@ -2617,12 +2862,13 @@ function selectBackendPlayerCardItemsFromViewState(viewState: Record<string, unk
 
 function selectBackendDerivedPlayers(
   messages: InboundMessage[],
-  currentLocalPlayerId: number | null
+  currentLocalViewer: StreamSelectorViewerIdentityInput
 ): DerivedPlayerViewModel[] | null {
   const entry = selectLatestBackendViewStateEntry(messages);
   if (!entry) {
     return null;
   }
+  const viewerIdentity = normalizeViewerIdentity(currentLocalViewer);
   const backendTurnStage = selectBackendTurnStage(messages);
   const gameEnded = backendTurnStage?.currentBeatEventCode === "game_end";
   const players = isRecord(entry.viewState["players"]) ? entry.viewState["players"] : null;
@@ -2663,7 +2909,9 @@ function selectBackendDerivedPlayers(
       currentCharacterFace,
       isMarkerOwner: item["is_marker_owner"] === true,
       isCurrentActor: !gameEnded && (item["is_current_actor"] === true || playerCard?.is_current_actor === true),
-      isLocalPlayer: currentLocalPlayerId === playerId,
+      isLocalPlayer:
+        viewerIdentityMatchesRecord(item, playerId, viewerIdentity) ||
+        viewerIdentityMatchesBackendPlayerCard(playerCard, viewerIdentity),
     };
   });
   return mapped.filter((item): item is DerivedPlayerViewModel => item !== null);
@@ -2671,12 +2919,13 @@ function selectBackendDerivedPlayers(
 
 function selectBackendActiveCharacterSlots(
   messages: InboundMessage[],
-  currentLocalPlayerId: number | null
+  currentLocalViewer: StreamSelectorViewerIdentityInput
 ): ActiveCharacterSlotViewModel[] | null {
   const entry = selectLatestBackendViewStateEntry(messages);
   if (!entry) {
     return null;
   }
+  const viewerIdentity = normalizeViewerIdentity(currentLocalViewer);
   const backendTurnStage = selectBackendTurnStage(messages);
   const gameEnded = backendTurnStage?.currentBeatEventCode === "game_end";
   const activeSlots = isRecord(entry.viewState["active_slots"]) ? entry.viewState["active_slots"] : null;
@@ -2716,7 +2965,9 @@ function selectBackendActiveCharacterSlots(
             ? item["inactive_character"]
             : null,
         isCurrentActor: !gameEnded && (item["is_current_actor"] === true || playerCard?.is_current_actor === true),
-        isLocalPlayer: playerId !== null && currentLocalPlayerId === playerId,
+        isLocalPlayer:
+          (playerId !== null && viewerIdentityMatchesRecord(item, playerId, viewerIdentity)) ||
+          viewerIdentityMatchesBackendPlayerCard(playerCard, viewerIdentity),
       };
     })
     .filter((item): item is ActiveCharacterSlotViewModel => item !== null);
@@ -2731,7 +2982,7 @@ function selectBackendActiveCharacterSlots(
       character: playerCard.character,
       inactiveCharacter: null,
       isCurrentActor: !gameEnded && playerCard.is_current_actor,
-      isLocalPlayer: currentLocalPlayerId === playerCard.player_id,
+      isLocalPlayer: viewerIdentityMatchesBackendPlayerCard(playerCard, viewerIdentity),
     });
   }
   mapped.sort((left, right) => left.slot - right.slot);
@@ -2967,7 +3218,7 @@ function selectBackendLastMove(messages: InboundMessage[]): LastMoveViewModel | 
     return null;
   }
   return {
-    playerId: typeof lastMove["player_id"] === "number" ? lastMove["player_id"] : null,
+    playerId: boardLastMovePlayerIdFromPayload(lastMove),
     fromTileIndex: typeof lastMove["from_tile_index"] === "number" ? lastMove["from_tile_index"] : null,
     toTileIndex: typeof lastMove["to_tile_index"] === "number" ? lastMove["to_tile_index"] : null,
     pathTileIndices: integerArray(lastMove["path_tile_indices"]),
@@ -2989,10 +3240,8 @@ function selectBackendBoardTiles(messages: InboundMessage[]): Pick<TileViewModel
       return {
         tileIndex: item["tile_index"],
         scoreCoinCount: typeof item["score_coin_count"] === "number" ? item["score_coin_count"] : 0,
-        ownerPlayerId: typeof item["owner_player_id"] === "number" ? item["owner_player_id"] : null,
-        pawnPlayerIds: Array.isArray(item["pawn_player_ids"])
-          ? item["pawn_player_ids"].filter((value): value is number => typeof value === "number")
-          : [],
+        ownerPlayerId: boardTileOwnerPlayerIdFromPayload(item),
+        pawnPlayerIds: boardTilePawnPlayerIdsFromPayload(item),
       };
     })
     .filter(
@@ -3020,7 +3269,7 @@ function selectBackendSnapshotProjection(
   const playerItems = Array.isArray(players?.["items"]) ? players["items"] : [];
 
   const markerOwnerPlayerId =
-    numberOrNull(board?.["marker_owner_player_id"]) ??
+    boardMarkerOwnerPlayerIdFromPayload(board) ??
     playerItems.find((item): item is Record<string, unknown> => isRecord(item) && item["is_marker_owner"] === true)?.["player_id"];
 
   return {
@@ -3338,7 +3587,7 @@ export function selectCurrentActorPlayerId(messages: InboundMessage[]): number |
 
 export function selectDerivedPlayers(
   messages: InboundMessage[],
-  currentLocalPlayerId: number | null = null,
+  currentLocalPlayerId: StreamSelectorViewerIdentityInput = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): DerivedPlayerViewModel[] {
   void text;
@@ -3348,7 +3597,7 @@ export function selectDerivedPlayers(
 
 export function selectActiveCharacterSlots(
   messages: InboundMessage[],
-  currentLocalPlayerId: number | null = null,
+  currentLocalPlayerId: StreamSelectorViewerIdentityInput = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT,
   initialActiveByCard: Record<string, string> | Record<number, string> | null = null
 ): ActiveCharacterSlotViewModel[] {
@@ -3361,7 +3610,7 @@ export function selectActiveCharacterSlots(
 export function selectMarkTargetCharacterSlots(
   messages: InboundMessage[],
   actorCharacterName: string | null,
-  currentLocalPlayerId: number | null = null,
+  currentLocalPlayerId: StreamSelectorViewerIdentityInput = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): MarkTargetSlotViewModel[] {
   void actorCharacterName;
@@ -3373,7 +3622,7 @@ export function selectMarkTargetCharacterSlots(
 
 export function selectMarkerOrderedPlayers(
   messages: InboundMessage[],
-  currentLocalPlayerId: number | null = null,
+  currentLocalPlayerId: StreamSelectorViewerIdentityInput = null,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
 ): DerivedPlayerViewModel[] {
   const derivedPlayers = selectDerivedPlayers(messages, currentLocalPlayerId, text);
