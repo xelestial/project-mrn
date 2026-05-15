@@ -1,0 +1,16 @@
+{
+  "type": "decision_ack",
+  "seq": 18,
+  "session_id": "sess_primary_identity",
+  "server_time_ms": 1743210002600,
+  "payload": {
+    "request_id": "req_primary_1",
+    "status": "accepted",
+    "primary_player_id": "ply_public_1",
+    "primary_player_id_source": "public",
+    "legacy_player_id": 1,
+    "public_player_id": "ply_public_1",
+    "seat_id": "seat_public_1",
+    "viewer_id": "view_public_1"
+  }
+}

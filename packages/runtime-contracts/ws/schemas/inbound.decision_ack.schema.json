@@ -29,8 +29,24 @@
       "type": "object",
       "required": [
         "request_id",
-        "status",
-        "player_id"
+        "status"
+      ],
+      "anyOf": [
+        {
+          "required": ["player_id"]
+        },
+        {
+          "required": ["primary_player_id", "primary_player_id_source"]
+        },
+        {
+          "required": ["public_player_id"]
+        },
+        {
+          "required": ["seat_id"]
+        },
+        {
+          "required": ["viewer_id"]
+        }
       ],
       "allOf": [
         {

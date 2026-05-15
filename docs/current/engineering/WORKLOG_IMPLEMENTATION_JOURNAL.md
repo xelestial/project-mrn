@@ -11,6 +11,23 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 WS Decision ACK Primary-Only Fixture
+
+- Added frozen `inbound.decision_ack.primary_identity.json` so the WebSocket
+  contract package has an ACK example identified by `primary_player_id`,
+  `primary_player_id_source`, `public_player_id`, `seat_id`, and `viewer_id`
+  without payload `player_id`.
+- Updated `inbound.decision_ack.schema.json` so payload `player_id` is one
+  accepted identity channel rather than the mandatory channel. Identity-less
+  ACK payloads remain invalid, and numeric `player_id` still requires explicit
+  legacy alias metadata.
+- `inbound.decision_ack.public_identity.json` remains the public top-level ACK
+  example, and numeric ACK examples remain compatibility evidence.
+
+Responsibility result: WebSocket runtime contracts now own primary-only ACK
+fixture evidence. Runtime ACK producers and client consumers did not move in
+this slice.
+
 ## 2026-05-15 WS Decision Primary-Only Fixture
 
 - Added frozen `outbound.decision.primary_identity.json` so the WebSocket

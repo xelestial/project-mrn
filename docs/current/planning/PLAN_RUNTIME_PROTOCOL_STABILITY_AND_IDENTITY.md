@@ -957,7 +957,12 @@ Acceptance evidence status, 2026-05-15:
   WebSocket `decision_ack` payloads, schema, and examples now expose the same primary identity
   fields whenever numeric `player_id` remains as the compatibility alias, and
   `inbound.decision_ack.public_identity.json` freezes the preferred public-primary ACK shape
-  with a string top-level `player_id`. `build_decision_ack_payload()` now uses that public
+  with a string top-level `player_id`. The ACK schema also accepts explicit
+  `primary_player_id` plus `primary_player_id_source`, `public_player_id`,
+  `seat_id`, or `viewer_id` without requiring payload `player_id`, while still
+  rejecting identity-less ACK payloads; `inbound.decision_ack.primary_identity.json`
+  freezes that primary-only public shape without replacing the public top-level
+  identity example. `build_decision_ack_payload()` now uses that public
   top-level `player_id` when `public_player_id` is available and preserves the numeric
   bridge as explicit `legacy_player_id`; numeric-only ACKs remain labeled compatibility
   aliases. The frozen external-AI `decision_requested` event example now also carries public
