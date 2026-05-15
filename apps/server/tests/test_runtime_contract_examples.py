@@ -564,6 +564,22 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 seq = message.get("seq")
                 assert isinstance(seq, int), f"{filename}[{idx}].seq: expected integer"
                 seqs.append(seq)
+                if isinstance(payload.get("player_id"), int):
+                    assert payload.get("legacy_player_id") == payload["player_id"], (
+                        f"{filename}[{idx}].payload: numeric player_id must carry legacy_player_id"
+                    )
+                    for field in ("public_player_id", "seat_id", "viewer_id"):
+                        assert isinstance(payload.get(field), str), (
+                            f"{filename}[{idx}].payload.{field}: expected public string companion"
+                        )
+                if isinstance(payload.get("acting_player_id"), int):
+                    assert payload.get("acting_legacy_player_id") == payload["acting_player_id"], (
+                        f"{filename}[{idx}].payload: numeric acting_player_id must carry acting_legacy_player_id"
+                    )
+                    for field in ("acting_public_player_id", "acting_seat_id", "acting_viewer_id"):
+                        assert isinstance(payload.get(field), str), (
+                            f"{filename}[{idx}].payload.{field}: expected public string companion"
+                        )
 
             assert seqs == sorted(seqs), f"{filename}: expected non-decreasing seq ordering"
             assert event_types == expected_order, (

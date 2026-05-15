@@ -8,7 +8,17 @@
       "event_type": "decision_requested",
       "request_id": "req_turn2_movement",
       "request_type": "movement",
-      "player_id": 1
+      "player_id": 1,
+      "player_id_alias_role": "legacy_compatibility_alias",
+      "primary_player_id": "ply_public_1",
+      "primary_player_id_source": "public",
+      "legacy_player_id": 1,
+      "seat_index": 1,
+      "turn_order_index": 1,
+      "player_label": "P1",
+      "public_player_id": "ply_public_1",
+      "seat_id": "seat_public_1",
+      "viewer_id": "viewer_public_1"
     }
   },
   {
@@ -20,6 +30,16 @@
       "event_type": "decision_resolved",
       "request_id": "req_turn2_movement",
       "player_id": 1,
+      "player_id_alias_role": "legacy_compatibility_alias",
+      "primary_player_id": "ply_public_1",
+      "primary_player_id_source": "public",
+      "legacy_player_id": 1,
+      "seat_index": 1,
+      "turn_order_index": 1,
+      "player_label": "P1",
+      "public_player_id": "ply_public_1",
+      "seat_id": "seat_public_1",
+      "viewer_id": "viewer_public_1",
       "resolution": "accepted",
       "choice_id": "roll"
     }
@@ -32,6 +52,16 @@
     "payload": {
       "event_type": "player_move",
       "acting_player_id": 1,
+      "acting_player_id_alias_role": "legacy_compatibility_alias",
+      "acting_primary_player_id": "ply_public_1",
+      "acting_primary_player_id_source": "public",
+      "acting_legacy_player_id": 1,
+      "acting_seat_index": 1,
+      "acting_turn_order_index": 1,
+      "acting_player_label": "P1",
+      "acting_public_player_id": "ply_public_1",
+      "acting_seat_id": "seat_public_1",
+      "acting_viewer_id": "viewer_public_1",
       "from_tile_index": 0,
       "to_tile_index": 4
     }

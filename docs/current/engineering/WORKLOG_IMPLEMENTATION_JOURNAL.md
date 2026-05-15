@@ -1384,6 +1384,22 @@ Responsibility result: runtime-contract examples now own the public-primary
 event evidence that runtime prompt publishing already emits. Event schema
 compatibility and engine routing bridges remain unchanged.
 
+## 2026-05-15 Decision Sequence Event Identity Companions
+
+- Tightened the frozen WebSocket decision sequence example test so any numeric
+  direct `player_id` must carry explicit legacy/public/seat/viewer companions,
+  and any numeric `acting_player_id` must carry the actor-prefixed companions.
+- Updated `sequence.decision.accepted_then_domain.json` and
+  `sequence.decision.timeout_then_domain.json` to show runtime fanout identity
+  enrichment on decision requested/resolved/fallback events and actor domain
+  events.
+- Left `inbound.event.schema.json` broad because the shared event envelope still
+  carries many domain event shapes during compatibility migration.
+
+Responsibility result: sequence examples now document the runtime fanout
+identity companion contract. Runtime fanout enrichment ownership and engine
+numeric actor routing remain unchanged.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
