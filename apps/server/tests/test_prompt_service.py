@@ -563,6 +563,42 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(command_payload["decision"]["primary_player_id_source"], "public")
         self.assertEqual(command_payload["decision"]["player_id_alias_role"], "legacy_compatibility_alias")
 
+    def test_create_prompt_repairs_malformed_public_primary_identity(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        pending = service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_malformed_public_primary",
+                "request_type": "movement",
+                "player_id": 1,
+                "primary_player_id": 1,
+                "primary_player_id_source": "public",
+                "public_player_id": "ply_1",
+                "seat_id": "seat_1",
+                "viewer_id": "view_1",
+                "legacy_player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        self.assertEqual(pending.payload["primary_player_id"], "ply_1")
+        self.assertEqual(pending.payload["primary_player_id_source"], "public")
+        self.assertEqual(pending.payload["legacy_player_id"], 1)
+        self.assertEqual(pending.payload["player_id_alias_role"], "legacy_compatibility_alias")
+
+        result = service.submit_decision(
+            {"session_id": "s1", "request_id": "r_malformed_public_primary", "player_id": 1, "choice_id": "roll"}
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        command_payload = command_store.commands[0]["payload"]
+        self.assertEqual(command_payload["primary_player_id"], "ply_1")
+        self.assertEqual(command_payload["primary_player_id_source"], "public")
+        self.assertEqual(command_payload["decision"]["primary_player_id"], "ply_1")
+        self.assertEqual(command_payload["decision"]["primary_player_id_source"], "public")
+
     def test_submit_decision_rejects_conflicting_prompt_player_identity_fields(self) -> None:
         command_store = CapturingCommandStore()
         service = PromptService(command_store=command_store)

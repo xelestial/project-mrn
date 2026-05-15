@@ -1459,20 +1459,30 @@ def _ensure_prompt_primary_player_identity(prompt: dict) -> None:
     if _int_or_none(player_id) is not None:
         prompt.setdefault("player_id_alias_role", "legacy_compatibility_alias")
 
-    if str(prompt.get("primary_player_id") or "").strip() and str(prompt.get("primary_player_id_source") or "").strip():
+    primary_player_id = prompt.get("primary_player_id")
+    primary_player_id_source = str(prompt.get("primary_player_id_source") or "").strip()
+    if _valid_prompt_primary_player_identity(primary_player_id, primary_player_id_source):
         return
 
     if public_player_id:
-        prompt.setdefault("primary_player_id", public_player_id)
-        prompt.setdefault("primary_player_id_source", "public")
+        prompt["primary_player_id"] = public_player_id
+        prompt["primary_player_id_source"] = "public"
         return
     if isinstance(player_id, str) and player_id.strip() and _int_or_none(player_id) is None:
-        prompt.setdefault("primary_player_id", player_id.strip())
-        prompt.setdefault("primary_player_id_source", "protocol")
+        prompt["primary_player_id"] = player_id.strip()
+        prompt["primary_player_id_source"] = "protocol"
         return
     if legacy_player_id is not None:
-        prompt.setdefault("primary_player_id", legacy_player_id)
-        prompt.setdefault("primary_player_id_source", "legacy")
+        prompt["primary_player_id"] = legacy_player_id
+        prompt["primary_player_id_source"] = "legacy"
+
+
+def _valid_prompt_primary_player_identity(value: object, source: str) -> bool:
+    if source in {"public", "protocol"}:
+        return isinstance(value, str) and bool(value.strip())
+    if source == "legacy":
+        return _int_or_none(value) is not None
+    return False
 
 
 def _looks_like_public_request_id(request_id: str) -> bool:

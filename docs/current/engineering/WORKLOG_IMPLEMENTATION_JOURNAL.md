@@ -1187,6 +1187,22 @@ Responsibility result: headless prompt routing now owns viewer target
 normalization before calling the shared prompt identity matcher. Server payloads,
 HTTP policy serialization, and numeric engine bridges did not move.
 
+## 2026-05-15 Prompt Service Primary Identity Repair
+
+- Added `test_prompt_service.py` coverage for pending prompts that declare
+  `primary_player_id_source: "public"` while carrying numeric
+  `primary_player_id`.
+- `PromptService.create_prompt()` now preserves only source/type-consistent
+  explicit primary identity. Malformed public/protocol/legacy primary fields are
+  repaired from public/protocol/legacy companions before pending prompt storage.
+- Submitted decision command payloads inherit the repaired primary identity from
+  the pending prompt.
+
+Responsibility result: server prompt storage now owns primary identity
+source/type validation before lifecycle records and command materialization.
+View-state selectors and client/headless fallback repair remain compatibility
+guards, not the first correction boundary.
+
 ## 2026-05-15 Prompt Selector Primary Identity Repair
 
 - Added `promptSelectors.spec.ts` coverage for malformed active-prompt payloads
