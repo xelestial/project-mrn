@@ -932,7 +932,11 @@ Acceptance evidence status, 2026-05-15:
   WebSocket `outbound.decision.public_identity.json` and `inbound.prompt.public_identity.json`
   now freeze the preferred public-primary path directly: top-level `player_id`,
   `primary_player_id`, and `public_player_id` are the same public string identity,
-  while `legacy_player_id` remains the explicit numeric bridge.
+  while `legacy_player_id` remains the explicit numeric bridge. The WebSocket
+  outbound decision schema also accepts explicit `primary_player_id` plus
+  `primary_player_id_source`, `public_player_id`, `seat_id`, or `viewer_id` without
+  requiring a top-level `player_id`, while still rejecting identity-less decision
+  messages.
   WebSocket outbound decision examples and frontend decision construction now also expose
   `primary_player_id` plus `primary_player_id_source`, and label top-level numeric `player_id`
   with `player_id_alias_role: "legacy_compatibility_alias"`. `PromptService.create_prompt()`,
@@ -978,7 +982,9 @@ Acceptance evidence status, 2026-05-15:
   when the source is `legacy`. Malformed producer payloads therefore cannot
   reintroduce numeric public primary identity or relabel public string identity
   as legacy through WS decision, WS prompt, WS decision ACK, or external-AI
-  request contracts.
+  request contracts. External-AI worker request optionalization is intentionally
+  still separate because the reference worker input model currently owns a top-level
+  `player_id` field at that boundary.
 - `tests/test_game_debug_log_audit_script.py` verifies debug-log audit duplicate grouping prefers public
   primary identity when numeric `player_id` is absent or only a legacy top-level alias, so simultaneous
   public identities that share a request id are not collapsed into one legacy numeric bucket.
@@ -1009,6 +1015,12 @@ Acceptance evidence status, 2026-05-15:
   `apps/server/tests/test_sessions_api.py::test_external_ai_decision_callback_rejects_malformed_primary_player_identity`
   verify that malformed explicit primary player identity pairs fail closed at the WebSocket and
   external-AI callback route boundaries instead of being repaired by numeric compatibility aliases.
+- `apps/server/tests/test_runtime_contract_examples.py::test_outbound_decision_schema_accepts_primary_identity_without_player_id`
+  and
+  `apps/server/tests/test_runtime_contract_examples.py::test_outbound_decision_schema_rejects_missing_player_identity`
+  verify that the WebSocket outbound decision contract no longer requires top-level `player_id`
+  when explicit primary/public/seat/viewer identity is present, while still rejecting a decision
+  payload with no player identity channel at all.
 - `apps/server/tests/test_prompt_service.py::test_submit_decision_rejects_conflicting_prompt_player_identity_fields`
   verifies that `PromptService.submit_decision()` itself rejects decision payload identity companions that
   contradict the pending prompt before lifecycle records or command payloads are accepted, keeping this

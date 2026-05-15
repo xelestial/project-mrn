@@ -37,6 +37,22 @@ def _validate_subset(instance: Any, schema: dict[str, Any], path: str = "$") -> 
         if isinstance(sub_schema, dict):
             _validate_subset(instance, sub_schema, f"{path}.allOf[{idx}]")
 
+    if "anyOf" in schema:
+        errors: list[str] = []
+        any_of = schema["anyOf"]
+        assert isinstance(any_of, list), f"{path}.anyOf: expected list"
+        for idx, sub_schema in enumerate(any_of):
+            assert isinstance(sub_schema, dict), f"{path}.anyOf[{idx}]: expected object"
+            try:
+                _validate_subset(instance, sub_schema, f"{path}.anyOf[{idx}]")
+            except AssertionError as exc:
+                errors.append(str(exc))
+            else:
+                break
+        else:
+            joined_errors = "; ".join(errors)
+            raise AssertionError(f"{path}: expected at least one anyOf branch to match: {joined_errors}")
+
     if_schema = schema.get("if")
     if isinstance(if_schema, dict):
         try:
@@ -317,6 +333,42 @@ class RuntimeContractExampleTests(unittest.TestCase):
             inbound_decision_ack_schema,
             path="$<inbound.decision_ack.public_identity>",
         )
+
+    def test_outbound_decision_schema_accepts_primary_identity_without_player_id(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "outbound.decision.schema.json")
+
+        _validate_subset(
+            {
+                "type": "decision",
+                "request_id": "req_primary_only_1",
+                "primary_player_id": "player_public_1",
+                "primary_player_id_source": "public",
+                "public_player_id": "player_public_1",
+                "seat_id": "seat_1",
+                "viewer_id": "viewer_1",
+                "choice_id": "roll",
+                "client_seq": 12,
+            },
+            schema,
+            path="$<outbound.decision.primary_identity_without_player_id>",
+        )
+
+    def test_outbound_decision_schema_rejects_missing_player_identity(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "outbound.decision.schema.json")
+
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "decision",
+                    "request_id": "req_missing_identity",
+                    "choice_id": "roll",
+                    "client_seq": 12,
+                },
+                schema,
+                path="$<outbound.decision.missing_identity>",
+            )
 
     def test_ws_identity_schemas_require_primary_metadata_for_numeric_player_alias(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"

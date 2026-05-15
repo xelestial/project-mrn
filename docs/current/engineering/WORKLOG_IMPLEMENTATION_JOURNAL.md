@@ -11,6 +11,23 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 WS Decision Contract Primary-Only Identity
+
+- `outbound.decision.schema.json` no longer requires top-level `player_id` when
+  a decision carries explicit `primary_player_id` plus source, `public_player_id`,
+  `seat_id`, or `viewer_id`.
+- The schema still rejects decision messages with no player identity channel,
+  and numeric top-level `player_id` remains accepted only as a labeled legacy
+  compatibility alias with primary/source/legacy metadata.
+- The runtime contract test helper now evaluates `anyOf`, so this identity
+  requirement is actually enforced by the schema tests instead of being silently
+  ignored by the local subset validator.
+
+Responsibility result: the WebSocket contract moved to match the already
+implemented route adapter boundary. External-AI worker request optionalization
+did not move here because its request model still owns top-level `player_id` as
+a separate compatibility boundary.
+
 ## 2026-05-15 Inbound Primary Identity Adapter
 
 - `SessionService.resolve_protocol_player_id()` now accepts explicit

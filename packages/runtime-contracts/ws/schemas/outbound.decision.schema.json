@@ -6,9 +6,25 @@
   "required": [
     "type",
     "request_id",
-    "player_id",
     "choice_id",
     "client_seq"
+  ],
+  "anyOf": [
+    {
+      "required": ["player_id"]
+    },
+    {
+      "required": ["primary_player_id", "primary_player_id_source"]
+    },
+    {
+      "required": ["public_player_id"]
+    },
+    {
+      "required": ["seat_id"]
+    },
+    {
+      "required": ["viewer_id"]
+    }
   ],
   "allOf": [
     {
