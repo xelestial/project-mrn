@@ -349,7 +349,11 @@ type CreateSessionResult = {
 
 type JoinSessionResult = {
   seat?: number;
-  player_id?: number;
+  player_id?: number | string;
+  legacy_player_id?: number | null;
+  public_player_id?: string | null;
+  seat_id?: string | null;
+  viewer_id?: string | null;
   session_token?: string;
 };
 
@@ -982,9 +986,10 @@ export async function joinProtocolSeats(
       joinToken: token,
       displayName: `Headless ${seat}`,
     }) as JoinSessionResult;
+    const legacyPlayerId = numberValue(data.legacy_player_id) ?? numericPlayerId(data.player_id) ?? seat;
     joins.push({
       seat,
-      playerId: Number(data.player_id ?? seat),
+      playerId: legacyPlayerId,
       token: requireString(data.session_token, `join response for seat ${seat} did not include session_token`),
     });
   }
@@ -1861,6 +1866,10 @@ function numberValue(value: unknown): number | null {
   }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function numericPlayerId(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function maxNumber(values: number[]): number {

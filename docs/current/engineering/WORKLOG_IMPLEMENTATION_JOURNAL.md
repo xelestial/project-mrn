@@ -11,6 +11,20 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Headless Harness Join Identity Bridge
+
+- `joinProtocolSeats()` now treats a string join-response `player_id` as a
+  public/protocol identity value, not as a number to coerce. The temporary
+  numeric `ProtocolSeatJoin.playerId` bridge is resolved only from explicit
+  `legacy_player_id`, a numeric legacy `player_id`, or the joined seat fallback.
+- Added harness coverage for the future-compatible case where the join response
+  supplies string public `player_id` plus explicit legacy/public/seat/viewer
+  companions.
+
+Responsibility result: headless protocol runs still use numeric client grouping
+internally, but the numeric bridge is now materialized at the harness join
+boundary instead of being inferred from arbitrary protocol `player_id` strings.
+
 ## 2026-05-15 Frontend Transport Prompt Instance Companion
 
 - `FrontendTransportAdapter` serialization coverage now verifies that outbound

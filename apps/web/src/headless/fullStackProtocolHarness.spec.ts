@@ -9,6 +9,7 @@ import {
   evaluateProtocolGate,
   evaluateProtocolBackendTimingGate,
   fetchRuntimeStatus,
+  joinProtocolSeats,
   parseProtocolBackendTimingEvents,
   policyForProtocolPlayer,
   resolveProtocolTimeoutPolicy,
@@ -20,6 +21,7 @@ import {
   summarizeProtocolThroughput,
   type ProtocolClientRuntime,
 } from "./fullStackProtocolHarness";
+import type { FrontendTransportAdapter } from "./frontendTransportAdapter";
 
 function clientRuntime(
   label: string,
@@ -88,6 +90,38 @@ describe("fullStackProtocolHarness", () => {
     expect(payload.config).toMatchObject({
       runtime: { seed: 20260508, ai_decision_delay_ms: 250 },
     });
+  });
+
+  it("uses explicit legacy join companions instead of coercing public player ids", async () => {
+    const transport = {
+      joinSession: vi.fn(async ({ seat }: { seat: number }) => ({
+        seat,
+        player_id: `player_public_${seat}`,
+        legacy_player_id: seat,
+        public_player_id: `player_public_${seat}`,
+        seat_id: `seat_public_${seat}`,
+        viewer_id: `viewer_public_${seat}`,
+        session_token: `session_p${seat}_token`,
+      })),
+    } as unknown as FrontendTransportAdapter;
+
+    const joins = await joinProtocolSeats(
+      "http://127.0.0.1:9091",
+      {
+        sessionId: "session_test",
+        joinTokens: {
+          2: "join_two",
+          1: "join_one",
+        },
+      },
+      transport,
+    );
+
+    expect(joins).toEqual([
+      { seat: 1, playerId: 1, token: "session_p1_token" },
+      { seat: 2, playerId: 2, token: "session_p2_token" },
+    ]);
+    expect(joins.some((join) => Number.isNaN(join.playerId))).toBe(false);
   });
 
   it("keeps compact client summaries without raw stream payloads", () => {

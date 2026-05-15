@@ -893,6 +893,10 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
   viewer companions from the session join response instead of reducing the
   local viewer model to numeric `player_id`; numeric join fields remain the
   legacy display/engine bridge.
+- [x] Full-stack protocol harness join parsing treats string join `player_id`
+  as public/protocol identity and uses only `legacy_player_id`, numeric legacy
+  `player_id`, or the joined seat fallback for its temporary numeric client
+  bridge.
 - [x] UI labels still show `P1` to `P4` through `seat_index` and `player_label`.
 - [x] `source_event_seq`, `stream_seq`, and `commit_seq` are numeric and monotonic.
 - [x] Every prompt has `request_id`, `prompt_instance_id`, `resume_token`, target identity, lifecycle state, and required commit sequence.
