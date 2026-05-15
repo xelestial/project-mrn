@@ -855,7 +855,7 @@ export class HeadlessGameClient {
     const publicPlayerId = optionalIdentityString(viewer?.public_player_id);
     return {
       legacyPlayerId: this.playerId,
-      protocolPlayerId: optionalProtocolPlayerId(viewer?.player_id) ?? this.playerId,
+      protocolPlayerId: publicPlayerId ?? optionalProtocolPlayerId(viewer?.player_id) ?? this.playerId,
       publicPlayerId,
       seatId: optionalIdentityString(viewer?.seat_id),
       viewerId: optionalIdentityString(viewer?.viewer_id),

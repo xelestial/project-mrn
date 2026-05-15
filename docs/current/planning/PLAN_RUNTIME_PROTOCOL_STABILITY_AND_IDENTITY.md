@@ -1095,8 +1095,9 @@ Acceptance evidence status, 2026-05-15:
   keep numeric `player_id` as the legacy display/grouping alias for reward and rank calculations.
   Full-stack harness pace, repetition, and command-latency diagnostics apply the same primary repair
   while keeping numeric `player_id` as the legacy display alias. `HeadlessGameClient.spec.ts` also verifies that headless active prompt
-  routing answers public-only prompts without a numeric `legacy_player_id` bridge while keeping legacy-only
-  prompts routable during mixed migration commits.
+  routing answers public-only prompts without a numeric `legacy_player_id` bridge, keeps legacy-only
+  prompts routable during mixed migration commits, and treats `view_commit.viewer.public_player_id` as
+  the protocol target when `viewer.player_id` is still a numeric compatibility alias.
 - `apps/server/tests/test_prompt_sequence.py::PromptSequenceTests::test_seed_does_not_parse_legacy_request_id_without_explicit_prompt_instance`
   and `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_prompt_instance_from_resume_does_not_parse_legacy_request_id`
   verify that prompt sequence recovery and bridge advancement no longer parse legacy request-id suffixes when

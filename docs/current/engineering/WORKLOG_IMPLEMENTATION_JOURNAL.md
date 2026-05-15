@@ -1173,6 +1173,20 @@ public-vs-legacy split consistently for both join results and authoritative
 view commits. UI selectors, prompt submission, and server payload contracts did
 not move.
 
+## 2026-05-15 Headless Viewer Target Identity Repair
+
+- Added `HeadlessGameClient.spec.ts` coverage for active prompts that expose a
+  protocol string `player_id` while the authoritative viewer still carries a
+  numeric `viewer.player_id` compatibility alias plus `public_player_id`.
+- `promptTargetIdentity()` now normalizes the latest viewer identity the same
+  way as local viewer state: public companions become the protocol target
+  before numeric viewer aliases are considered.
+- Legacy-only prompt routing still falls back to the numeric player bridge.
+
+Responsibility result: headless prompt routing now owns viewer target
+normalization before calling the shared prompt identity matcher. Server payloads,
+HTTP policy serialization, and numeric engine bridges did not move.
+
 ## 2026-05-15 Headless Trace Primary Identity Repair
 
 - Added `HeadlessGameClient.spec.ts` coverage for compact view-commit traces

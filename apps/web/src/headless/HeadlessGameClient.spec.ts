@@ -512,6 +512,41 @@ describe("HeadlessGameClient", () => {
     });
   });
 
+  it("routes protocol-string prompts when viewer player_id is a numeric compatibility alias", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_numeric_viewer_public_prompt",
+      token: "seat-2",
+      playerId: 2,
+      policy: baselineDecisionPolicy,
+    });
+    const message = viewCommitMessage({
+      commitSeq: 17,
+      requestId: "req_numeric_viewer_public_prompt_17",
+      playerId: 2,
+      legacyPlayerId: 2,
+      publicPlayerId: "player_public_2",
+      seatId: "seat_public_2",
+      viewerId: "viewer_public_2",
+      choicePayload: { tile_index: 12, buy: true },
+    });
+    message.payload.viewer.player_id = 2;
+    const active = (message.payload.view_state["prompt"] as { active: Record<string, unknown> }).active;
+    active.player_id = "player_public_2";
+    delete active.public_player_id;
+
+    const outbound = await client.ingestMessage(message);
+
+    expect(outbound).toHaveLength(1);
+    expect(outbound[0]).toMatchObject({
+      type: "decision",
+      request_id: "req_numeric_viewer_public_prompt_17",
+      player_id: "player_public_2",
+      legacy_player_id: 2,
+      choice_id: "buy",
+      choice_payload: { tile_index: 12, buy: true },
+    });
+  });
+
   it("declines repeatable burden exchange by default to keep protocol playtests bounded", async () => {
     const client = new HeadlessGameClient({
       sessionId: "sess_headless_burden_default",
