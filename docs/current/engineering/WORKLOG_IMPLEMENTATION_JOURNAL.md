@@ -1430,6 +1430,24 @@ prompt target ids are never presented as unlabeled public identity. Runtime
 prompt publishing, prompt routing, and selector/display migration remain
 unchanged.
 
+## 2026-05-15 Public Identity Visibility Projection
+
+- Added visibility projection coverage for public-only private prompt,
+  `decision_ack`, and private decision-event target routing without a numeric
+  `legacy_player_id` bridge.
+- Added embedded `view_state.prompt.active` coverage so an authorized viewer can
+  keep a public-only active prompt while non-target/private data remains
+  redacted through the existing projection path.
+- Updated `visibility/projector.py` to match target viewers by
+  `public_player_id`, `seat_id`, `viewer_id`, public/protocol
+  `primary_player_id`, or public string top-level `player_id` before falling
+  back to numeric `player_id` / `legacy_player_id`.
+
+Responsibility result: private stream projection now owns public target matching
+at the delivery/redaction boundary. Numeric viewer/player ids remain as
+compatibility fallback and visibility-scope bridge; runtime payload creation,
+auth, and engine routing remain unchanged.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

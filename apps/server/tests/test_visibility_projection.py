@@ -103,6 +103,46 @@ class VisibilityProjectionTests(unittest.TestCase):
         self.assertIsNone(other)
         self.assertIsNone(spectator)
 
+    def test_public_identity_decision_ack_targets_viewer_without_numeric_bridge(self) -> None:
+        ack = {
+            "type": "decision_ack",
+            "payload": {
+                "request_id": "req_public_only_ack",
+                "status": "accepted",
+                "player_id": "ply_public_1",
+                "primary_player_id": "ply_public_1",
+                "primary_player_id_source": "public",
+                "public_player_id": "ply_public_1",
+                "seat_id": "seat_public_1",
+                "viewer_id": "view_public_1",
+            },
+        }
+
+        target = project_stream_message_for_viewer(
+            ack,
+            ViewerContext(
+                role="seat",
+                public_player_id="ply_public_1",
+                seat_id="seat_public_1",
+                viewer_id="view_public_1",
+            ),
+        )
+        other = project_stream_message_for_viewer(
+            ack,
+            ViewerContext(
+                role="seat",
+                public_player_id="ply_public_2",
+                seat_id="seat_public_2",
+                viewer_id="view_public_2",
+            ),
+        )
+        spectator = project_stream_message_for_viewer(ack, ViewerContext(role="spectator"))
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target["payload"]["request_id"], "req_public_only_ack")
+        self.assertIsNone(other)
+        self.assertIsNone(spectator)
+
     def test_public_identity_prompt_uses_legacy_bridge_for_target_delivery(self) -> None:
         prompt = {
             "type": "prompt",
@@ -129,6 +169,81 @@ class VisibilityProjectionTests(unittest.TestCase):
         self.assertEqual(target["payload"]["request_id"], "req_public_prompt")
         self.assertIsNone(other)
         self.assertIsNone(spectator)
+
+    def test_public_identity_prompt_targets_viewer_without_numeric_bridge(self) -> None:
+        prompt = {
+            "type": "prompt",
+            "payload": {
+                "request_id": "req_public_only_prompt",
+                "request_type": "movement",
+                "player_id": "ply_public_1",
+                "primary_player_id": "ply_public_1",
+                "primary_player_id_source": "public",
+                "public_player_id": "ply_public_1",
+                "seat_id": "seat_public_1",
+                "viewer_id": "view_public_1",
+                "legal_choices": [{"choice_id": "roll"}],
+                "public_context": {},
+            },
+        }
+
+        target = project_stream_message_for_viewer(
+            prompt,
+            ViewerContext(
+                role="seat",
+                public_player_id="ply_public_1",
+                seat_id="seat_public_1",
+                viewer_id="view_public_1",
+            ),
+        )
+        other = project_stream_message_for_viewer(
+            prompt,
+            ViewerContext(
+                role="seat",
+                public_player_id="ply_public_2",
+                seat_id="seat_public_2",
+                viewer_id="view_public_2",
+            ),
+        )
+        spectator = project_stream_message_for_viewer(prompt, ViewerContext(role="spectator"))
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target["payload"]["request_id"], "req_public_only_prompt")
+        self.assertIsNone(other)
+        self.assertIsNone(spectator)
+
+    def test_public_identity_decision_event_targets_viewer_without_numeric_bridge(self) -> None:
+        event = {
+            "type": "event",
+            "payload": {
+                "event_type": "decision_requested",
+                "request_id": "req_public_only_trick",
+                "request_type": "hidden_trick_card",
+                "player_id": "ply_public_1",
+                "primary_player_id": "ply_public_1",
+                "primary_player_id_source": "public",
+                "public_player_id": "ply_public_1",
+                "seat_id": "seat_public_1",
+                "viewer_id": "view_public_1",
+                "public_context": {
+                    "full_hand": [{"deck_index": 11, "name": "재뿌리기"}],
+                    "hidden_trick_deck_index": 11,
+                },
+            },
+        }
+
+        target = project_stream_message_for_viewer(
+            event,
+            ViewerContext(role="seat", public_player_id="ply_public_1", seat_id="seat_public_1"),
+        )
+        other = project_stream_message_for_viewer(
+            event,
+            ViewerContext(role="seat", public_player_id="ply_public_2", seat_id="seat_public_2"),
+        )
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target["payload"]["request_id"], "req_public_only_trick")
+        self.assertIsNone(other)
 
     def test_private_decision_event_is_only_delivered_to_target_player(self) -> None:
         event = {
@@ -200,6 +315,44 @@ class VisibilityProjectionTests(unittest.TestCase):
         view_state = projected["payload"]["view_state"]
         self.assertNotIn("hand_tray", view_state)
         self.assertNotIn("prompt", view_state)
+        self.assertEqual(view_state["players"], {"items": []})
+
+    def test_target_viewer_keeps_public_identity_embedded_view_state_prompt(self) -> None:
+        event = {
+            "type": "event",
+            "payload": {
+                "event_type": "turn_start",
+                "view_state": {
+                    "hand_tray": {
+                        "cards": [{"deck_index": 11, "name": "재뿌리기"}],
+                    },
+                    "prompt": {
+                        "active": {
+                            "request_id": "req_public_trick",
+                            "request_type": "trick_to_use",
+                            "player_id": "ply_public_1",
+                            "primary_player_id": "ply_public_1",
+                            "primary_player_id_source": "public",
+                            "public_player_id": "ply_public_1",
+                            "seat_id": "seat_public_1",
+                            "choices": [{"choice_id": "card-11"}],
+                            "public_context": {"full_hand": [{"deck_index": 11, "name": "재뿌리기"}]},
+                        }
+                    },
+                    "players": {"items": []},
+                },
+            },
+        }
+
+        projected = project_stream_message_for_viewer(
+            event,
+            ViewerContext(role="seat", public_player_id="ply_public_1", seat_id="seat_public_1"),
+        )
+
+        self.assertIsNotNone(projected)
+        view_state = projected["payload"]["view_state"]
+        self.assertEqual(view_state["prompt"]["active"]["request_id"], "req_public_trick")
+        self.assertNotIn("hand_tray", view_state)
         self.assertEqual(view_state["players"], {"items": []})
 
 

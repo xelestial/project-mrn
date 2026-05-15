@@ -95,19 +95,21 @@ def project_stream_message_for_viewer(message: dict[str, Any], viewer: ViewerCon
         return None
 
     message_type = str(cloned.get("type", "")).strip().lower()
-    target_player_id = _target_player_id(payload)
-    viewer_is_target = viewer.is_seat and target_player_id == viewer.player_id
+    viewer_is_target = _viewer_matches_payload_target(payload, viewer)
 
     if message_type in {"prompt", "decision_ack"}:
-        return _redact_projected_message(cloned, viewer, target_player_id) if viewer_is_target else None
+        return _redact_projected_message(cloned, viewer, payload) if viewer_is_target else None
 
     if message_type != "event":
-        return _redact_projected_message(cloned, viewer, target_player_id)
+        return _redact_projected_message(cloned, viewer, payload)
 
     event_type = _event_type(payload)
     request_type = _request_type(payload)
-    if event_type in {"decision_requested", "decision_resolved", "decision_timeout_fallback"} and request_type in _PRIVATE_DECISION_REQUEST_TYPES:
-        return _redact_projected_message(cloned, viewer, target_player_id) if viewer_is_target else None
+    if (
+        event_type in {"decision_requested", "decision_resolved", "decision_timeout_fallback"}
+        and request_type in _PRIVATE_DECISION_REQUEST_TYPES
+    ):
+        return _redact_projected_message(cloned, viewer, payload) if viewer_is_target else None
 
     if event_type == "final_character_choice" and not viewer_is_target:
         return None
@@ -116,12 +118,16 @@ def project_stream_message_for_viewer(message: dict[str, Any], viewer: ViewerCon
         payload.pop("picked_card", None)
         payload.pop("choice_id", None)
 
-    return _redact_projected_message(cloned, viewer, target_player_id)
+    return _redact_projected_message(cloned, viewer, payload)
 
 
-def _redact_projected_message(message: dict[str, Any], viewer: ViewerContext, target_player_id: int | None) -> dict[str, Any]:
+def _redact_projected_message(
+    message: dict[str, Any],
+    viewer: ViewerContext,
+    target_payload: dict[str, Any],
+) -> dict[str, Any]:
     payload = _payload(message)
-    viewer_is_target = viewer.is_seat and target_player_id == viewer.player_id
+    viewer_is_target = _viewer_matches_payload_target(target_payload, viewer)
     if viewer.is_admin or viewer.is_backend or viewer_is_target:
         return message
     _redact_private_payload(payload)
@@ -135,8 +141,7 @@ def _redact_view_state(view_state: dict[str, Any], viewer: ViewerContext) -> Non
     prompt = view_state.get("prompt")
     if isinstance(prompt, dict):
         active = prompt.get("active")
-        prompt_player_id = _target_player_id(active) if isinstance(active, dict) else None
-        if not (viewer.is_seat and prompt_player_id == viewer.player_id):
+        if not (isinstance(active, dict) and _viewer_matches_payload_target(active, viewer)):
             view_state.pop("prompt", None)
     view_state.pop("hand_tray", None)
     _redact_private_payload(view_state)
@@ -187,6 +192,47 @@ def _event_type(payload: dict[str, Any]) -> str:
 def _request_type(payload: dict[str, Any]) -> str:
     value = payload.get("request_type")
     return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _viewer_matches_payload_target(payload: dict[str, Any], viewer: ViewerContext) -> bool:
+    if viewer.role != "seat":
+        return False
+
+    public_player_id = _optional_str(payload.get("public_player_id"))
+    if public_player_id is not None and public_player_id == viewer.public_player_id:
+        return True
+
+    seat_id = _optional_str(payload.get("seat_id"))
+    if seat_id is not None and seat_id == viewer.seat_id:
+        return True
+
+    viewer_id = _optional_str(payload.get("viewer_id"))
+    if viewer_id is not None and viewer_id == viewer.viewer_id:
+        return True
+
+    primary_player_id = _optional_str(payload.get("primary_player_id"))
+    primary_source = _optional_str(payload.get("primary_player_id_source"))
+    if (
+        primary_source in {"public", "protocol"}
+        and primary_player_id is not None
+        and primary_player_id == viewer.public_player_id
+    ):
+        return True
+
+    direct_player_id = payload.get("player_id")
+    if _optional_int(direct_player_id) is None:
+        public_direct_player_id = _optional_str(direct_player_id)
+        if (
+            public_direct_player_id is not None
+            and public_direct_player_id == viewer.public_player_id
+        ):
+            return True
+
+    target_player_id = _target_player_id(payload)
+    return target_player_id is not None and target_player_id in {
+        viewer.player_id,
+        viewer.legacy_player_id,
+    }
 
 
 def _target_player_id(payload: dict[str, Any]) -> int | None:
