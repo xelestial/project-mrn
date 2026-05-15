@@ -155,7 +155,7 @@ def test_decision_ack_builder_labels_numeric_player_id_as_legacy_alias() -> None
     assert payload["primary_player_id_source"] == "legacy"
 
 
-def test_decision_ack_builder_emits_public_player_id_when_available() -> None:
+def test_decision_ack_builder_emits_primary_only_public_identity_when_available() -> None:
     payload = build_decision_ack_payload(
         request_id="req_1",
         status="accepted",
@@ -163,7 +163,7 @@ def test_decision_ack_builder_emits_public_player_id_when_available() -> None:
         identity_fields={"public_player_id": "ply_2"},
     )
 
-    assert payload["player_id"] == "ply_2"
+    assert "player_id" not in payload
     assert payload["legacy_player_id"] == 2
     assert "player_id_alias_role" not in payload
     assert payload["primary_player_id"] == "ply_2"

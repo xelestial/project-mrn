@@ -6,8 +6,6 @@
   "payload": {
     "request_id": "req_turn8_purchase",
     "status": "rejected",
-    "player_id": 1,
-    "player_id_alias_role": "legacy_compatibility_alias",
     "primary_player_id": "ply_example_1",
     "primary_player_id_source": "public",
     "legacy_player_id": 1,

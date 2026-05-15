@@ -1804,7 +1804,11 @@ def build_decision_ack_payload(
     if identity_fields:
         payload.update(dict(identity_fields))
 
-    payload = public_primary_player_wire_payload(payload, legacy_player_id=player_id)
+    payload = public_primary_player_wire_payload(
+        payload,
+        legacy_player_id=player_id,
+        omit_player_id_for_public=True,
+    )
     if reason:
         payload["reason"] = reason
     if command_seq is not None:

@@ -11,14 +11,33 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Decision ACK Primary-Only Publish
+
+- `build_decision_ack_payload()` now calls the shared public-primary wire helper
+  with `omit_player_id_for_public=True` when public identity companions are
+  present.
+- WebSocket and external-AI callback ACK producers now publish
+  `primary_player_id`, `primary_player_id_source`, `public_player_id`,
+  `seat_id`, `viewer_id`, and `legacy_player_id` without top-level
+  `player_id` for public/protocol identity.
+- Legacy-only ACKs still emit numeric `player_id` with
+  `player_id_alias_role: "legacy_compatibility_alias"`.
+- Frozen accepted/rejected ACK examples now match the current primary-only
+  producer shape; `inbound.decision_ack.public_identity.json` remains schema
+  compatibility evidence for older public top-level ACKs.
+
+Responsibility result: ACK payload construction moved from public top-level
+`player_id` production to primary-only public production. Decision submission,
+PromptService numeric routing, and legacy-only ACK compatibility did not move.
+
 ## 2026-05-15 Runtime Prompt Primary-Only Publish
 
 - Runtime prompt publishing now calls `public_primary_player_wire_payload()` with
   `omit_player_id_for_public=True` for WebSocket `prompt` messages and paired
   `decision_requested` events when public identity companions are present.
-- The helper default still emits public top-level `player_id`, so ACK producers
-  and other existing callers keep their current compatibility shape until they
-  are migrated deliberately.
+- The helper default still emits public top-level `player_id`; prompt and ACK
+  producers opt into primary-only publishing deliberately at their own
+  boundaries.
 - Added stream read-outbox coverage proving a primary-only prompt still routes to
   the authorized public/seat/viewer identity and remains hidden from other seats
   and spectators.
@@ -26,8 +45,8 @@ in the active plans, status index, tests, or canonical contract documents.
   primary-only runtime prompt publish shape.
 
 Responsibility result: runtime prompt publishing now owns the primary-only public
-wire shape for prompt and decision-request delivery. Pending prompt storage,
-decision ACK production, and engine numeric routing remain unchanged.
+wire shape for prompt and decision-request delivery. Pending prompt storage and
+engine numeric routing remain unchanged.
 
 ## 2026-05-15 WS Prompt Primary-Only Fixture
 
@@ -1581,7 +1600,8 @@ public/seat/viewer identity.
 ## 2026-05-15 Decision ACK Public Primary Producer
 
 - Updated `build_decision_ack_payload()` so ACKs with `public_player_id` emit a
-  public string top-level `player_id`.
+  public string top-level `player_id`. This was later superseded by
+  primary-only ACK publishing.
 - The same ACK payload preserves the internal numeric seat as
   `legacy_player_id` and omits `player_id_alias_role`; numeric-only ACKs remain
   labeled legacy compatibility aliases.
