@@ -242,24 +242,6 @@ def _add_player_identity_metadata(target: dict[str, Any], prompt: dict[str, Any]
     target["primary_player_id_source"] = primary_player_id_source
 
 
-def _prompt_protocol_player_id(prompt: dict[str, Any]) -> Any:
-    primary_identity = _prompt_primary_player_identity(prompt)
-    if primary_identity is not None:
-        primary_player_id, primary_player_id_source = primary_identity
-        if primary_player_id_source in {"public", "protocol"}:
-            return primary_player_id
-
-    public_player_id = prompt.get("public_player_id")
-    if isinstance(public_player_id, str) and public_player_id.strip():
-        return public_player_id.strip()
-
-    player_id = prompt.get("player_id")
-    if isinstance(player_id, str) and player_id.strip() and _optional_int(player_id) is None:
-        return player_id.strip()
-
-    return _prompt_legacy_player_id(prompt) or 0
-
-
 def _poll_runtime_advanced_from_request(
     base_url: str,
     session_id: str,
@@ -318,14 +300,15 @@ def _first_legal_choice_id(prompt: dict[str, Any]) -> str:
 
 
 def _decision_from_prompt(prompt: dict[str, Any], *, choice_id: str) -> dict[str, Any]:
-    player_id = _prompt_protocol_player_id(prompt)
     decision: dict[str, Any] = {
         "type": "decision",
         "request_id": str(prompt.get("request_id") or ""),
-        "player_id": str(player_id).strip() if isinstance(player_id, str) else int(player_id or 0),
         "choice_id": choice_id,
         "choice_payload": {},
     }
+    primary_identity = _prompt_primary_player_identity(prompt)
+    if primary_identity is None or primary_identity[1] == "legacy":
+        decision["player_id"] = int(_prompt_legacy_player_id(prompt) or 0)
     for field in (
         "resume_token",
         "frame_id",

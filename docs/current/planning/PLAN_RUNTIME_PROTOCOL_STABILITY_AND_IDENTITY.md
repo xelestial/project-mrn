@@ -1166,7 +1166,7 @@ Acceptance evidence status, 2026-05-15:
   raw legacy alias.
 - `tests/test_redis_restart_smoke_script.py` verifies that restart decision smoke can select a replay prompt
   whose protocol `player_id` is public by using the explicit numeric legacy bridge, and that submitted
-  decision payloads prefer public/protocol top-level `player_id` when available while preserving
+  decision payloads omit top-level `player_id` for public/protocol identity while preserving
   request/player/seat/viewer identity companions and `primary_player_id` metadata. Numeric top-level
   `player_id` remains only for legacy-only prompt input and is labeled as the compatibility alias; malformed
   numeric public/protocol primary fields are ignored in favor of public companions. UI duplicate-flight

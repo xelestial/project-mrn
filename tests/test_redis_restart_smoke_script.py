@@ -183,7 +183,6 @@ def test_decision_smoke_payload_preserves_protocol_identity_companions() -> None
     assert decision == {
         "type": "decision",
         "request_id": "req_public_1",
-        "player_id": "player_public_1",
         "primary_player_id": "player_public_1",
         "primary_player_id_source": "public",
         "choice_id": "roll",
@@ -196,6 +195,8 @@ def test_decision_smoke_payload_preserves_protocol_identity_companions() -> None
         "seat_id": "seat_public_1",
         "viewer_id": "viewer_public_1",
     }
+    assert "player_id" not in decision
+    assert "player_id_alias_role" not in decision
 
 
 def test_decision_smoke_payload_prefers_explicit_primary_identity_over_top_level_alias() -> None:
@@ -216,7 +217,7 @@ def test_decision_smoke_payload_prefers_explicit_primary_identity_over_top_level
         choice_id="roll",
     )
 
-    assert decision["player_id"] == "player_public_2"
+    assert "player_id" not in decision
     assert "player_id_alias_role" not in decision
     assert decision["primary_player_id"] == "player_public_2"
     assert decision["primary_player_id_source"] == "public"
@@ -240,7 +241,7 @@ def test_decision_smoke_payload_ignores_numeric_public_primary_when_public_compa
         choice_id="roll",
     )
 
-    assert decision["player_id"] == "player_public_2"
+    assert "player_id" not in decision
     assert "player_id_alias_role" not in decision
     assert decision["primary_player_id"] == "player_public_2"
     assert decision["primary_player_id_source"] == "public"

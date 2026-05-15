@@ -576,8 +576,8 @@ legacy-only prompt input.
   protocol `player_id` is public as long as `legacy_player_id` or another
   numeric bridge is present. Decision payload construction now preserves the
   same request/player/seat/viewer companions, emits `primary_player_id` and
-  `primary_player_id_source`, and uses public/protocol top-level `player_id`
-  when available. Numeric top-level `player_id` is labeled as
+  `primary_player_id_source`, and omits top-level `player_id` for
+  public/protocol identity. Numeric top-level `player_id` is labeled as
   `player_id_alias_role: "legacy_compatibility_alias"` only for legacy-only
   prompt input.
 - HTTP decision policy requests now use top-level and nested
