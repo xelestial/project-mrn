@@ -210,6 +210,8 @@ class SessionService:
         player_id: int | str | None = None,
         legacy_player_id: int | str | None = None,
         seat: int | str | None = None,
+        primary_player_id: int | str | None = None,
+        primary_player_id_source: str | None = None,
         public_player_id: str | None = None,
         seat_id: str | None = None,
         viewer_id: str | None = None,
@@ -251,9 +253,31 @@ class SessionService:
                     return
             has_unresolved_identity = True
 
+        def _add_primary_candidate(value: int | str | None, source: str | None) -> None:
+            nonlocal has_unresolved_identity
+            has_value = _present(value)
+            normalized_source = self._clean_optional_string(source)
+            normalized_source = normalized_source.lower() if normalized_source else None
+            if not has_value and normalized_source is None:
+                return
+            if not has_value or normalized_source is None:
+                has_unresolved_identity = True
+                return
+            if normalized_source == "legacy":
+                _add_numeric_candidate(value)
+                return
+            if normalized_source in {"public", "protocol"}:
+                if not isinstance(value, str) or self._optional_int(value) is not None:
+                    has_unresolved_identity = True
+                    return
+                _add_public_candidate(value, "public_player_id")
+                return
+            has_unresolved_identity = True
+
         _add_numeric_candidate(player_id, allow_protocol_string=True)
         _add_numeric_candidate(legacy_player_id)
         _add_numeric_candidate(seat)
+        _add_primary_candidate(primary_player_id, primary_player_id_source)
 
         if self._optional_int(player_id) is None:
             _add_public_candidate(player_id, "public_player_id")

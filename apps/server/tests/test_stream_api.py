@@ -825,6 +825,63 @@ class StreamApiTests(unittest.TestCase):
             boundary="stream_decision_ack",
         )
 
+    def test_seat_decision_accepts_primary_player_identity_with_ack(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 119})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_accept_primary_identity_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "fallback_policy": "timeout_fallback",
+            },
+        )
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={joined['session_token']}"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json(
+                {
+                    "type": "decision",
+                    "request_id": "r_accept_primary_identity_1",
+                    "primary_player_id": joined["public_player_id"],
+                    "primary_player_id_source": "public",
+                    "choice_id": "roll",
+                    "choice_payload": {},
+                }
+            )
+
+            messages: list[dict] = []
+            for _ in range(10):
+                msg = ws.receive_json()
+                messages.append(msg)
+                if (
+                    msg.get("type") == "decision_ack"
+                    and msg.get("payload", {}).get("request_id") == "r_accept_primary_identity_1"
+                ):
+                    break
+
+        acks = [
+            m
+            for m in messages
+            if m.get("type") == "decision_ack"
+            and m.get("payload", {}).get("request_id") == "r_accept_primary_identity_1"
+        ]
+        self.assertGreaterEqual(len(acks), 1)
+        self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
+        self.assertEqual(acks[-1].get("payload", {}).get("player_id"), joined["public_player_id"])
+        self.assertEqual(acks[-1].get("payload", {}).get("legacy_player_id"), 1)
+        self.assertNotIn("player_id_alias_role", acks[-1].get("payload", {}))
+        self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id"), joined["public_player_id"])
+        self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id_source"), "public")
+        assert_no_public_identity_numeric_leaks(
+            acks[-1].get("payload", {}),
+            boundary="stream_decision_ack",
+        )
+
     def test_seat_decision_rejects_conflicting_protocol_identity_fields(self) -> None:
         from apps.server.src import state
 

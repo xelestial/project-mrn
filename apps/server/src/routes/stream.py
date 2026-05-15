@@ -285,6 +285,8 @@ def _resolve_decision_player_id(session_service: Any, session_id: str, message: 
         player_id=message.get("player_id"),
         legacy_player_id=message.get("legacy_player_id"),
         seat=message.get("seat"),
+        primary_player_id=message.get("primary_player_id"),
+        primary_player_id_source=message.get("primary_player_id_source"),
         public_player_id=message.get("public_player_id"),
         seat_id=message.get("seat_id"),
         viewer_id=message.get("viewer_id"),
@@ -839,6 +841,9 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                     continue
                 message["player_id"] = resolved_player_id
                 message["session_id"] = session_id
+                message["legacy_player_id"] = resolved_player_id
+                message.pop("primary_player_id", None)
+                message.pop("primary_player_id_source", None)
                 phase_started_ms = time.perf_counter()
                 decision_state = prompt_service.submit_decision(message)
                 submit_decision_ms = int((time.perf_counter() - phase_started_ms) * 1000)

@@ -29,6 +29,8 @@ class ExternalAiDecisionRequest(BaseModel):
     player_id: int | str | None = None
     legacy_player_id: int | str | None = None
     seat: int | str | None = None
+    primary_player_id: int | str | None = None
+    primary_player_id_source: str | None = None
     public_player_id: str | None = None
     seat_id: str | None = None
     viewer_id: str | None = None
@@ -169,6 +171,8 @@ async def submit_external_ai_decision(
         player_id=payload.player_id,
         legacy_player_id=payload.legacy_player_id,
         seat=payload.seat,
+        primary_player_id=payload.primary_player_id,
+        primary_player_id_source=payload.primary_player_id_source,
         public_player_id=payload.public_player_id,
         seat_id=payload.seat_id,
         viewer_id=payload.viewer_id,
@@ -186,7 +190,10 @@ async def submit_external_ai_decision(
 
     decision_payload = payload.model_dump(exclude_none=True)
     decision_payload["player_id"] = resolved_player_id
+    decision_payload["legacy_player_id"] = resolved_player_id
     decision_payload["session_id"] = session_id
+    decision_payload.pop("primary_player_id", None)
+    decision_payload.pop("primary_player_id_source", None)
     decision_payload["provider"] = "ai"
     decision_state = prompts.submit_decision(decision_payload)
     ack_payload = build_decision_ack_payload(

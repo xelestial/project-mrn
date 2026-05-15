@@ -11,6 +11,22 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Inbound Primary Identity Adapter
+
+- `SessionService.resolve_protocol_player_id()` now accepts explicit
+  `primary_player_id` plus `primary_player_id_source` as inbound decision
+  identity. Public/protocol primary ids resolve through the public player id;
+  legacy primary ids resolve through the numeric seat bridge.
+- The WebSocket decision route and external-AI decision callback pass those
+  fields into the resolver, then normalize the accepted request back to the
+  internal numeric `player_id`/`legacy_player_id` shape before calling
+  `PromptService`.
+
+Responsibility result: inbound protocol identity interpretation remains in the
+single `SessionService` adapter. Route handlers do not duplicate public primary
+identity into alternate fields, and `PromptService` still receives the numeric
+engine bridge required by prompt/runtime continuation.
+
 ## 2026-05-15 Prompt Choice Payload Identity Guard
 
 - `PromptService.submit_decision()` now rejects a submitted `choice_payload`

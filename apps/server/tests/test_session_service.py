@@ -224,6 +224,59 @@ class SessionServiceTests(unittest.TestCase):
         )
         self.assertIsNone(self.service.resolve_protocol_player_id(session.session_id, public_player_id="ply_unknown"))
 
+    def test_resolve_protocol_player_id_accepts_primary_identity_fields(self) -> None:
+        session = self.service.create_session(_default_seats())
+        join_1 = self.service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
+        public = self.service.to_public(session)
+        ai_seat = public["seats"][1]
+
+        self.assertEqual(
+            self.service.resolve_protocol_player_id(
+                session.session_id,
+                primary_player_id=join_1["public_player_id"],
+                primary_player_id_source="public",
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.service.resolve_protocol_player_id(
+                session.session_id,
+                primary_player_id=join_1["public_player_id"],
+                primary_player_id_source="protocol",
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.service.resolve_protocol_player_id(
+                session.session_id,
+                primary_player_id="1",
+                primary_player_id_source="legacy",
+            ),
+            1,
+        )
+        self.assertIsNone(
+            self.service.resolve_protocol_player_id(
+                session.session_id,
+                primary_player_id=1,
+                primary_player_id_source="public",
+            )
+        )
+        self.assertIsNone(
+            self.service.resolve_protocol_player_id(
+                session.session_id,
+                primary_player_id=join_1["public_player_id"],
+                primary_player_id_source="legacy",
+            )
+        )
+        self.assertIsNone(
+            self.service.resolve_protocol_player_id(
+                session.session_id,
+                primary_player_id=ai_seat["public_player_id"],
+                primary_player_id_source="public",
+                legacy_player_id=1,
+            )
+        )
+
     def test_resolve_protocol_player_id_rejects_conflicting_identity_fields(self) -> None:
         session = self.service.create_session(_default_seats())
         join_1 = self.service.join_session(session.session_id, 1, session.join_tokens[1], "P1")
