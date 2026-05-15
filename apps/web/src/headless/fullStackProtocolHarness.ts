@@ -1802,28 +1802,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function activePromptTraceIdentity(payload: Record<string, unknown>): ProtocolTraceIdentity {
   const publicPlayerId = stringValue(payload["active_prompt_public_player_id"]);
-  const explicitPrimaryPlayerId = protocolPlayerIdValue(payload["active_prompt_primary_player_id"]);
+  const explicitPrimaryPlayerIdSource = protocolIdentitySourceValueOrNull(
+    payload["active_prompt_primary_player_id_source"],
+  );
+  const explicitPrimaryPlayerId =
+    explicitPrimaryPlayerIdSource === null
+      ? protocolPlayerIdValue(payload["active_prompt_primary_player_id"])
+      : explicitPrimaryProtocolPlayerIdValue(
+          payload["active_prompt_primary_player_id"],
+          explicitPrimaryPlayerIdSource,
+        );
   const protocolPlayerId = protocolPlayerIdValue(payload["active_prompt_protocol_player_id"]);
   const legacyPlayerId = numberValue(payload["active_prompt_legacy_player_id"]) ?? numberValue(payload["active_prompt_player_id"]);
   const primaryPlayerId = explicitPrimaryPlayerId ?? publicPlayerId ?? protocolPlayerId ?? legacyPlayerId;
   return {
     primaryPlayerId,
-    primaryPlayerIdSource: protocolIdentitySourceValue(payload["active_prompt_primary_player_id_source"], primaryPlayerId),
+    primaryPlayerIdSource: explicitPrimaryPlayerId !== null
+      ? explicitPrimaryPlayerIdSource ?? fallbackProtocolIdentitySource(primaryPlayerId, publicPlayerId)
+      : fallbackProtocolIdentitySource(primaryPlayerId, publicPlayerId),
     playerId: legacyPlayerId,
   };
 }
 
 function traceIdentity(trace: HeadlessTraceEvent): ProtocolTraceIdentity {
   const publicPlayerId = stringValue(trace.public_player_id);
+  const explicitPrimaryPlayerIdSource = protocolIdentitySourceValueOrNull(trace.primary_player_id_source);
+  const explicitPrimaryPlayerId =
+    explicitPrimaryPlayerIdSource === null
+      ? protocolPlayerIdValue(trace.primary_player_id)
+      : explicitPrimaryProtocolPlayerIdValue(trace.primary_player_id, explicitPrimaryPlayerIdSource);
   const primaryPlayerId =
-    protocolPlayerIdValue(trace.primary_player_id) ??
+    explicitPrimaryPlayerId ??
     publicPlayerId ??
     protocolPlayerIdValue(trace.protocol_player_id) ??
     numberValue(trace.legacy_player_id) ??
     numberValue(trace.player_id);
   return {
     primaryPlayerId,
-    primaryPlayerIdSource: protocolIdentitySourceValue(trace.primary_player_id_source, primaryPlayerId),
+    primaryPlayerIdSource: explicitPrimaryPlayerId !== null
+      ? explicitPrimaryPlayerIdSource ?? fallbackProtocolIdentitySource(primaryPlayerId, publicPlayerId)
+      : fallbackProtocolIdentitySource(primaryPlayerId, publicPlayerId),
     playerId: numberValue(trace.legacy_player_id) ?? numberValue(trace.player_id),
   };
 }
@@ -1834,6 +1852,35 @@ function protocolPlayerIdValue(value: unknown): ProtocolPlayerId | null {
     return string;
   }
   return numberValue(value);
+}
+
+function explicitPrimaryProtocolPlayerIdValue(
+  value: unknown,
+  source: ProtocolTraceIdentitySource,
+): ProtocolPlayerId | null {
+  const string = stringValue(value);
+  if (string !== null) {
+    return source === "legacy" ? null : string;
+  }
+  const number = numberValue(value);
+  if (number !== null) {
+    return source === "legacy" ? number : null;
+  }
+  return null;
+}
+
+function protocolIdentitySourceValueOrNull(value: unknown): ProtocolTraceIdentitySource | null {
+  return value === "public" || value === "protocol" || value === "legacy" ? value : null;
+}
+
+function fallbackProtocolIdentitySource(
+  primaryPlayerId: ProtocolPlayerId | null,
+  publicPlayerId: string | null,
+): ProtocolTraceIdentitySource | null {
+  if (primaryPlayerId !== null && publicPlayerId !== null && primaryPlayerId === publicPlayerId) {
+    return "public";
+  }
+  return protocolIdentitySourceValue(null, primaryPlayerId);
 }
 
 function protocolIdentitySourceValue(

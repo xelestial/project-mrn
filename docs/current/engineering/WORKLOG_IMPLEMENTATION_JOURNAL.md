@@ -1174,6 +1174,21 @@ Responsibility result: replay artifact generation now shares the same primary
 identity validation rule as decision and trace boundaries. Runtime protocol
 behavior and engine numeric bridges remain unchanged.
 
+## 2026-05-15 Harness Diagnostic Primary Identity Repair
+
+- Added `fullStackProtocolHarness.spec.ts` coverage for pace, repetition, and
+  command-latency diagnostics receiving malformed numeric public primary ids in
+  both active-prompt payloads and trace top-level identity fields.
+- `activePromptTraceIdentity()` and `traceIdentity()` now reject numeric
+  explicit primary ids when the declared source is `public` or `protocol`, then
+  fall back to public/protocol companions before legacy display ids.
+- Joined seat numbers and numeric `player_id` remain display/grouping aliases
+  for harness clients.
+
+Responsibility result: operator diagnostics now normalize primary identity the
+same way as trace and replay artifacts. Harness grouping and runtime protocol
+behavior remain unchanged.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
