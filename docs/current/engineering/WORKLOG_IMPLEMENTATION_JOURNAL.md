@@ -11,6 +11,19 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 HTTP Policy Player Summary Legacy Bridge
+
+- `HttpDecisionPolicyRequest.player_summary` now finds compact player rows by
+  explicit `legacy_player_id` first, then numeric legacy `player_id`, instead
+  of requiring `view_state.players.items[].player_id` to stay numeric.
+- Added coverage for future-compatible view-state rows where `player_id` is a
+  public/protocol string and the numeric compatibility value is carried only by
+  `legacy_player_id`.
+
+Responsibility result: the HTTP decision policy request still sends
+public/protocol identity as primary, while the compact summary boundary now owns
+the temporary numeric bridge needed to attach projected player stats.
+
 ## 2026-05-15 Headless Harness Join Identity Bridge
 
 - `joinProtocolSeats()` now treats a string join-response `player_id` as a

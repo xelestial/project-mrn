@@ -206,6 +206,54 @@ describe("httpDecisionPolicy", () => {
     expect(JSON.stringify(request)).not.toContain("hidden_trick_count");
   });
 
+  it("summarizes players by explicit legacy bridge when player id is public", () => {
+    const baseContext = context();
+    const viewState = baseContext.latestCommit?.view_state as Record<string, unknown>;
+
+    const request = buildHttpDecisionPolicyRequest({
+      ...baseContext,
+      latestCommit: {
+        ...baseContext.latestCommit!,
+        view_state: {
+          ...viewState,
+          players: {
+            items: [
+              { player_id: "player_public_1", legacy_player_id: 1, cash: 17, score: 4 },
+              {
+                player_id: "player_public_2",
+                legacy_player_id: 2,
+                public_player_id: "player_public_2",
+                seat_id: "seat_public_2",
+                viewer_id: "viewer_public_2",
+                cash: 24,
+                score: 5,
+                total_score: 5,
+                shards: 3,
+                owned_tile_count: 4,
+                position: 12,
+                alive: true,
+                current_character_face: "박수",
+                hidden_trick_count: 2,
+              },
+            ],
+          },
+        },
+      },
+      legalChoices: baseContext.prompt.choices,
+    });
+
+    expect(request.player_summary).toMatchObject({
+      player_id: 2,
+      legacy_player_id: 2,
+      public_player_id: "player_public_2",
+      seat_id: "seat_public_2",
+      viewer_id: "viewer_public_2",
+      cash: 24,
+      character: "박수",
+    });
+    expect(JSON.stringify(request)).not.toContain("hidden_trick_count");
+  });
+
   it("keeps numeric-only prompts as explicit legacy policy identity", () => {
     const baseContext = context();
     const request = buildHttpDecisionPolicyRequest({

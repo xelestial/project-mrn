@@ -228,14 +228,15 @@ function compactPolicyPlayerSummary(
   const items = Array.isArray(players?.["items"]) ? players["items"] : [];
   const player = items.find(
     (item): item is Record<string, unknown> =>
-      isRecord(item) && numberValue(item["player_id"]) === playerId,
+      isRecord(item) && policySummaryLegacyPlayerId(item) === playerId,
   );
   if (!player) {
     return null;
   }
+  const legacyPlayerId = policySummaryLegacyPlayerId(player) ?? playerId;
   return {
-    player_id: numberValue(player["player_id"]),
-    legacy_player_id: numberValue(player["legacy_player_id"]) ?? playerId,
+    player_id: legacyPlayerId,
+    legacy_player_id: legacyPlayerId,
     public_player_id: stringValue(player["public_player_id"]),
     seat_id: stringValue(player["seat_id"]),
     viewer_id: stringValue(player["viewer_id"]),
@@ -250,6 +251,10 @@ function compactPolicyPlayerSummary(
   };
 }
 
+function policySummaryLegacyPlayerId(player: Record<string, unknown>): number | null {
+  return numberValue(player["legacy_player_id"]) ?? numericPlayerId(player["player_id"]);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -261,6 +266,10 @@ function stringValue(value: unknown): string | null {
 function numberValue(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function numericPlayerId(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function booleanValue(value: unknown): boolean | null {
