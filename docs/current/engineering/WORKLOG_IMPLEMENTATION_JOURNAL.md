@@ -11,6 +11,25 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 HTTP Decision Policy Primary-Only Request
+
+- `buildHttpDecisionPolicyRequest()` no longer emits top-level `player_id` or
+  nested `identity.player_id` for public/protocol policy requests. It publishes
+  `primary_player_id`, `primary_player_id_source`, `protocol_player_id`,
+  public/seat/viewer companions, and explicit `legacy_player_id` at both the
+  top level and nested `identity` object.
+- Legacy-only numeric policy input still emits numeric top-level and nested
+  `player_id` with `player_id_alias_role: "legacy_compatibility_alias"`.
+- Malformed numeric public/protocol primary fields are still repaired from
+  public/protocol companions before request serialization.
+- `player_summary` matching remains on the explicit legacy bridge; external-AI
+  smoke and Redis restart smoke adapters are separate producer boundaries.
+
+Responsibility result: HTTP policy request production moved off public
+top-level and nested `player_id`. Server receive compatibility,
+`PromptService` numeric routing, smoke-script decision submitters, and
+legacy-only policy compatibility did not move.
+
 ## 2026-05-15 WebSocket Decision Primary-Only Publish
 
 - `buildDecisionMessage()` no longer emits top-level `player_id` for
@@ -26,7 +45,7 @@ in the active plans, status index, tests, or canonical contract documents.
 
 Responsibility result: WebSocket decision production moved off public
 top-level `player_id`. Server receive compatibility, `PromptService` numeric
-routing, HTTP decision policy requests, and smoke-script decision submitters
+routing, HTTP policy request production, and smoke-script decision submitters
 remain separate compatibility boundaries.
 
 ## 2026-05-15 Active Prompt View-State Primary-Only Publish
@@ -346,8 +365,10 @@ Numeric ids remain valid only for explicit legacy decision flight identity.
   `legacy_player_id`.
 
 Responsibility result: the HTTP decision policy request still sends
-public/protocol identity as primary, while the compact summary boundary now owns
-the temporary numeric bridge needed to attach projected player stats.
+public/protocol identity as primary; the compact summary boundary now owns the
+temporary numeric bridge needed to attach projected player stats. The later
+2026-05-15 primary-only request slice removed public/protocol `player_id`
+serialization from the policy request itself.
 
 ## 2026-05-15 Headless Harness Join Identity Bridge
 
@@ -559,16 +580,18 @@ legacy-only prompt input.
   when available. Numeric top-level `player_id` is labeled as
   `player_id_alias_role: "legacy_compatibility_alias"` only for legacy-only
   prompt input.
-- HTTP decision policy requests now use public/protocol top-level `player_id`
-  when available and mirror that value in `identity.player_id`. Numeric
-  `player_id` plus `player_id_alias_role: "legacy_compatibility_alias"` remains
-  only for legacy-only policy input.
+- HTTP decision policy requests now use top-level and nested
+  `primary_player_id` plus explicit public/seat/viewer companions for
+  public/protocol identity. Top-level and nested `player_id` plus
+  `player_id_alias_role: "legacy_compatibility_alias"` remain only for
+  legacy-only policy input.
 - Browser WebSocket decision serialization now omits top-level `player_id` for
-  public/protocol decisions, while headless HTTP policy requests,
-  external-AI smoke worker/callback payloads, and Redis restart smoke decision
-  payloads still keep their separate compatibility behavior. All of these
-  producers reject malformed numeric public/protocol `primary_player_id` values
-  when a public companion can repair the identity.
+  public/protocol decisions, and headless HTTP policy requests now omit
+  top-level and nested public/protocol `player_id`. External-AI smoke
+  worker/callback payloads and Redis restart smoke decision payloads remain
+  separate producer boundaries. All of these producers reject malformed numeric
+  public/protocol `primary_player_id` values when a public companion can repair
+  the identity.
 - Headless view-commit trace compaction now consumes explicit active-prompt
   `primary_player_id` plus `primary_player_id_source` before numeric aliases.
   Numeric `active_prompt_player_id` and `active_prompt_protocol_player_id`
@@ -1257,9 +1280,10 @@ intentionally remain numeric compatibility surfaces.
   `PromptViewModel` fields in a second helper.
 - `HttpDecisionPolicyRequest` now carries top-level `primary_player_id` and
   `primary_player_id_source` while preserving `legacy_player_id` compatibility.
-- `HttpDecisionPolicyRequest.player_id` now uses public/protocol identity when
-  available and carries `player_id_alias_role: "legacy_compatibility_alias"`
-  only for legacy-only numeric fallback input.
+- This slice was later superseded for public/protocol request serialization:
+  `HttpDecisionPolicyRequest.player_id` is now emitted only for legacy-only
+  numeric fallback input and carries
+  `player_id_alias_role: "legacy_compatibility_alias"`.
 - Numeric-only prompt requests still serialize `primary_player_id: 2` with
   `primary_player_id_source: "legacy"`, making the fallback explicit instead
   of pretending numeric `player_id` is the general primary identity.

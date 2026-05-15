@@ -12,7 +12,7 @@ export type HttpDecisionPolicyOptions = {
 export type HttpDecisionPolicyRequest = {
   protocol_version: 1;
   session_id: string;
-  player_id: ProtocolPlayerId;
+  player_id?: ProtocolPlayerId;
   player_id_alias_role?: "legacy_compatibility_alias";
   primary_player_id: ProtocolPlayerId;
   primary_player_id_source: "public" | "protocol" | "legacy";
@@ -22,7 +22,7 @@ export type HttpDecisionPolicyRequest = {
   seat_id: string | null;
   viewer_id: string | null;
   identity: {
-    player_id: ProtocolPlayerId;
+    player_id?: ProtocolPlayerId;
     player_id_alias_role?: "legacy_compatibility_alias";
     primary_player_id: ProtocolPlayerId;
     primary_player_id_source: "public" | "protocol" | "legacy";
@@ -83,12 +83,12 @@ export function createHttpDecisionPolicy(options: HttpDecisionPolicyOptions): De
       const response = await fetchFrontendConnectionUrl({
         url: endpoint,
         init: {
-        method: "POST",
-        headers: {
-          ...(options.headers ?? {}),
-        },
-        body: JSON.stringify(buildHttpDecisionPolicyRequest(context)),
-        signal: controller.signal,
+          method: "POST",
+          headers: {
+            ...(options.headers ?? {}),
+          },
+          body: JSON.stringify(buildHttpDecisionPolicyRequest(context)),
+          signal: controller.signal,
         },
       });
       const body = (await response.json().catch(() => ({}))) as HttpDecisionPolicyResponse;
@@ -105,13 +105,16 @@ export function createHttpDecisionPolicy(options: HttpDecisionPolicyOptions): De
 export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext): HttpDecisionPolicyRequest {
   const runtime = context.latestCommit?.runtime;
   const identity = normalizePolicyIdentity(context.identity);
-  const policyPlayerId = identity.protocolPlayerId;
-  const policyPlayerIdIsLegacyAlias = typeof policyPlayerId === "number";
+  const legacyPolicyPlayerId = identity.primaryPlayerIdSource === "legacy" ? identity.legacyPlayerId : null;
   return {
     protocol_version: 1,
     session_id: context.sessionId,
-    player_id: policyPlayerId,
-    ...(policyPlayerIdIsLegacyAlias ? { player_id_alias_role: "legacy_compatibility_alias" as const } : {}),
+    ...(legacyPolicyPlayerId !== null
+      ? {
+          player_id: legacyPolicyPlayerId,
+          player_id_alias_role: "legacy_compatibility_alias" as const,
+        }
+      : {}),
     primary_player_id: identity.primaryPlayerId,
     primary_player_id_source: identity.primaryPlayerIdSource,
     protocol_player_id: identity.protocolPlayerId,
@@ -120,8 +123,12 @@ export function buildHttpDecisionPolicyRequest(context: HeadlessDecisionContext)
     seat_id: identity.seatId,
     viewer_id: identity.viewerId,
     identity: {
-      player_id: policyPlayerId,
-      ...(policyPlayerIdIsLegacyAlias ? { player_id_alias_role: "legacy_compatibility_alias" as const } : {}),
+      ...(legacyPolicyPlayerId !== null
+        ? {
+            player_id: legacyPolicyPlayerId,
+            player_id_alias_role: "legacy_compatibility_alias" as const,
+          }
+        : {}),
       primary_player_id: identity.primaryPlayerId,
       primary_player_id_source: identity.primaryPlayerIdSource,
       protocol_player_id: identity.protocolPlayerId,

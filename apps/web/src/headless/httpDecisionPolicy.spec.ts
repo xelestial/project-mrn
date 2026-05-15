@@ -156,7 +156,6 @@ describe("httpDecisionPolicy", () => {
     expect(request).toMatchObject({
       protocol_version: 1,
       session_id: "sess_http_policy",
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       protocol_player_id: "player_public_2",
@@ -165,7 +164,6 @@ describe("httpDecisionPolicy", () => {
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
       identity: {
-        player_id: "player_public_2",
         primary_player_id: "player_public_2",
         primary_player_id_source: "public",
         protocol_player_id: "player_public_2",
@@ -201,6 +199,8 @@ describe("httpDecisionPolicy", () => {
         character: "박수",
       },
     });
+    expect(request).not.toHaveProperty("player_id");
+    expect(request.identity).not.toHaveProperty("player_id");
     expect(request.legal_choices.map((choice) => choice.choice_id)).toEqual(["buy", "pass"]);
     expect(JSON.stringify(request)).not.toContain("messages");
     expect(JSON.stringify(request)).not.toContain("hidden_trick_count");
@@ -339,7 +339,6 @@ describe("httpDecisionPolicy", () => {
     });
 
     expect(request).toMatchObject({
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       protocol_player_id: "player_public_2",
@@ -348,7 +347,6 @@ describe("httpDecisionPolicy", () => {
       seat_id: "seat_public_2",
       viewer_id: "viewer_public_2",
       identity: {
-        player_id: "player_public_2",
         primary_player_id: "player_public_2",
         primary_player_id_source: "public",
         protocol_player_id: "player_public_2",
@@ -358,6 +356,8 @@ describe("httpDecisionPolicy", () => {
         viewer_id: "viewer_public_2",
       },
     });
+    expect(request).not.toHaveProperty("player_id");
+    expect(request.identity).not.toHaveProperty("player_id");
   });
 
   it("does not submit a numeric player_id when public identity companions repair a bad primary field", () => {
@@ -377,14 +377,12 @@ describe("httpDecisionPolicy", () => {
     });
 
     expect(request).toMatchObject({
-      player_id: "player_public_2",
       primary_player_id: "player_public_2",
       primary_player_id_source: "public",
       protocol_player_id: "player_public_2",
       legacy_player_id: 2,
       public_player_id: "player_public_2",
       identity: {
-        player_id: "player_public_2",
         primary_player_id: "player_public_2",
         primary_player_id_source: "public",
         protocol_player_id: "player_public_2",
@@ -392,6 +390,8 @@ describe("httpDecisionPolicy", () => {
         public_player_id: "player_public_2",
       },
     });
+    expect(request).not.toHaveProperty("player_id");
+    expect(request.identity).not.toHaveProperty("player_id");
     expect(request).not.toHaveProperty("player_id_alias_role");
     expect(request.identity).not.toHaveProperty("player_id_alias_role");
   });
