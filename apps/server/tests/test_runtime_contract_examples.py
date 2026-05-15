@@ -337,22 +337,19 @@ class RuntimeContractExampleTests(unittest.TestCase):
     def test_outbound_decision_schema_accepts_primary_identity_without_player_id(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
         schema = _load_json(root / "schemas" / "outbound.decision.schema.json")
+        example_path = root / "examples" / "outbound.decision.primary_identity.json"
+        self.assertTrue(example_path.exists(), "outbound.decision.primary_identity.json must exist")
+        example = _load_json(example_path)
 
-        _validate_subset(
-            {
-                "type": "decision",
-                "request_id": "req_primary_only_1",
-                "primary_player_id": "player_public_1",
-                "primary_player_id_source": "public",
-                "public_player_id": "player_public_1",
-                "seat_id": "seat_1",
-                "viewer_id": "viewer_1",
-                "choice_id": "roll",
-                "client_seq": 12,
-            },
-            schema,
-            path="$<outbound.decision.primary_identity_without_player_id>",
-        )
+        _validate_subset(example, schema, path="$<outbound.decision.primary_identity>")
+        self.assertNotIn("player_id", example)
+        self.assertNotIn("player_id_alias_role", example)
+        self.assertIsInstance(example.get("primary_player_id"), str)
+        self.assertEqual(example.get("primary_player_id_source"), "public")
+        self.assertEqual(example.get("public_player_id"), example.get("primary_player_id"))
+        self.assertIsInstance(example.get("legacy_player_id"), int)
+        self.assertIsInstance(example.get("seat_id"), str)
+        self.assertIsInstance(example.get("viewer_id"), str)
 
     def test_outbound_decision_schema_rejects_missing_player_identity(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"

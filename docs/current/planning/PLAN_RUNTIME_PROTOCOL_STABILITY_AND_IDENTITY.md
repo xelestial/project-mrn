@@ -936,7 +936,9 @@ Acceptance evidence status, 2026-05-15:
   outbound decision schema also accepts explicit `primary_player_id` plus
   `primary_player_id_source`, `public_player_id`, `seat_id`, or `viewer_id` without
   requiring a top-level `player_id`, while still rejecting identity-less decision
-  messages.
+  messages; `outbound.decision.primary_identity.json` now freezes that primary-only
+  public shape as a runtime contract example without replacing the public
+  top-level identity example.
   WebSocket outbound decision examples and frontend decision construction now also expose
   `primary_player_id` plus `primary_player_id_source`, and label top-level numeric `player_id`
   with `player_id_alias_role: "legacy_compatibility_alias"`. `PromptService.create_prompt()`,

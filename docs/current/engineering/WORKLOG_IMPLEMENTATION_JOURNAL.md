@@ -11,6 +11,20 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 WS Decision Primary-Only Fixture
+
+- Added frozen `outbound.decision.primary_identity.json` so the WebSocket
+  contract package now carries a file-level example of an outbound decision
+  identified by `primary_player_id`, `primary_player_id_source`,
+  `public_player_id`, `seat_id`, and `viewer_id` without top-level `player_id`.
+- `outbound.decision.public_identity.json` remains the public top-level identity
+  example, and `outbound.decision.movement_roll.json` remains the labeled
+  numeric compatibility example.
+
+Responsibility result: WebSocket runtime contracts now own primary-only
+outbound decision fixture evidence. Runtime producers and receivers did not
+move in this slice.
+
 ## 2026-05-15 External-AI Request Example Primary-Only Identity
 
 - Frozen external-AI `request.*.json` examples no longer include public
