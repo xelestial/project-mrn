@@ -992,6 +992,11 @@ Acceptance evidence status, 2026-05-15:
   top-level legacy `PromptViewModel.playerId` alias, and that `mark_target`/`doctrine_relief` choice
   surfaces preserve explicit target legacy/public/seat/viewer companions for display/protocol consumers
   while raw choice payloads remain the engine bridge.
+- `apps/web/src/domain/selectors/streamSelectors.spec.ts` verifies that `selectCoreActionFeed()` and
+  `selectTurnHistory()` fallback details render prompt/`decision_requested` actor labels from explicit
+  display companions when top-level `player_id` is a public/protocol string. This closes a display-only
+  consumer hazard without migrating board ownership, player cards, or turn-history participant ids away
+  from the numeric engine bridge.
 - `apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_preserves_companion_only_batch_continuation`
   verifies that server active prompt view-state projection preserves complete public-player, seat, and
   viewer continuation companion maps without inventing numeric `missing_player_ids`,

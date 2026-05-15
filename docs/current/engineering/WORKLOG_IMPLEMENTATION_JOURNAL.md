@@ -11,6 +11,20 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Stream Display Identity Companion Fallback
+
+- `streamSelectors.ts` prompt/decision actor display now reads explicit
+  `player_label`, `legacy_player_id`, and `seat_index` companions before
+  falling back to numeric `player_id`. Public/protocol string `player_id`
+  therefore no longer renders prompt or `decision_requested` fallback details
+  as `-` when display companions are present.
+- This is deliberately a display-boundary fix. Board ownership, player cards,
+  turn-history participant ids, and other engine bridge fields remain numeric
+  until their own compatibility boundaries are removed.
+
+Responsibility result: stream selector label derivation owns the companion
+fallback needed for display; protocol/runtime identity ownership did not move.
+
 ## 2026-05-15 UI Decision Flight Identity Repair
 
 - `resolveDecisionFlightIdentity()` now rejects numeric explicit primary ids

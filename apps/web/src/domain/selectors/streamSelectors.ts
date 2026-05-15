@@ -379,6 +379,10 @@ function asString(value: unknown): string {
   return typeof value === "string" && value.trim() ? value : "-";
 }
 
+function nonEmptyStringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
 function asNumberText(value: unknown): string {
   return typeof value === "number" ? String(value) : "-";
 }
@@ -453,6 +457,66 @@ function playerLabel(playerId: number, text: StreamSelectorTextResources = DEFAU
   return text.stream.playerLabel(playerId);
 }
 
+function firstNumberFromPayloadFields(payload: Record<string, unknown>, fields: string[]): number | null {
+  for (const field of fields) {
+    const value = numberOrNull(payload[field]);
+    if (value !== null) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function playerLabelFromPayloadFields(
+  payload: Record<string, unknown>,
+  text: StreamSelectorTextResources,
+  labelFields: string[],
+  numericFields: string[]
+): string {
+  for (const field of labelFields) {
+    const label = nonEmptyStringOrNull(payload[field]);
+    if (label !== null) {
+      return label;
+    }
+  }
+  const playerId = firstNumberFromPayloadFields(payload, numericFields);
+  return playerId !== null ? playerLabel(playerId, text) : "-";
+}
+
+function promptPlayerLabelFromPayload(
+  payload: Record<string, unknown>,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): string {
+  return playerLabelFromPayloadFields(
+    payload,
+    text,
+    ["player_label"],
+    ["legacy_player_id", "seat_index", "player_id"]
+  );
+}
+
+function actorPlayerLabelFromPayload(
+  payload: Record<string, unknown>,
+  text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
+): string {
+  return playerLabelFromPayloadFields(
+    payload,
+    text,
+    ["acting_player_label", "actor_player_label", "player_label"],
+    [
+      "acting_legacy_player_id",
+      "actor_legacy_player_id",
+      "legacy_player_id",
+      "acting_seat_index",
+      "actor_seat_index",
+      "seat_index",
+      "acting_player_id",
+      "actor_player_id",
+      "player_id",
+    ]
+  );
+}
+
 function actorFromPayload(
   payload: Record<string, unknown>,
   text: StreamSelectorTextResources = DEFAULT_STREAM_SELECTOR_TEXT
@@ -461,8 +525,7 @@ function actorFromPayload(
   if (typeof actor === "string" && actor.trim()) {
     return actor;
   }
-  const acting = payload["acting_player_id"] ?? payload["player_id"];
-  return typeof acting === "number" ? playerLabel(acting, text) : "-";
+  return actorPlayerLabelFromPayload(payload, text);
 }
 
 function actorFromMessage(
@@ -472,11 +535,7 @@ function actorFromMessage(
   if (message.type === "event") {
     return actorFromPayload(message.payload, text);
   }
-  const pid = message.payload["player_id"];
-  if (typeof pid === "number") {
-    return playerLabel(pid, text);
-  }
-  return "-";
+  return promptPlayerLabelFromPayload(message.payload, text);
 }
 
 function pickMessageLabel(message: InboundMessage, text: StreamSelectorTextResources): string {
@@ -616,8 +675,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   }
   if (message.type === "prompt") {
     const requestType = asString(message.payload["request_type"]);
-    const pid = message.payload["player_id"];
-    const actor = typeof pid === "number" ? playerLabel(pid, text) : "-";
+    const actor = promptPlayerLabelFromPayload(message.payload, text);
     return text.stream.promptDetail(actor, promptLabelForType(requestType === "-" ? "" : requestType, text.promptType));
   }
   if (message.type === "decision_ack") {
@@ -692,8 +750,7 @@ function pickMessageDetail(message: InboundMessage, text: StreamSelectorTextReso
   }
   if (eventType === "decision_requested") {
     const requestType = asString(payload["request_type"]);
-    const pid = payload["player_id"];
-    const actor = typeof pid === "number" ? playerLabel(pid, text) : "-";
+    const actor = promptPlayerLabelFromPayload(payload, text);
     return text.stream.decisionRequestedDetail(
       actor,
       promptLabelForType(requestType === "-" ? "" : requestType, text.promptType),
@@ -1842,7 +1899,14 @@ function updateActorFromPrompt(
   payload: Record<string, unknown>,
   text: StreamSelectorTextResources
 ) {
-  const promptActor = numberOrNull(payload["player_id"] ?? payload["acting_player_id"]);
+  const promptActor = firstNumberFromPayloadFields(payload, [
+    "legacy_player_id",
+    "acting_legacy_player_id",
+    "seat_index",
+    "acting_seat_index",
+    "player_id",
+    "acting_player_id",
+  ]);
   if (promptActor !== null) {
     model.actorPlayerId = promptActor;
     model.actor = playerLabel(promptActor, text);

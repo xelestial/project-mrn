@@ -521,6 +521,101 @@ describe("streamSelectors authoritative ViewCommit contract", () => {
     });
   });
 
+  it("uses prompt display companions when core action fallback receives a public player_id", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    viewState["scene"] = {
+      ...(viewState["scene"] as Record<string, unknown>),
+      core_action_feed: [
+        {
+          seq: 51,
+          event_code: "decision_requested",
+          actor_player_id: 2,
+          round_index: 3,
+          turn_index: 1,
+          detail: "-",
+          payload: {
+            event_type: "decision_requested",
+            request_type: "movement",
+            player_id: "player_public_2",
+            primary_player_id: "player_public_2",
+            primary_player_id_source: "public",
+            legacy_player_id: 2,
+            public_player_id: "player_public_2",
+            seat_id: "seat_2",
+            viewer_id: "viewer_2",
+            player_label: "P2",
+          },
+        },
+      ],
+    };
+
+    const feed = selectCoreActionFeed([viewCommit(9, viewState)], 2);
+
+    expect(feed).toEqual([
+      expect.objectContaining({
+        seq: 51,
+        eventCode: "decision_requested",
+        actor: "P2",
+        detail: expect.stringContaining("P2 / 이동"),
+        isLocalActor: true,
+      }),
+    ]);
+    expect(feed[0].detail).not.toContain("player_public_2");
+  });
+
+  it("uses prompt display companions when turn history fallback receives a public player_id", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    viewState["turn_history"] = {
+      current_key: "r3:t1",
+      turns: [
+        {
+          key: "r3:t1",
+          round_index: 3,
+          turn_index: 1,
+          actor_player_id: 2,
+          event_count: 1,
+          important_count: 1,
+          events: [
+            {
+              seq: 52,
+              event_code: "decision_requested",
+              payload: {
+                event_type: "decision_requested",
+                request_type: "movement",
+                round_index: 3,
+                turn_index: 1,
+                player_id: "player_public_2",
+                primary_player_id: "player_public_2",
+                primary_player_id_source: "public",
+                legacy_player_id: 2,
+                public_player_id: "player_public_2",
+                seat_id: "seat_2",
+                viewer_id: "viewer_2",
+                player_label: "P2",
+              },
+              tone: "system",
+              relevance: "important",
+              participants: { actor_player_id: 2 },
+              focus_tile_indices: [],
+              resource_delta: null,
+              end_time_delta: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    const history = selectTurnHistory([viewCommit(10, viewState)], 2);
+    const event = history.turns[0].events[0];
+
+    expect(event).toMatchObject({
+      seq: 52,
+      eventCode: "decision_requested",
+      detail: expect.stringContaining("P2 / 이동"),
+    });
+    expect(event.detail).not.toContain("player_public_2");
+  });
+
   it("renders unresolved mark outcomes in the current reveal layer", () => {
     const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
     viewState["reveals"] = {
