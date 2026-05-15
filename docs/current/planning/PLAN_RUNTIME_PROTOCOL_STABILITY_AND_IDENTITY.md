@@ -970,12 +970,14 @@ Acceptance evidence status, 2026-05-15:
   now also require top-level `acting_player_id` actor companions; nested view-state
   display ids remain a separate selector/display boundary rather than this protocol
   event identity boundary.
-  External-AI request examples now exercise the public-primary path directly:
-  top-level `player_id` and `primary_player_id` are public string identities,
-  while `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id`
-  remain explicit companions. Numeric player ids remain covered as labeled
-  legacy aliases in schema tests, so external workers do not have to infer
-  primary identity from a numeric compatibility alias. Runtime contract schema
+  External-AI request examples now exercise the primary-only public path
+  directly: `primary_player_id`, `primary_player_id_source`, and
+  `public_player_id` carry the public string identity without top-level
+  `player_id`, while `legacy_player_id`, `seat_id`, and `viewer_id` remain
+  explicit companions. Public top-level `player_id` and numeric player ids
+  remain covered as compatibility inputs in schema tests, so external workers
+  do not have to infer primary identity from a numeric compatibility alias.
+  Runtime contract schema
   tests also reject mismatched primary identity source/type pairs: numeric
   `primary_player_id` values are invalid when `primary_player_id_source` is
   `public` or `protocol`, and string `primary_player_id` values are invalid

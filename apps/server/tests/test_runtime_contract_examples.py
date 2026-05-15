@@ -817,18 +817,18 @@ class RuntimeContractExampleTests(unittest.TestCase):
             example = _load_json(examples / example_name)
             _validate_subset(example, schema, path=f"$<{example_name}>")
 
-    def test_external_ai_request_examples_use_public_primary_identity(self) -> None:
+    def test_external_ai_request_examples_use_primary_only_public_identity(self) -> None:
         examples = _project_root() / "packages" / "runtime-contracts" / "external-ai" / "examples"
 
         for example_path in sorted(examples.glob("request.*.json")):
             example = _load_json(example_path)
-            player_id = example.get("player_id")
+            public_player_id = example.get("public_player_id")
             with self.subTest(example=example_path.name):
-                self.assertIsInstance(player_id, str)
+                self.assertNotIn("player_id", example)
                 self.assertNotIn("player_id_alias_role", example)
-                self.assertEqual(example.get("primary_player_id"), player_id)
+                self.assertIsInstance(public_player_id, str)
+                self.assertEqual(example.get("primary_player_id"), public_player_id)
                 self.assertEqual(example.get("primary_player_id_source"), "public")
-                self.assertEqual(example.get("public_player_id"), player_id)
                 self.assertIsInstance(example.get("legacy_player_id"), int)
                 self.assertIsInstance(example.get("seat_id"), str)
                 self.assertIsInstance(example.get("viewer_id"), str)

@@ -11,6 +11,22 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 External-AI Request Example Primary-Only Identity
+
+- Frozen external-AI `request.*.json` examples no longer include public
+  top-level `player_id`.
+- The examples now represent the preferred request identity through
+  `primary_player_id`, `primary_player_id_source`, `public_player_id`,
+  `seat_id`, and `viewer_id`, with `legacy_player_id` retained as the explicit
+  numeric bridge.
+- Schema tests still cover public top-level `player_id` and labeled numeric
+  aliases as compatibility input, so this changes the representative examples,
+  not the accepted migration surface.
+
+Responsibility result: runtime contract examples stopped teaching public
+top-level `player_id` as the primary external-AI request identity. Worker
+schema compatibility and server callback normalization did not move.
+
 ## 2026-05-15 External-AI Smoke Worker/Callback Primary-Only Identity
 
 - `external_ai_full_stack_smoke.py` no longer sends top-level `player_id` to

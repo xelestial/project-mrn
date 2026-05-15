@@ -2,7 +2,6 @@
   "request_id": "sess_ext_1_ext_ab12cd34",
   "session_id": "sess_ext_1",
   "seat": 2,
-  "player_id": "player_public_2",
   "primary_player_id": "player_public_2",
   "primary_player_id_source": "public",
   "legacy_player_id": 2,
