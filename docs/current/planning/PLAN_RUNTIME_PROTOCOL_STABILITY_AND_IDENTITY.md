@@ -1118,4 +1118,4 @@ Redis debug acceptance evidence, 2026-05-14:
 
 - `apps/server/tests/test_redis_realtime_services.py::test_game_state_debug_snapshot_uses_one_hour_ttl` locks the debug snapshot TTL at 3600 seconds.
 - `apps/server/tests/test_redis_realtime_services.py::test_prompt_debug_index_tracks_session_prompt_state_with_one_hour_ttl` keeps prompt debug index retention bounded while the active prompt hashes remain non-TTL state.
-- `apps/server/tests/test_redis_state_inspector.py::test_inspector_reports_consistent_active_prompt_state` now verifies inspector output can show source event heads, viewer outbox heads, active prompt lifecycle, active runtime frame/module fields, latest commit/source-event sequence, and one-hour debug retention from Redis state without browser logs.
+- `apps/server/tests/test_redis_state_inspector.py::test_inspector_reports_consistent_active_prompt_state` now verifies inspector output can show source event heads, viewer outbox heads, active prompt lifecycle, active runtime frame/module fields, latest commit/source-event sequence, one-hour debug retention, and public prompt/request/player identity companions from Redis state without browser logs.

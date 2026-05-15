@@ -29,9 +29,19 @@ class RedisStateInspectorTests(unittest.TestCase):
         session_id = "s-inspect-ok"
         active_prompt = {
             "request_id": "req-move-1",
+            "legacy_request_id": "s-inspect-ok:r2:t7:p2:movement:1",
+            "public_request_id": "req-move-1",
             "prompt_instance_id": "prompt-1",
+            "public_prompt_instance_id": "pin_move_1",
             "request_type": "movement",
             "player_id": 2,
+            "player_id_alias_role": "legacy_compatibility_alias",
+            "primary_player_id": "ply_2",
+            "primary_player_id_source": "public",
+            "legacy_player_id": 2,
+            "public_player_id": "ply_2",
+            "seat_id": "seat_2",
+            "viewer_id": "viewer_2",
             "view_commit_seq": 5,
             "resume_token": "resume-1",
             "timeout_ms": 30000,
@@ -181,6 +191,11 @@ class RedisStateInspectorTests(unittest.TestCase):
         self.assertEqual(report["state"]["debug_snapshot_summary"]["active_frame_id"], "turn:r2:p2")
         self.assertEqual(report["state"]["debug_snapshot_summary"]["active_module_id"], "module:move")
         self.assertEqual(report["state"]["debug_snapshot_runtime"]["frame_stack"][0]["active_module_id"], "module:move")
+        self.assertEqual(report["state"]["runtime"]["active_prompt"]["public_request_id"], "req-move-1")
+        self.assertEqual(report["state"]["runtime"]["active_prompt"]["public_prompt_instance_id"], "pin_move_1")
+        self.assertEqual(report["state"]["runtime"]["active_prompt"]["primary_player_id"], "ply_2")
+        self.assertEqual(report["prompts"]["pending"][0]["public_prompt_instance_id"], "pin_move_1")
+        self.assertEqual(report["prompts"]["lifecycle"][0]["public_prompt_instance_id"], "pin_move_1")
         self.assertEqual(report["stream"]["event_index_ttl_seconds"], 3600)
         self.assertEqual(report["stream"]["viewer_outbox_ttl_seconds"], 3600)
         self.assertEqual(report["stream"]["latest_event_index"][-1]["event_id"], "evt-prompt-1")

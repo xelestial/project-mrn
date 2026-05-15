@@ -11,6 +11,19 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Redis Inspector Prompt Identity Companions
+
+- `RedisStateInspector` compact prompt and outbox summaries now preserve public
+  prompt/request/player identity companions next to the numeric
+  `prompt_instance_id` lifecycle bridge and numeric legacy `player_id`.
+- Inspector coverage now locks that active runtime prompts plus pending and
+  lifecycle prompt records expose `public_prompt_instance_id`,
+  `primary_player_id`, and related companions from Redis state.
+
+Responsibility result: operator/debug prompt inspection moved away from
+numeric-only prompt identity evidence. Runtime resume and module continuation
+still own numeric `prompt_instance_id` as the internal lifecycle bridge.
+
 ## 2026-05-15 External AI Smoke Identity Summary
 
 - `external_ai_full_stack_smoke.py` now includes `primary_player_id`,
