@@ -21,6 +21,10 @@ in the active plans, status index, tests, or canonical contract documents.
   fields into the resolver, then normalize the accepted request back to the
   internal numeric `player_id`/`legacy_player_id` shape before calling
   `PromptService`.
+- Route-level regression tests now verify malformed explicit primary identity
+  pairs, such as numeric `primary_player_id` with source `public`, fail through
+  the existing `PLAYER_MISMATCH` path instead of being repaired by a numeric
+  alias.
 
 Responsibility result: inbound protocol identity interpretation remains in the
 single `SessionService` adapter. Route handlers do not duplicate public primary

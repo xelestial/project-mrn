@@ -1004,6 +1004,11 @@ Acceptance evidence status, 2026-05-15:
 - `apps/server/tests/test_stream_api.py::test_seat_decision_rejects_conflicting_protocol_identity_fields`
   verifies that the WebSocket decision route turns a contradictory public/protocol player id plus numeric
   legacy alias into the existing `PLAYER_MISMATCH` path rather than accepting the legacy numeric alias.
+- `apps/server/tests/test_stream_api.py::test_seat_decision_rejects_malformed_primary_player_identity`
+  and
+  `apps/server/tests/test_sessions_api.py::test_external_ai_decision_callback_rejects_malformed_primary_player_identity`
+  verify that malformed explicit primary player identity pairs fail closed at the WebSocket and
+  external-AI callback route boundaries instead of being repaired by numeric compatibility aliases.
 - `apps/server/tests/test_prompt_service.py::test_submit_decision_rejects_conflicting_prompt_player_identity_fields`
   verifies that `PromptService.submit_decision()` itself rejects decision payload identity companions that
   contradict the pending prompt before lifecycle records or command payloads are accepted, keeping this

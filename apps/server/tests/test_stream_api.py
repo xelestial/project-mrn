@@ -715,6 +715,37 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(errors[-1].get("payload", {}).get("code"), "PLAYER_MISMATCH")
         self.assertEqual(errors[-1].get("payload", {}).get("category"), "auth")
 
+    def test_seat_decision_rejects_malformed_primary_player_identity(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 121})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={joined['session_token']}"
+        with self.client.websocket_connect(path) as ws:
+            ws.send_json(
+                {
+                    "type": "decision",
+                    "request_id": "r_malformed_primary_identity",
+                    "primary_player_id": 1,
+                    "primary_player_id_source": "public",
+                    "choice_id": "roll",
+                    "choice_payload": {},
+                }
+            )
+
+            messages: list[dict] = []
+            for _ in range(6):
+                msg = ws.receive_json()
+                messages.append(msg)
+                if msg.get("type") == "error" and msg.get("payload", {}).get("code") == "PLAYER_MISMATCH":
+                    break
+
+        errors = [m for m in messages if m.get("type") == "error"]
+        self.assertGreaterEqual(len(errors), 1)
+        self.assertEqual(errors[-1].get("payload", {}).get("code"), "PLAYER_MISMATCH")
+        self.assertEqual(errors[-1].get("payload", {}).get("category"), "auth")
+
     def test_seat_decision_accepts_pending_prompt_with_ack(self) -> None:
         from apps.server.src import state
 

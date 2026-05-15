@@ -1056,6 +1056,30 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ack.payload["primary_player_id_source"], "public")
         self.assertEqual(ack.payload["public_player_id"], public_player_id)
 
+    def test_external_ai_decision_callback_rejects_malformed_primary_player_identity(self) -> None:
+        from apps.server.src import state
+
+        state.runtime_settings = RuntimeSettings(admin_token="admin-secret")
+        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        session_id = created.json()["data"]["session_id"]
+
+        rejected = self.client.post(
+            f"/api/v1/sessions/{session_id}/external-ai/decisions",
+            json={
+                "request_id": "ai_req_malformed_primary_player",
+                "primary_player_id": 1,
+                "primary_player_id_source": "public",
+                "choice_id": "roll",
+            },
+            headers={"X-Admin-Token": "admin-secret"},
+        )
+
+        self.assertEqual(rejected.status_code, 200)
+        body = rejected.json()
+        self.assertFalse(body["ok"])
+        self.assertIsNone(body["data"])
+        self.assertEqual(body["error"]["code"], "PLAYER_MISMATCH")
+
     def test_start_response_includes_parameter_manifest(self) -> None:
         from apps.server.src import state
 
