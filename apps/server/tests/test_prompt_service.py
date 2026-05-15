@@ -141,6 +141,33 @@ class PromptServiceTests(unittest.TestCase):
         result = self.service.submit_decision({"request_id": "r1", "player_id": 1, "choice_id": "roll"})
         self.assertEqual(result["status"], "accepted")
 
+    def test_submit_decision_rejects_non_numeric_player_id_without_exception(self) -> None:
+        self.service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_public_player_id_at_service_boundary",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        result = self.service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "r_public_player_id_at_service_boundary",
+                "player_id": "ply_1",
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "player_mismatch")
+        lifecycle = self.service.get_prompt_lifecycle("r_public_player_id_at_service_boundary", session_id="s1")
+        self.assertEqual(lifecycle["state"], "rejected")
+        self.assertEqual(lifecycle["reason"], "player_mismatch")
+
     def test_create_prompt_adds_opaque_identity_companions_to_lifecycle(self) -> None:
         legacy_request_id = "s1:r2:t3:p1:movement:5"
         pending = self.service.create_prompt(

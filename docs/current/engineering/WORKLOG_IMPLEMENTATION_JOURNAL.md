@@ -1264,6 +1264,20 @@ Responsibility result: operator diagnostics now normalize primary identity the
 same way as trace and replay artifacts. Harness grouping and runtime protocol
 behavior remain unchanged.
 
+## 2026-05-15 Prompt Service Decision Boundary Guard
+
+- Added `PromptServiceTests` coverage for non-numeric submitted `player_id`
+  values reaching `PromptService.submit_decision()` directly.
+- Replaced the raw `int(payload["player_id"])` conversion with `_int_or_none()`
+  and routed invalid or mismatched values through the existing
+  `player_mismatch` lifecycle rejection path.
+- External HTTP/WebSocket routes still own public/protocol identity resolution
+  through `SessionService.resolve_protocol_player_id()`.
+
+Responsibility result: `PromptService` now owns exception-free validation at the
+numeric engine decision boundary. It does not become a public identity resolver;
+that responsibility remains at the route/session adapter boundary.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

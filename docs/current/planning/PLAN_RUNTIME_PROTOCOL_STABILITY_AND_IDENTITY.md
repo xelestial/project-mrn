@@ -970,6 +970,10 @@ Acceptance evidence status, 2026-05-15:
   verifies that `PromptService.submit_decision()` itself rejects decision payload identity companions that
   contradict the pending prompt before lifecycle records or command payloads are accepted, keeping this
   fail-closed rule at the service acceptance boundary as well as the route adapter boundary.
+- `apps/server/tests/test_prompt_service.py::test_submit_decision_rejects_non_numeric_player_id_without_exception`
+  verifies that the same internal service boundary treats a non-numeric submitted `player_id` as
+  `player_mismatch` rather than raising during numeric engine-bridge validation. Public/protocol
+  identity resolution remains the route adapter's responsibility.
 - `apps/web/src/domain/stream/decisionProtocol.spec.ts` and
   `apps/web/src/headless/HeadlessGameClient.spec.ts` verify that frontend/headless decision construction can
   send a public string `player_id` with explicit `primary_player_id`, `primary_player_id_source`,
@@ -1096,7 +1100,8 @@ Acceptance evidence status, 2026-05-15:
   Full-stack harness pace, repetition, and command-latency diagnostics apply the same primary repair
   while keeping numeric `player_id` as the legacy display alias. `PromptServiceTests` verifies pending
   prompt storage rejects malformed numeric explicit primary ids when the declared source is `public`,
-  repairing from public companions before lifecycle and command materialization. `promptSelectors.spec.ts` verifies
+  repairing from public companions before lifecycle and command materialization, and submitted
+  non-numeric service-boundary `player_id` values are rejected without exceptions. `promptSelectors.spec.ts` verifies
   that active prompt parsing rejects malformed numeric explicit primary ids when the declared source
   is `public` or `protocol`, falling back to public/protocol companions before building the prompt
   view model. `HeadlessGameClient.spec.ts` also verifies that headless active prompt

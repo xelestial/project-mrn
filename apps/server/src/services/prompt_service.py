@@ -231,8 +231,8 @@ class PromptService:
                 self._delete_decision(request_id, session_id=pending.session_id)
                 result = {"status": "stale", "reason": "prompt_timeout"}
             else:
-                player_id = int(payload.get("player_id", 0))
-                if player_id != pending.player_id:
+                player_id = _int_or_none(payload.get("player_id"))
+                if player_id is None or player_id != pending.player_id:
                     self._record_lifecycle(
                         request_id=request_id,
                         state="rejected",
