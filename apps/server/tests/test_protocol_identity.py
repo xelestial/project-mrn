@@ -83,7 +83,7 @@ def test_public_primary_player_wire_payload_prefers_public_identity_without_muta
         "player_id_alias_role": "legacy_compatibility_alias",
     }
 
-    payload = public_primary_player_wire_payload(source)
+    payload = public_primary_player_wire_payload(source, omit_player_id_for_public=False)
 
     assert source["player_id"] == 2
     assert source["player_id_alias_role"] == "legacy_compatibility_alias"
@@ -94,6 +94,17 @@ def test_public_primary_player_wire_payload_prefers_public_identity_without_muta
     assert payload["primary_player_id_source"] == "public"
 
 
+def test_public_primary_player_wire_payload_requires_explicit_public_omit_policy() -> None:
+    with pytest.raises(TypeError):
+        public_primary_player_wire_payload(
+            {
+                "request_id": "req_1",
+                "player_id": 2,
+                "public_player_id": "ply_2",
+            }
+        )
+
+
 def test_public_primary_player_wire_payload_uses_explicit_legacy_player_id_for_public_payload() -> None:
     payload = public_primary_player_wire_payload(
         {
@@ -102,6 +113,7 @@ def test_public_primary_player_wire_payload_uses_explicit_legacy_player_id_for_p
             "public_player_id": "ply_2",
         },
         legacy_player_id=2,
+        omit_player_id_for_public=False,
     )
 
     assert payload["player_id"] == "ply_2"
@@ -133,7 +145,8 @@ def test_public_primary_player_wire_payload_labels_legacy_only_payload() -> None
         {
             "request_id": "req_1",
             "player_id": 2,
-        }
+        },
+        omit_player_id_for_public=False,
     )
 
     assert payload["player_id"] == 2

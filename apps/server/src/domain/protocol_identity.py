@@ -62,7 +62,7 @@ def public_primary_player_wire_payload(
     payload: dict[str, Any],
     *,
     legacy_player_id: Any | None = None,
-    omit_player_id_for_public: bool = False,
+    omit_player_id_for_public: bool,
 ) -> dict[str, Any]:
     result = dict(payload)
     public_player_id = str(result.get("public_player_id") or "").strip()

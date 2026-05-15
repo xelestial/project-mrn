@@ -967,7 +967,9 @@ Acceptance evidence status, 2026-05-15:
   `decision_requested` events: top-level `player_id` is omitted when public/protocol
   identity companions are present, and the numeric seat is preserved only as explicit
   `legacy_player_id`; the pending prompt stored in `PromptService` remains numeric for internal
-  routing.
+  routing. The shared public-primary wire helper now requires each caller to
+  explicitly choose whether public/protocol payloads omit top-level `player_id`,
+  so current producers cannot accidentally inherit a compatibility default.
   WebSocket `decision_ack` payloads, schema, and examples now expose the same primary identity
   fields. `inbound.decision_ack.public_identity.json` remains compatibility evidence for
   the public top-level ACK shape, while current ACK producers use the primary-only public

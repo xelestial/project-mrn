@@ -11,6 +11,21 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Public Player Wire Helper Explicit Policy
+
+- `public_primary_player_wire_payload()` now requires every caller to pass
+  `omit_player_id_for_public` explicitly instead of inheriting a public
+  top-level `player_id` compatibility default.
+- Current runtime prompt, paired `decision_requested`, and ACK producers pass
+  `True`, so public/protocol wire payloads remain primary-only at those
+  boundaries.
+- Compatibility tests pass `False` where public top-level `player_id` remains
+  intentional contract evidence.
+
+Responsibility result: the helper no longer owns a silent compatibility policy.
+Each producer boundary must state whether it is publishing current primary-only
+identity or preserving a compatibility shape.
+
 ## 2026-05-15 HTTP Decision Policy Primary-Only Request
 
 - `buildHttpDecisionPolicyRequest()` no longer emits top-level `player_id` or
@@ -93,9 +108,9 @@ PromptService numeric routing, and legacy-only ACK compatibility did not move.
 - Runtime prompt publishing now calls `public_primary_player_wire_payload()` with
   `omit_player_id_for_public=True` for WebSocket `prompt` messages and paired
   `decision_requested` events when public identity companions are present.
-- The helper default still emits public top-level `player_id`; prompt and ACK
-  producers opt into primary-only publishing deliberately at their own
-  boundaries.
+- The helper now requires every caller to state the public `player_id` omit
+  policy explicitly, so prompt and ACK producers opt into primary-only
+  publishing deliberately at their own boundaries.
 - Added stream read-outbox coverage proving a primary-only prompt still routes to
   the authorized public/seat/viewer identity and remains hidden from other seats
   and spectators.
