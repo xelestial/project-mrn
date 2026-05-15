@@ -11,6 +11,21 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Stream View-State Actor Bridge Review
+
+- `streamSelectors.ts` now resolves view-state turn-stage actors, scene
+  situation actors, theater/core feed actors, and `mark_target` candidates from
+  explicit `*_legacy_player_id` or `*_seat_index` companions before falling
+  back to raw `*_player_id` aliases.
+- Added selector coverage where the raw view-state actor and mark-target
+  `player_id` fields are public/protocol strings while explicit legacy/public
+  companions carry the temporary display bridge.
+
+Responsibility result: actor and mark-target display labels are now owned by
+the selector companion adapter instead of requiring raw view-state `player_id`
+aliases to stay numeric. Runtime and engine numeric actor ownership did not
+move.
+
 ## 2026-05-15 Runtime Prompt Public Primary Publish Boundary
 
 - `public_primary_player_wire_payload()` now owns the shared public-primary

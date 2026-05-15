@@ -624,6 +624,24 @@ function boardLastMovePlayerIdFromPayload(payload: Record<string, unknown>): num
   return firstNumberFromPayloadFields(payload, ["legacy_player_id", "seat_index", "player_id"]);
 }
 
+function actorPlayerIdFromPayload(payload: Record<string, unknown>): number | null {
+  return firstNumberFromPayloadFields(payload, [
+    "actor_legacy_player_id",
+    "acting_legacy_player_id",
+    "legacy_player_id",
+    "actor_seat_index",
+    "acting_seat_index",
+    "seat_index",
+    "actor_player_id",
+    "acting_player_id",
+    "player_id",
+  ]);
+}
+
+function legacyPlayerIdFromPayload(payload: Record<string, unknown>): number | null {
+  return firstNumberFromPayloadFields(payload, ["legacy_player_id", "seat_index", "player_id"]);
+}
+
 function playerLabelFromPayloadFields(
   payload: Record<string, unknown>,
   text: StreamSelectorTextResources,
@@ -3049,7 +3067,7 @@ function selectBackendMarkTargetCharacterSlots(messages: InboundMessage[]): Mark
       }
       return {
         slot,
-        playerId: typeof item["player_id"] === "number" ? item["player_id"] : null,
+        playerId: legacyPlayerIdFromPayload(item),
         label: typeof item["label"] === "string" ? item["label"] : null,
         character: item["character"],
       };
@@ -3080,7 +3098,7 @@ function selectBackendScene(messages: InboundMessage[]): BackendSceneProjection 
   return {
     situation: situation
       ? {
-          actorPlayerId: typeof situation["actor_player_id"] === "number" ? situation["actor_player_id"] : null,
+          actorPlayerId: actorPlayerIdFromPayload(situation),
           roundIndex: typeof situation["round_index"] === "number" ? situation["round_index"] : null,
           turnIndex: typeof situation["turn_index"] === "number" ? situation["turn_index"] : null,
           headlineSeq: typeof situation["headline_seq"] === "number" ? situation["headline_seq"] : null,
@@ -3111,7 +3129,7 @@ function selectBackendScene(messages: InboundMessage[]): BackendSceneProjection 
           eventCode: item["event_code"],
           tone: tone === "move" || tone === "economy" || tone === "system" || tone === "critical" ? tone : "system",
           lane: lane === "core" || lane === "prompt" || lane === "system" ? lane : "system",
-          actorPlayerId: typeof item["actor_player_id"] === "number" ? item["actor_player_id"] : null,
+          actorPlayerId: actorPlayerIdFromPayload(item),
           roundIndex: typeof item["round_index"] === "number" ? item["round_index"] : null,
           turnIndex: typeof item["turn_index"] === "number" ? item["turn_index"] : null,
         } satisfies BackendSceneTheaterItemProjection;
@@ -3125,7 +3143,7 @@ function selectBackendScene(messages: InboundMessage[]): BackendSceneProjection 
         return {
           seq: item["seq"],
           eventCode: item["event_code"],
-          actorPlayerId: typeof item["actor_player_id"] === "number" ? item["actor_player_id"] : null,
+          actorPlayerId: actorPlayerIdFromPayload(item),
           roundIndex: typeof item["round_index"] === "number" ? item["round_index"] : null,
           turnIndex: typeof item["turn_index"] === "number" ? item["turn_index"] : null,
           detail: typeof item["detail"] === "string" && item["detail"].trim() ? item["detail"].trim() : "-",
@@ -3349,7 +3367,7 @@ function selectBackendTurnStage(messages: InboundMessage[]): BackendTurnStagePro
   const currentBeatKind = turnStage["current_beat_kind"];
   return {
     turnStartSeq: typeof turnStage["turn_start_seq"] === "number" ? turnStage["turn_start_seq"] : null,
-    actorPlayerId: typeof turnStage["actor_player_id"] === "number" ? turnStage["actor_player_id"] : null,
+    actorPlayerId: actorPlayerIdFromPayload(turnStage),
     round: typeof turnStage["round_index"] === "number" ? turnStage["round_index"] : null,
     turn: typeof turnStage["turn_index"] === "number" ? turnStage["turn_index"] : null,
     character: typeof turnStage["character"] === "string" && turnStage["character"].trim() ? turnStage["character"] : "-",

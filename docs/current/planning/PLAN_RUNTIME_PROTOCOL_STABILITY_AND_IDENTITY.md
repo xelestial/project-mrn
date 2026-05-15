@@ -1045,8 +1045,10 @@ Acceptance evidence status, 2026-05-15:
   those prefixed legacy/seat companions before raw related-player aliases, so public/protocol participant
   strings do not drop player highlighting or `mine-critical` relevance. It also verifies board marker
   owner, tile owner, pawn-list, and last-move display consume explicit legacy companions when raw board
-  fields carry public/protocol strings. This closes display-only consumer hazards without migrating
-  engine-bridge selectors away from numeric display ids.
+  fields carry public/protocol strings. It also verifies view-state turn-stage actors, scene situation
+  actors, theater/core feed actors, and `mark_target` candidate slots consume explicit legacy/seat
+  companions when raw actor/player ids carry public/protocol strings. This closes the known display-only
+  stream selector hazards without migrating engine-owned numeric actor state itself.
 - `apps/server/tests/test_view_state_prompt_selector.py::ViewStatePromptSelectorTests::test_build_prompt_view_state_preserves_companion_only_batch_continuation`
   verifies that server active prompt view-state projection preserves complete public-player, seat, and
   viewer continuation companion maps without inventing numeric `missing_player_ids`,

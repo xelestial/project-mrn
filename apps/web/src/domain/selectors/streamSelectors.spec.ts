@@ -491,6 +491,47 @@ describe("streamSelectors authoritative ViewCommit contract", () => {
     });
   });
 
+  it("uses actor and mark-target companions when ViewCommit player ids are public strings", () => {
+    const viewState = JSON.parse(JSON.stringify(authoritativeViewState)) as Record<string, unknown>;
+    const turnStage = viewState["turn_stage"] as Record<string, unknown>;
+    turnStage["actor_player_id"] = "player_public_2";
+    turnStage["actor_legacy_player_id"] = 2;
+    turnStage["actor_public_player_id"] = "player_public_2";
+    turnStage["actor_seat_id"] = "seat_2";
+    const scene = viewState["scene"] as Record<string, unknown>;
+    const situation = scene["situation"] as Record<string, unknown>;
+    situation["actor_player_id"] = "player_public_2";
+    situation["actor_legacy_player_id"] = 2;
+    situation["actor_public_player_id"] = "player_public_2";
+    situation["actor_seat_id"] = "seat_2";
+    const theaterFeed = scene["theater_feed"] as Array<Record<string, unknown>>;
+    theaterFeed[0]["actor_player_id"] = "player_public_2";
+    theaterFeed[0]["actor_legacy_player_id"] = 2;
+    theaterFeed[0]["actor_public_player_id"] = "player_public_2";
+    theaterFeed[0]["actor_seat_id"] = "seat_2";
+    const coreActionFeed = scene["core_action_feed"] as Array<Record<string, unknown>>;
+    coreActionFeed[0]["actor_player_id"] = "player_public_2";
+    coreActionFeed[0]["actor_legacy_player_id"] = 2;
+    coreActionFeed[0]["actor_public_player_id"] = "player_public_2";
+    coreActionFeed[0]["actor_seat_id"] = "seat_2";
+    const markTarget = viewState["mark_target"] as { candidates: Array<Record<string, unknown>> };
+    markTarget.candidates[0]["player_id"] = "player_public_1";
+    markTarget.candidates[0]["legacy_player_id"] = 1;
+    markTarget.candidates[0]["public_player_id"] = "player_public_1";
+    markTarget.candidates[0]["seat_id"] = "seat_1";
+
+    const messages = [viewCommit(8, viewState)];
+
+    expect(selectTurnStage(messages)).toMatchObject({ actorPlayerId: 2, actor: "P2" });
+    expect(selectCurrentActorPlayerId(messages)).toBe(2);
+    expect(selectSituation(messages)).toMatchObject({ actor: "P2" });
+    expect(selectTheaterFeed(messages)[0]).toMatchObject({ actor: "P2" });
+    expect(selectCoreActionFeed(messages, 2)[0]).toMatchObject({ actor: "P2", isLocalActor: true });
+    expect(selectMarkTargetCharacterSlots(messages, "산적")).toEqual([
+      { slot: 3, playerId: 1, label: "P1", character: "박수" },
+    ]);
+  });
+
   it("uses ViewCommit player surfaces for derived players, slots, and mark targets", () => {
     const messages = [viewCommit(7, authoritativeViewState), contradictoryRawEvent()];
 
