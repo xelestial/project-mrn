@@ -90,7 +90,10 @@ export function localViewerIdentityFromViewCommitViewer(
   const publicPlayerId = normalizeIdentityString(viewer.public_player_id);
   const seatId = normalizeIdentityString(viewer.seat_id);
   const viewerId = normalizeIdentityString(viewer.viewer_id);
-  const protocolPlayerId = normalizeProtocolPlayerId(viewer.player_id) ?? publicPlayerId;
+  const protocolPlayerId =
+    typeof viewer.player_id === "number"
+      ? publicPlayerId
+      : normalizeProtocolPlayerId(viewer.player_id) ?? publicPlayerId;
   const legacyPlayerId =
     normalizeLegacyPlayerId(viewer.legacy_player_id) ??
     (typeof viewer.player_id === "number" ? normalizeLegacyPlayerId(viewer.player_id) : null);

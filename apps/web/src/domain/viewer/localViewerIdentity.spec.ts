@@ -40,6 +40,27 @@ describe("localViewerIdentity", () => {
     expect(resolveLocalViewerLegacyPlayerId(identity, localViewerIdentityFromSessionToken("session_p1_fallback"))).toBe(2);
   });
 
+  it("treats numeric view-commit player_id as a legacy alias when public companions exist", () => {
+    expect(
+      localViewerIdentityFromViewCommitViewer({
+        role: "seat",
+        player_id: 2,
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
+        seat: 2,
+      })
+    ).toEqual({
+      legacyPlayerId: 2,
+      protocolPlayerId: "player_public_2",
+      publicPlayerId: "player_public_2",
+      seatId: "seat_public_2",
+      viewerId: "viewer_public_2",
+      source: "view-commit-viewer",
+    });
+  });
+
   it("uses numeric-only join responses as explicit legacy ownership input", () => {
     expect(
       localViewerIdentityFromJoinResult({

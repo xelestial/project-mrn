@@ -1157,6 +1157,22 @@ make the legacy bridge explicit instead of requiring consumers to infer it from
 the alias value. Numeric aliases intentionally remain during the compatibility
 window.
 
+## 2026-05-15 Local Viewer Identity Normalization Repair
+
+- Added `localViewerIdentity.spec.ts` coverage for `view_commit.viewer` payloads
+  that still carry numeric `player_id` while also carrying public player, seat,
+  and viewer companions.
+- `localViewerIdentityFromViewCommitViewer()` now treats numeric
+  `viewer.player_id` as the legacy bridge when public companions are present,
+  matching join-result normalization.
+- `legacyPlayerId` remains available for existing display and engine-bridge
+  selectors.
+
+Responsibility result: local viewer identity construction now owns the
+public-vs-legacy split consistently for both join results and authoritative
+view commits. UI selectors, prompt submission, and server payload contracts did
+not move.
+
 ## 2026-05-15 Headless Trace Primary Identity Repair
 
 - Added `HeadlessGameClient.spec.ts` coverage for compact view-commit traces

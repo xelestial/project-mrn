@@ -983,6 +983,10 @@ Acceptance evidence status, 2026-05-15:
   protocol `player_id`, submits explicit public/protocol primary identity instead of a numeric active-prompt
   alias, and builds duplicate-flight keys from explicit prompt primary or public identity without requiring a
   numeric legacy bridge; numeric-only prompt decisions remain supported as the legacy fallback.
+- `apps/web/src/domain/viewer/localViewerIdentity.spec.ts` verifies that `LocalViewerIdentity` treats
+  numeric `view_commit.viewer.player_id` as the legacy bridge when public player, seat, and viewer
+  companions are present, matching join-result normalization while preserving token-derived numeric ids as
+  legacy-only fallback.
 - `apps/web/src/domain/selectors/promptSelectors.spec.ts` verifies that prompt selection projects public
   prompt identity into `PromptViewModel.identity.primaryPlayerId` and top-level
   `PromptViewModel.primaryPlayerId`, can build an actionable prompt view model before the UI can
