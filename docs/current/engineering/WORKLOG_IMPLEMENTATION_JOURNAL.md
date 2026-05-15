@@ -1324,6 +1324,21 @@ Responsibility result: runtime-contract examples now document the preferred
 public identity boundary without moving or deleting runtime compatibility
 logic. Numeric alias interpretation remains in the current adapters and schemas.
 
+## 2026-05-15 Visibility Projection Public Identity Bridge
+
+- Added visibility projection coverage for public string top-level `player_id`
+  on private `prompt` and `decision_ack` messages.
+- `project_stream_message_for_viewer()` and active-prompt redaction now target
+  private delivery by numeric `player_id` first, then explicit
+  `legacy_player_id` when the protocol identity has already become public.
+- Spectators and non-target seats still receive no private prompt or ACK
+  payload.
+
+Responsibility result: visibility projection can survive public-primary prompt
+and ACK payloads without becoming a public identity resolver. It still uses the
+numeric viewer bridge for authorization until viewer routing migrates to
+public/seat/viewer identity.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

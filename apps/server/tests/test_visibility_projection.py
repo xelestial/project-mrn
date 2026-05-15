@@ -78,6 +78,58 @@ class VisibilityProjectionTests(unittest.TestCase):
         self.assertIsNone(other)
         self.assertIsNone(spectator)
 
+    def test_public_identity_decision_ack_uses_legacy_bridge_for_target_delivery(self) -> None:
+        ack = {
+            "type": "decision_ack",
+            "payload": {
+                "request_id": "req_public_ack",
+                "status": "accepted",
+                "player_id": "ply_public_1",
+                "primary_player_id": "ply_public_1",
+                "primary_player_id_source": "public",
+                "legacy_player_id": 1,
+                "public_player_id": "ply_public_1",
+                "seat_id": "seat_public_1",
+                "viewer_id": "view_public_1",
+            },
+        }
+
+        target = project_stream_message_for_viewer(ack, ViewerContext(role="seat", player_id=1))
+        other = project_stream_message_for_viewer(ack, ViewerContext(role="seat", player_id=2))
+        spectator = project_stream_message_for_viewer(ack, ViewerContext(role="spectator"))
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target["payload"]["request_id"], "req_public_ack")
+        self.assertIsNone(other)
+        self.assertIsNone(spectator)
+
+    def test_public_identity_prompt_uses_legacy_bridge_for_target_delivery(self) -> None:
+        prompt = {
+            "type": "prompt",
+            "payload": {
+                "request_id": "req_public_prompt",
+                "request_type": "movement",
+                "player_id": "ply_public_1",
+                "primary_player_id": "ply_public_1",
+                "primary_player_id_source": "public",
+                "legacy_player_id": 1,
+                "public_player_id": "ply_public_1",
+                "seat_id": "seat_public_1",
+                "viewer_id": "view_public_1",
+                "legal_choices": [{"choice_id": "roll"}],
+                "public_context": {},
+            },
+        }
+
+        target = project_stream_message_for_viewer(prompt, ViewerContext(role="seat", player_id=1))
+        other = project_stream_message_for_viewer(prompt, ViewerContext(role="seat", player_id=2))
+        spectator = project_stream_message_for_viewer(prompt, ViewerContext(role="spectator"))
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target["payload"]["request_id"], "req_public_prompt")
+        self.assertIsNone(other)
+        self.assertIsNone(spectator)
+
     def test_private_decision_event_is_only_delivered_to_target_player(self) -> None:
         event = {
             "type": "event",

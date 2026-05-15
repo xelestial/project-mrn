@@ -95,7 +95,7 @@ def project_stream_message_for_viewer(message: dict[str, Any], viewer: ViewerCon
         return None
 
     message_type = str(cloned.get("type", "")).strip().lower()
-    target_player_id = _optional_int(payload.get("player_id"))
+    target_player_id = _target_player_id(payload)
     viewer_is_target = viewer.is_seat and target_player_id == viewer.player_id
 
     if message_type in {"prompt", "decision_ack"}:
@@ -135,7 +135,7 @@ def _redact_view_state(view_state: dict[str, Any], viewer: ViewerContext) -> Non
     prompt = view_state.get("prompt")
     if isinstance(prompt, dict):
         active = prompt.get("active")
-        prompt_player_id = _optional_int(active.get("player_id")) if isinstance(active, dict) else None
+        prompt_player_id = _target_player_id(active) if isinstance(active, dict) else None
         if not (viewer.is_seat and prompt_player_id == viewer.player_id):
             view_state.pop("prompt", None)
     view_state.pop("hand_tray", None)
@@ -187,6 +187,13 @@ def _event_type(payload: dict[str, Any]) -> str:
 def _request_type(payload: dict[str, Any]) -> str:
     value = payload.get("request_type")
     return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _target_player_id(payload: dict[str, Any]) -> int | None:
+    direct_player_id = _optional_int(payload.get("player_id"))
+    if direct_player_id is not None:
+        return direct_player_id
+    return _optional_int(payload.get("legacy_player_id"))
 
 
 def _optional_int(value: Any) -> int | None:
