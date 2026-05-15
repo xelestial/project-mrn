@@ -590,6 +590,55 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(command_payload["decision"]["primary_player_id_source"], "public")
         self.assertEqual(command_payload["decision"]["player_id_alias_role"], "legacy_compatibility_alias")
 
+    def test_decision_command_materializes_selected_choice_payload_from_prompt_value(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_target_choice_identity",
+                "request_type": "doctrine_relief",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [
+                    {
+                        "choice_id": "target_2",
+                        "label": "Target P2",
+                        "value": {
+                            "target_player_id": 2,
+                            "target_legacy_player_id": 2,
+                            "target_public_player_id": "ply_2",
+                            "target_seat_id": "seat_2",
+                            "target_viewer_id": "view_2",
+                            "burden_count": 1,
+                        },
+                    }
+                ],
+            },
+        )
+
+        result = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "r_target_choice_identity",
+                "player_id": 1,
+                "choice_id": "target_2",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        command_payload = command_store.commands[0]["payload"]
+        expected_choice_payload = {
+            "target_player_id": 2,
+            "target_legacy_player_id": 2,
+            "target_public_player_id": "ply_2",
+            "target_seat_id": "seat_2",
+            "target_viewer_id": "view_2",
+            "burden_count": 1,
+        }
+        self.assertEqual(command_payload["choice_payload"], expected_choice_payload)
+        self.assertEqual(command_payload["decision"]["choice_payload"], expected_choice_payload)
+
     def test_create_prompt_repairs_malformed_public_primary_identity(self) -> None:
         command_store = CapturingCommandStore()
         service = PromptService(command_store=command_store)

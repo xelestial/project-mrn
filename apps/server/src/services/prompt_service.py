@@ -305,7 +305,10 @@ class PromptService:
                 provider = str(payload.get("provider") or pending.payload.get("provider") or "human").strip().lower()
                 if provider not in {"human", "ai"}:
                     provider = "human"
+                selected_choice_payload = _selected_legal_choice_payload(pending.payload, choice_id)
                 decision_payload = dict(payload)
+                if "choice_payload" not in decision_payload and selected_choice_payload:
+                    decision_payload["choice_payload"] = selected_choice_payload
                 decision_payload["provider"] = provider
                 _copy_prompt_protocol_identity(pending.payload, decision_payload)
                 _copy_prompt_player_identity(pending.payload, decision_payload)
@@ -330,6 +333,8 @@ class PromptService:
                     "decision": decision_payload,
                     "submitted_at_ms": now,
                 }
+                if isinstance(decision_payload.get("choice_payload"), dict):
+                    command_payload["choice_payload"] = dict(decision_payload["choice_payload"])
                 _copy_prompt_protocol_identity(decision_payload, command_payload)
                 _copy_prompt_player_identity(decision_payload, command_payload)
                 command_payload.update(_module_command_continuation_fields(pending.payload, decision_payload))
@@ -1429,6 +1434,20 @@ def _module_command_continuation_fields(prompt: dict, decision: dict) -> dict:
         if isinstance(value, (list, dict)):
             fields[field] = value
     return fields
+
+
+def _selected_legal_choice_payload(prompt: dict, choice_id: str) -> dict:
+    normalized_choice_id = str(choice_id or "").strip()
+    if not normalized_choice_id:
+        return {}
+    for choice in prompt.get("legal_choices", []):
+        if not isinstance(choice, dict):
+            continue
+        if str(choice.get("choice_id") or "").strip() != normalized_choice_id:
+            continue
+        value = choice.get("value")
+        return dict(value) if isinstance(value, dict) else {}
+    return {}
 
 
 def _ensure_prompt_protocol_identity(prompt: dict, *, request_id: str) -> None:

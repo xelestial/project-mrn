@@ -11,6 +11,20 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Prompt Choice Payload Command Materialization
+
+- `PromptService.submit_decision()` now materializes the selected pending legal
+  choice `value` into accepted decision command `choice_payload` when the
+  submitted decision only carries `choice_id`.
+- Target-choice companions produced at the runtime prompt boundary therefore
+  continue into the command payload and nested decision payload without
+  requiring a client echo.
+
+Responsibility result: selected raw choice value propagation moved into the
+prompt command materialization boundary. Existing submitted `choice_payload`
+compatibility, `choice_id` validation, engine decision parsing, and numeric
+target bridge fields did not move.
+
 ## 2026-05-15 Runtime Target Choice Identity Materialization
 
 - `RuntimeService._materialize_prompt_boundary_sync()` now enriches legal
