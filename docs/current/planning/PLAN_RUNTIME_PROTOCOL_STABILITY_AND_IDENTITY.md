@@ -1094,7 +1094,10 @@ Acceptance evidence status, 2026-05-15:
   `primary_player_id` plus source, apply the same malformed numeric public/protocol primary repair, and
   keep numeric `player_id` as the legacy display/grouping alias for reward and rank calculations.
   Full-stack harness pace, repetition, and command-latency diagnostics apply the same primary repair
-  while keeping numeric `player_id` as the legacy display alias. `HeadlessGameClient.spec.ts` also verifies that headless active prompt
+  while keeping numeric `player_id` as the legacy display alias. `promptSelectors.spec.ts` verifies
+  that active prompt parsing rejects malformed numeric explicit primary ids when the declared source
+  is `public` or `protocol`, falling back to public/protocol companions before building the prompt
+  view model. `HeadlessGameClient.spec.ts` also verifies that headless active prompt
   routing answers public-only prompts without a numeric `legacy_player_id` bridge, keeps legacy-only
   prompts routable during mixed migration commits, and treats `view_commit.viewer.public_player_id` as
   the protocol target when `viewer.player_id` is still a numeric compatibility alias.

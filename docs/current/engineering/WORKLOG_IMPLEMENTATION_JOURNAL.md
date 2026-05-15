@@ -1187,6 +1187,21 @@ Responsibility result: headless prompt routing now owns viewer target
 normalization before calling the shared prompt identity matcher. Server payloads,
 HTTP policy serialization, and numeric engine bridges did not move.
 
+## 2026-05-15 Prompt Selector Primary Identity Repair
+
+- Added `promptSelectors.spec.ts` coverage for malformed active-prompt payloads
+  that declare `primary_player_id_source: "public"` while sending numeric
+  `primary_player_id`.
+- `promptIdentityFromActivePromptPayload()` now accepts numeric explicit primary
+  ids only for `legacy` source and string explicit primary ids only for
+  `public` or `protocol` source.
+- Valid public companions still repair malformed public/protocol primary fields;
+  numeric `legacyPlayerId` remains the UI/engine bridge.
+
+Responsibility result: prompt selector parsing now owns primary identity
+source/type validation before prompt models reach UI or headless decision code.
+Server materialization and numeric engine bridges did not move.
+
 ## 2026-05-15 Headless Trace Primary Identity Repair
 
 - Added `HeadlessGameClient.spec.ts` coverage for compact view-commit traces

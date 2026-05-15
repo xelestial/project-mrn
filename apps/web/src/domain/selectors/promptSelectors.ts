@@ -453,9 +453,13 @@ export function promptIdentityFromActivePromptPayload(
   const publicPlayerId = stringOrEmpty(active["public_player_id"]) || null;
   const seatId = stringOrEmpty(active["seat_id"]) || null;
   const viewerId = stringOrEmpty(active["viewer_id"]) || null;
-  const explicitPrimaryPlayerId = protocolPlayerIdOrNull(
-    active["primary_player_id"],
+  const explicitPrimaryPlayerIdSource = promptIdentitySourceOrNull(
+    active["primary_player_id_source"],
   );
+  const explicitPrimaryPlayerId =
+    explicitPrimaryPlayerIdSource !== null
+      ? explicitPrimaryPlayerIdOrNull(active["primary_player_id"], explicitPrimaryPlayerIdSource)
+      : protocolPlayerIdOrNull(active["primary_player_id"]);
   const primaryPlayerId =
     explicitPrimaryPlayerId ??
     publicPlayerId ??
@@ -464,9 +468,6 @@ export function promptIdentityFromActivePromptPayload(
   if (primaryPlayerId === null) {
     return null;
   }
-  const explicitPrimaryPlayerIdSource = promptIdentitySourceOrNull(
-    active["primary_player_id_source"],
-  );
   const primaryPlayerIdSource: PromptIdentitySource =
     explicitPrimaryPlayerId !== null && explicitPrimaryPlayerIdSource !== null
       ? explicitPrimaryPlayerIdSource
@@ -484,6 +485,19 @@ export function promptIdentityFromActivePromptPayload(
     seatId,
     viewerId,
   };
+}
+
+function explicitPrimaryPlayerIdOrNull(
+  value: unknown,
+  source: PromptIdentitySource,
+): ProtocolPlayerId | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return source === "legacy" ? Math.floor(value) : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return source === "legacy" ? null : value.trim();
+  }
+  return null;
 }
 
 export function promptPrimaryTargetId(
