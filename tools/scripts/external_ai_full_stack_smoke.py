@@ -187,11 +187,11 @@ def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_sea
     public_context = pending.get("public_context")
     required_capabilities = pending.get("required_capabilities")
     request_type = str(pending.get("request_type") or "").strip()
+    primary_player_id, primary_player_id_source = _primary_player_identity(pending)
     request = {
         "request_id": str(pending.get("request_id") or "").strip(),
         "session_id": str(pending.get("session_id") or "").strip(),
         "seat": int(pending.get("seat") or fallback_seat),
-        "player_id": _protocol_player_id(pending),
         "decision_name": str(pending.get("decision_name") or request_type or "external_ai_decision").strip(),
         "request_type": request_type,
         "fallback_policy": str(pending.get("fallback_policy") or "ai").strip(),
@@ -201,6 +201,8 @@ def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_sea
         "worker_contract_version": str(pending.get("worker_contract_version") or "v1").strip(),
         "required_capabilities": list(required_capabilities) if isinstance(required_capabilities, list) else [],
     }
+    if primary_player_id_source == "legacy":
+        request["player_id"] = primary_player_id
     _add_player_identity_metadata(request, pending)
     _copy_identity_companions(request, pending)
     return request
