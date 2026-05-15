@@ -1400,6 +1400,20 @@ Responsibility result: sequence examples now document the runtime fanout
 identity companion contract. Runtime fanout enrichment ownership and engine
 numeric actor routing remain unchanged.
 
+## 2026-05-15 View-State Event Actor Identity Companions
+
+- Added the two with-view-state event examples to the frozen WebSocket event
+  schema/example coverage.
+- Added a focused example test requiring top-level `acting_player_id` events to
+  carry actor-prefixed legacy/public/seat/viewer companions.
+- Updated `inbound.event.turn_start.with_view_state.json` and
+  `inbound.event.player_move.with_view_state.json` with those top-level actor
+  companions while leaving nested `view_state` display ids unchanged.
+
+Responsibility result: with-view-state event examples now document runtime
+fanout actor identity enrichment at the event boundary. Nested view-state
+selector/display migration remains intentionally out of scope.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

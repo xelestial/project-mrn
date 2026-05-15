@@ -955,6 +955,10 @@ Acceptance evidence status, 2026-05-15:
   fanout `player_id` events to carry explicit legacy/public/seat/viewer companions and
   `acting_player_id` domain events to carry actor-prefixed companions, so sequence
   examples match runtime fanout enrichment instead of showing bare numeric aliases.
+  The frozen `turn_start` and `player_move` event examples with embedded `view_state`
+  now also require top-level `acting_player_id` actor companions; nested view-state
+  display ids remain a separate selector/display boundary rather than this protocol
+  event identity boundary.
   External-AI request examples now exercise the public-primary path directly:
   top-level `player_id` and `primary_player_id` are public string identities,
   while `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id`

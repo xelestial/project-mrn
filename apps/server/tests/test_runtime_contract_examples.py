@@ -102,6 +102,8 @@ class RuntimeContractExampleTests(unittest.TestCase):
         pairs = [
             ("inbound.event.schema.json", "inbound.event.parameter_manifest.json"),
             ("inbound.event.schema.json", "inbound.event.decision_requested.external_ai.json"),
+            ("inbound.event.schema.json", "inbound.event.turn_start.with_view_state.json"),
+            ("inbound.event.schema.json", "inbound.event.player_move.with_view_state.json"),
             ("inbound.prompt.schema.json", "inbound.prompt.movement.json"),
             ("inbound.decision_ack.schema.json", "inbound.decision_ack.accepted.json"),
             ("inbound.decision_ack.schema.json", "inbound.decision_ack.rejected.with_view_state.json"),
@@ -585,6 +587,28 @@ class RuntimeContractExampleTests(unittest.TestCase):
             assert event_types == expected_order, (
                 f"{filename}: expected event order {expected_order!r}, got {event_types!r}"
             )
+
+    def test_ws_view_state_event_examples_carry_actor_identity_companions(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        event_schema = _load_json(root / "schemas" / "inbound.event.schema.json")
+
+        for filename in (
+            "inbound.event.turn_start.with_view_state.json",
+            "inbound.event.player_move.with_view_state.json",
+        ):
+            message = _load_json(root / "examples" / filename)
+            _validate_subset(message, event_schema, path=f"$<{filename}>")
+            payload = message.get("payload")
+            assert isinstance(payload, dict), f"{filename}.payload: expected object"
+            acting_player_id = payload.get("acting_player_id")
+            assert isinstance(acting_player_id, int), f"{filename}.payload.acting_player_id: expected integer"
+            assert payload.get("acting_legacy_player_id") == acting_player_id, (
+                f"{filename}.payload: numeric acting_player_id must carry acting_legacy_player_id"
+            )
+            for field in ("acting_public_player_id", "acting_seat_id", "acting_viewer_id"):
+                assert isinstance(payload.get(field), str), (
+                    f"{filename}.payload.{field}: expected public string companion"
+                )
 
     def test_selector_scene_fixture_matches_shared_schema(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"

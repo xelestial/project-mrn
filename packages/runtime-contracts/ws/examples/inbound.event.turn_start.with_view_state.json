@@ -8,6 +8,16 @@
     "round_index": 3,
     "turn_index": 8,
     "acting_player_id": 2,
+    "acting_player_id_alias_role": "legacy_compatibility_alias",
+    "acting_primary_player_id": "ply_public_2",
+    "acting_primary_player_id_source": "public",
+    "acting_legacy_player_id": 2,
+    "acting_seat_index": 2,
+    "acting_turn_order_index": 2,
+    "acting_player_label": "P2",
+    "acting_public_player_id": "ply_public_2",
+    "acting_seat_id": "seat_public_2",
+    "acting_viewer_id": "viewer_public_2",
     "character": "교리 연구관",
     "view_state": {
       "scene": {
