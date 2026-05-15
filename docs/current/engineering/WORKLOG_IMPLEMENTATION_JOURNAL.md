@@ -11,6 +11,20 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Runtime Target Choice Identity Materialization
+
+- `RuntimeService._materialize_prompt_boundary_sync()` now enriches legal
+  choice `value.target_player_id` payloads with authoritative target
+  legacy/public/seat/viewer companions before writing the pending prompt.
+- The same enriched payload is then used by the runtime prompt publish boundary,
+  so WebSocket prompt consumers and external worker inputs can read target
+  public identity without inferring it from the numeric target bridge.
+
+Responsibility result: session-owned target identity materialization moved to
+the runtime prompt materialize boundary. Engine choice construction,
+`choice_id`, decision parsing, and numeric `target_player_id` compatibility did
+not move.
+
 ## 2026-05-15 Headless Trace Alias Role Boundary
 
 - `HeadlessTraceEvent` now labels top-level numeric trace `player_id` as

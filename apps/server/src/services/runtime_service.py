@@ -3171,6 +3171,45 @@ class RuntimeService:
                     result[output_key] = mapped
         return {key: value for key, value in result.items() if value not in ([], {})}
 
+    def _enrich_prompt_choice_target_identity_fields(self, session_id: str, payload: dict[str, Any]) -> None:
+        choices = payload.get("legal_choices")
+        if not isinstance(choices, list):
+            return
+        enriched_choices: list[Any] = []
+        changed = False
+        for choice in choices:
+            if not isinstance(choice, dict):
+                enriched_choices.append(choice)
+                continue
+            value = choice.get("value")
+            if not isinstance(value, dict):
+                enriched_choices.append(choice)
+                continue
+            target_player_id = self._int_or_none(value.get("target_player_id"))
+            if target_player_id is None:
+                enriched_choices.append(choice)
+                continue
+            identity_fields = self._view_commit_viewer_identity_fields(session_id, target_player_id)
+            enriched_value = dict(value)
+            enriched_value["target_legacy_player_id"] = target_player_id
+            for output_key, identity_key in (
+                ("target_public_player_id", "public_player_id"),
+                ("target_seat_id", "seat_id"),
+                ("target_viewer_id", "viewer_id"),
+            ):
+                identity_value = str(identity_fields.get(identity_key) or "").strip()
+                if identity_value:
+                    enriched_value[output_key] = identity_value
+            if enriched_value == value:
+                enriched_choices.append(choice)
+                continue
+            enriched_choice = dict(choice)
+            enriched_choice["value"] = enriched_value
+            enriched_choices.append(enriched_choice)
+            changed = True
+        if changed:
+            payload["legal_choices"] = enriched_choices
+
     def _build_authoritative_view_state(
         self,
         *,
@@ -3839,6 +3878,7 @@ class RuntimeService:
                 resume_tokens_by_player_id=payload.get("resume_tokens_by_player_id"),
             )
         )
+        self._enrich_prompt_choice_target_identity_fields(session_id, payload)
         try:
             pending_prompt = self._prompt_service.create_prompt(session_id=session_id, prompt=payload)
             payload = dict(pending_prompt.payload)

@@ -1061,6 +1061,11 @@ Acceptance evidence status, 2026-05-15:
   projection carries target legacy/public/seat/viewer companions next to the numeric target bridge for
   choice-target display. This keeps target readability at the projection boundary without changing the
   numeric engine command payload.
+- `apps/server/tests/test_runtime_service.py::RuntimeServiceTests::test_runtime_prompt_boundary_enriches_target_choice_identity_companions`
+  verifies that runtime prompt materialization adds target legacy/public/seat/viewer companions to legal
+  choice `value.target_player_id` payloads before pending prompt storage and prompt publication. This
+  moves session-owned target identity materialization to the runtime boundary while preserving numeric
+  `target_player_id`, `choice_id`, and decision parsing as the engine command bridge.
 - `apps/server/tests/test_external_ai_worker_api.py` verifies that the external AI reference worker can select
   `mark_target` by `preferred_target_public_player_id`, that `doctrine_relief` can select by target seat
   companion even when the choice id is not numeric, and that the priority-scored worker applies that target

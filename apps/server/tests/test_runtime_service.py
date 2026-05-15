@@ -9183,6 +9183,82 @@ class RuntimeServiceTests(unittest.TestCase):
             loop_thread.join(timeout=1.0)
             loop.close()
 
+    def test_runtime_prompt_boundary_enriches_target_choice_identity_companions(self) -> None:
+        loop = asyncio.new_event_loop()
+        loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+        loop_thread.start()
+        try:
+            session = self._create_started_two_player_session()
+            target_seat = session.seats[1]
+            prompt = self._module_prompt(
+                {
+                    "request_id": "runtime_boundary_target_req_1",
+                    "request_type": "doctrine_relief",
+                    "player_id": 1,
+                    "prompt_instance_id": 13,
+                    "timeout_ms": 30000,
+                    "legal_choices": [
+                        {
+                            "choice_id": "1",
+                            "label": "P2",
+                            "value": {"target_player_id": 2, "burden_count": 1},
+                        }
+                    ],
+                    "fallback_policy": "required",
+                    "public_context": {"round_index": 1, "turn_index": 4},
+                },
+                frame_id="turn:1:p0",
+                module_type="DoctrineReliefModule",
+                module_cursor="await_doctrine_relief",
+            )
+
+            payload = self.runtime_service._materialize_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                session.session_id,
+                prompt,
+                publish=False,
+            )
+
+            self.assertIsNotNone(payload)
+            pending_prompt = self.prompt_service.get_pending_prompt(
+                "runtime_boundary_target_req_1",
+                session_id=session.session_id,
+            )
+            self.assertIsNotNone(pending_prompt)
+            assert pending_prompt is not None
+            pending_value = pending_prompt.payload["legal_choices"][0]["value"]
+            self.assertEqual(pending_value["target_player_id"], 2)
+            self.assertEqual(pending_value["target_legacy_player_id"], 2)
+            self.assertEqual(pending_value["target_public_player_id"], target_seat.public_player_id)
+            self.assertEqual(pending_value["target_seat_id"], target_seat.seat_id)
+            self.assertEqual(pending_value["target_viewer_id"], target_seat.viewer_id)
+
+            self.runtime_service._publish_prompt_boundary_sync(  # type: ignore[attr-defined]
+                loop,
+                session.session_id,
+                payload,
+            )
+            messages = asyncio.run_coroutine_threadsafe(
+                self.stream_service.snapshot(session.session_id),
+                loop,
+            ).result(timeout=2.0)
+            prompt_messages = [msg for msg in messages if msg.type == "prompt"]
+            self.assertEqual(len(prompt_messages), 1)
+            published_value = prompt_messages[0].payload["legal_choices"][0]["value"]
+            self.assertEqual(published_value["target_player_id"], 2)
+            self.assertEqual(published_value["target_legacy_player_id"], 2)
+            self.assertEqual(published_value["target_public_player_id"], target_seat.public_player_id)
+            self.assertEqual(published_value["target_seat_id"], target_seat.seat_id)
+            self.assertEqual(published_value["target_viewer_id"], target_seat.viewer_id)
+            assert_no_public_identity_numeric_leaks(
+                prompt_messages[0].payload,
+                boundary="runtime_target_choice_prompt_message",
+            )
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            loop_thread.join(timeout=1.0)
+            loop.close()
+
     def test_decision_gateway_rejects_replayed_decision_when_prompt_shape_changes(self) -> None:
         from apps.server.src.services.decision_gateway import (
             DecisionGateway,
