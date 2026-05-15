@@ -117,6 +117,13 @@ def attach_active_module_continuation_to_envelope(
         request_type=request_type,
     ):
         continuation = existing_continuation
+        envelope["prompt_instance_id"] = int(getattr(continuation, "prompt_instance_id", 0) or 0)
+        envelope["legal_choices"] = [
+            dict(choice)
+            for choice in list(getattr(continuation, "legal_choices", []) or [])
+            if isinstance(choice, dict)
+        ]
+        envelope["public_context"] = dict(getattr(continuation, "public_context", {}) or {})
     else:
         continuation = PromptApi().create_continuation(
             request_id=request_id,

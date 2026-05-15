@@ -109,13 +109,13 @@ class CommandBoundaryFinalizer:
 
             if deferred_commit.get("view_commits"):
                 view_commit_count = 1
-            self._emit_latest_view_commit(loop, session_id)
-            mark_phase("view_commit_emit_ms")
 
             current_state = deferred_commit.get("current_state")
             if str(terminal_status or "") == "waiting_input" and isinstance(current_state, dict):
                 self._materialize_prompt_boundaries(loop, session_id, current_state)
             mark_phase("prompt_materialize_ms")
+            self._emit_latest_view_commit(loop, session_id)
+            mark_phase("view_commit_emit_ms")
 
         total_ms = _duration_ms(started)
         if deferred_commit is not None:

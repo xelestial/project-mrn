@@ -163,6 +163,19 @@ def _batch_response_choice_payload(response: dict[str, Any]) -> dict:
     return _normalize_decision_choice_payload(choice_payload)
 
 
+def _batch_response_engine_request_id(response: dict[str, Any]) -> str:
+    decision = response.get("decision")
+    sources = [response]
+    if isinstance(decision, dict):
+        sources.append(decision)
+    for source in sources:
+        for key in ("legacy_request_id", "submitted_request_id", "request_id"):
+            value = str(source.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
+
 def _batch_responses_by_public_player_id(
     explicit_public_responses: object,
     responses_by_player_id: dict[int, dict[str, Any]],
@@ -2068,7 +2081,7 @@ class RuntimeService:
             provider = "human"
         batch_id = str(primary.get("batch_id") or payload.get("batch_id") or "").strip()
         return RuntimeDecisionResume(
-            request_id=str(primary.get("request_id") or ""),
+            request_id=_batch_response_engine_request_id(primary),
             player_id=int(primary.get("player_id") or primary_player_id),
             request_type=str(primary.get("request_type") or ""),
             choice_id=str(primary.get("choice_id") or ""),
@@ -2134,7 +2147,7 @@ class RuntimeService:
             prompt_api.record_batch_response(
                 batch,
                 player_id=internal_player_id,
-                request_id=str(response.get("request_id") or ""),
+                request_id=_batch_response_engine_request_id(response),
                 resume_token=str(response.get("resume_token") or ""),
                 choice_id=str(response.get("choice_id") or ""),
                 response={"choice_payload": _batch_response_choice_payload(response)},
@@ -2434,6 +2447,7 @@ class RuntimeService:
                 raise
             prompt_boundary_payload = dict(exc.prompt)
             record_prompt_boundary_state(state, exc.prompt)
+            _sync_state_prompt_request_id(state, prompt_boundary_payload)
             step = {
                 "status": "waiting_input",
                 "reason": "prompt_required",
@@ -2470,6 +2484,7 @@ class RuntimeService:
         if not defer_runtime_status_persist:
             self._persist_runtime_state(session_id)
         _mark_phase("status_stage" if defer_runtime_status_persist else "status_persist")
+        active_module_prompt_batch_materialized = False
         if game_state_store is not None:
             payload = state.to_checkpoint_payload()
             validate_checkpoint_payload(payload)
@@ -2746,8 +2761,17 @@ class RuntimeService:
                     consumer_name=offset_consumer_name,
                     commit_seq=commit_seq,
                     source_event_seq=source_event_seq,
-                )
+            )
             _mark_phase("redis_commit")
+            if (
+                publish_external_side_effects
+                and step.get("status") == "waiting_input"
+                and not prompt_publish_payload
+                and runtime_active_prompt_batch
+            ):
+                self._publish_active_module_prompt_batch_sync(loop, session_id, state)
+                active_module_prompt_batch_materialized = True
+            _mark_phase("active_prompt_batch_publish")
             if publish_external_side_effects:
                 self._emit_latest_view_commit_sync(loop, session_id)
             _mark_phase("view_commit_emit")
@@ -2778,7 +2802,11 @@ class RuntimeService:
                 **continuation_debug_fields,
             )
             _mark_phase("debug_log")
-        if publish_external_side_effects and step.get("status") == "waiting_input":
+        if (
+            publish_external_side_effects
+            and step.get("status") == "waiting_input"
+            and not active_module_prompt_batch_materialized
+        ):
             self._publish_active_module_prompt_batch_sync(loop, session_id, state)
             _mark_phase("active_prompt_batch_publish")
         if game_state_store is not None:
@@ -3578,7 +3606,24 @@ class RuntimeService:
     ) -> dict:
         payload = dict(prompt)
         payload["player_id"] = player_id
-        payload.setdefault("request_id", checkpoint_payload.get("pending_prompt_request_id"))
+        pending_request_id = str(checkpoint_payload.get("pending_prompt_request_id") or "").strip()
+        pending_prompt_instance_id = self._int_or_none(checkpoint_payload.get("pending_prompt_instance_id"))
+        prompt_instance_id = self._int_or_none(payload.get("prompt_instance_id"))
+        original_request_id = str(payload.get("request_id") or "").strip()
+        if (
+            pending_request_id
+            and (
+                pending_prompt_instance_id is None
+                or prompt_instance_id is None
+                or pending_prompt_instance_id == prompt_instance_id
+            )
+        ):
+            if original_request_id and original_request_id != pending_request_id:
+                payload.setdefault("legacy_request_id", original_request_id)
+            payload["request_id"] = pending_request_id
+            payload.setdefault("public_request_id", pending_request_id)
+        else:
+            payload.setdefault("request_id", checkpoint_payload.get("pending_prompt_request_id"))
         payload.setdefault("request_type", checkpoint_payload.get("pending_prompt_type"))
         payload.setdefault("prompt_instance_id", checkpoint_payload.get("pending_prompt_instance_id"))
         payload.setdefault("timeout_ms", DEFAULT_HUMAN_PROMPT_TIMEOUT_MS)

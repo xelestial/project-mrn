@@ -13,6 +13,7 @@ import unittest
 import warnings
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -27,6 +28,8 @@ from apps.server.src.services.decision_gateway import (
     decision_request_type_for_method,
     serialize_ai_choice_id,
 )
+from apps.server.src.services.prompt_boundary_builder import PromptBoundaryBuilder
+from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprint, prompt_fingerprint_mismatch
 from apps.server.src.services.runtime_service import RuntimeDecisionResume, RuntimeService
 from apps.server.src.services.runtime_service import _LocalHumanDecisionClient
 from apps.server.src.services.command_boundary_store import CommandBoundaryGameStateStore
@@ -38,6 +41,7 @@ from apps.server.src.services.runtime_service import (
     _runtime_failure_diagnostics,
     _runtime_continuation_debug_fields,
     _runtime_module_debug_fields,
+    _sync_state_prompt_request_id,
     _snapshot_pulse_specs_from_source_messages,
     resolve_runtime_runner_kind,
     runtime_checkpoint_schema_version_for_runner,
@@ -237,6 +241,63 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(active["batch_id"], "batch:simul:resupply:1:13:mod:resupply:1")
         self.assertEqual(active["missing_player_ids"], [1, 2])
         self.assertEqual(active["resume_tokens_by_player_id"], {"1": "resume_p1", "2": "resume_p2"})
+
+    def test_single_prompt_view_prefers_canonical_pending_request_id(self) -> None:
+        legacy_request_id = "sess_test:prompt:frame:round%3A1:module:mod%3Around%3A1:cursor:draft%3Apick%3A1:p1:draft_card:2"
+        public_request_id = "req_public_prompt_2"
+        checkpoint_payload = {
+            "players": [{"player_id": 1}, {"player_id": 2}],
+            "pending_prompt_request_id": public_request_id,
+            "pending_prompt_type": "draft_card",
+            "pending_prompt_player_id": 2,
+            "pending_prompt_instance_id": 2,
+            "runtime_active_prompt": {
+                "request_id": legacy_request_id,
+                "request_type": "draft_card",
+                "player_id": 1,
+                "prompt_instance_id": 2,
+                "resume_token": "resume_p2",
+                "frame_id": "round:1",
+                "module_id": "mod:round:1:draft",
+                "module_type": "DraftModule",
+                "module_cursor": "draft:pick:1:p1",
+                "legal_choices": [{"choice_id": "card:2", "title": "Card 2"}],
+            },
+        }
+        active_module = {
+            "runner_kind": "module",
+            "frame_id": "round:1",
+            "frame_type": "round",
+            "module_id": "mod:round:1:draft",
+            "module_type": "DraftModule",
+            "module_cursor": "draft:pick:1:p1",
+        }
+
+        prompt_view = self.runtime_service._build_prompt_view_state_for_viewer(
+            checkpoint_payload=checkpoint_payload,
+            viewer={"role": "seat", "player_id": 2},
+            active_module=active_module,
+            commit_seq=88,
+        )
+
+        active = prompt_view["active"]
+        self.assertEqual(active["request_id"], public_request_id)
+        self.assertEqual(active["legacy_request_id"], legacy_request_id)
+
+    def test_sync_state_prompt_request_id_updates_matching_active_prompt(self) -> None:
+        state = SimpleNamespace(
+            pending_prompt_request_id="legacy_request",
+            runtime_active_prompt=SimpleNamespace(request_id="legacy_request", prompt_instance_id=7),
+            runtime_active_prompt_batch=None,
+        )
+
+        _sync_state_prompt_request_id(
+            state,
+            {"request_id": "req_public_7", "prompt_instance_id": 7},
+        )
+
+        self.assertEqual(state.pending_prompt_request_id, "req_public_7")
+        self.assertEqual(state.runtime_active_prompt.request_id, "req_public_7")
 
     @staticmethod
     def _module_prompt(
@@ -7351,6 +7412,96 @@ class RuntimeServiceTests(unittest.TestCase):
         self.assertEqual(batch.responses_by_player_id[0]["choice_payload"], {"accepted": True})
         self.assertEqual(batch.missing_player_ids, [1])
 
+    def test_public_batch_complete_resume_prefers_legacy_engine_request_id(self) -> None:
+        session = self._create_started_two_player_session()
+        seat_1 = session.seats[0]
+        seat_2 = session.seats[1]
+        frame = FrameState(
+            frame_id="frame:resupply",
+            frame_type="simultaneous",
+            owner_player_id=None,
+            parent_frame_id=None,
+        )
+        module = ModuleRef(
+            module_id="module:resupply",
+            module_type="ResupplyModule",
+            phase="round",
+            owner_player_id=None,
+            cursor="await_resupply_batch:1",
+        )
+        batch = PromptApi().create_batch(
+            batch_id="batch:simul:resupply:public",
+            frame=frame,
+            module=module,
+            participant_player_ids=[0, 1],
+            request_type="burden_exchange",
+            legal_choices_by_player_id={0: [{"choice_id": "yes"}], 1: [{"choice_id": "no"}]},
+        )
+        state = type("State", (), {"runtime_active_prompt_batch": batch})()
+
+        class _CommandStoreStub:
+            def list_commands(self, session_id: str) -> list[dict]:
+                return [
+                    {
+                        "seq": 7,
+                        "type": "batch_complete",
+                        "session_id": session_id,
+                        "payload": {
+                            "request_id": "batch_complete:batch:simul:resupply:public",
+                            "batch_id": "batch:simul:resupply:public",
+                            "expected_public_player_ids": [
+                                seat_1.public_player_id,
+                                seat_2.public_player_id,
+                            ],
+                            "responses_by_public_player_id": {
+                                seat_1.public_player_id: {
+                                    "public_player_id": seat_1.public_player_id,
+                                    "request_id": "req_public_batch_p1",
+                                    "legacy_request_id": batch.prompts_by_player_id[0].request_id,
+                                    "request_type": "burden_exchange",
+                                    "choice_id": "yes",
+                                    "choice_payload": {"accepted": True},
+                                    "resume_token": batch.prompts_by_player_id[0].resume_token,
+                                    "frame_id": "frame:resupply",
+                                    "module_id": "module:resupply",
+                                    "module_type": "ResupplyModule",
+                                    "module_cursor": "await_resupply_batch:1",
+                                },
+                                seat_2.public_player_id: {
+                                    "public_player_id": seat_2.public_player_id,
+                                    "request_id": "req_public_batch_p2",
+                                    "legacy_request_id": batch.prompts_by_player_id[1].request_id,
+                                    "request_type": "burden_exchange",
+                                    "choice_id": "no",
+                                    "choice_payload": {"accepted": False},
+                                    "resume_token": batch.prompts_by_player_id[1].resume_token,
+                                    "frame_id": "frame:resupply",
+                                    "module_id": "module:resupply",
+                                    "module_type": "ResupplyModule",
+                                    "module_cursor": "await_resupply_batch:1",
+                                },
+                            },
+                        },
+                    }
+                ]
+
+        runtime = RuntimeService(
+            session_service=self.session_service,
+            stream_service=self.stream_service,
+            prompt_service=self.prompt_service,
+            command_store=_CommandStoreStub(),
+        )
+
+        resume = runtime._decision_resume_from_command(session.session_id, 7)
+
+        self.assertIsNotNone(resume)
+        assert resume is not None
+        self.assertEqual(resume.request_id, batch.prompts_by_player_id[1].request_id)
+        runtime._validate_decision_resume_against_checkpoint(state, resume)
+        runtime._apply_collected_batch_responses_to_state(state, resume)
+        self.assertEqual(batch.responses_by_player_id[0]["choice_payload"], {"accepted": True})
+        self.assertEqual(batch.missing_player_ids, [1])
+
     def test_collected_batch_responses_are_applied_before_primary_resume(self) -> None:
         frame = FrameState(
             frame_id="frame:resupply",
@@ -9316,6 +9467,93 @@ class RuntimeServiceTests(unittest.TestCase):
             loop.call_soon_threadsafe(loop.stop)
             loop_thread.join(timeout=1.0)
             loop.close()
+
+    def test_prompt_boundary_replay_uses_existing_continuation_contract(self) -> None:
+        frame_id = "seq:action:1:p3:130"
+        module_id = "mod:seq:action:1:p3:130:arrivaltile"
+        module_type = "ArrivalTileModule"
+        module_cursor = "await_action_prompt"
+        request_id = "req_replay_contract"
+        original_context = {
+            "round_index": 1,
+            "turn_index": 3,
+            "player_cash": 28,
+            "current_f_value": 9,
+        }
+        original_choices = [
+            {"choice_id": "yes", "label": "Pay 2", "value": {"burden_cost": 2}},
+            {"choice_id": "no", "label": "Keep burden", "value": {"burden_cost": 2}},
+        ]
+        continuation = SimpleNamespace(
+            request_id=request_id,
+            request_type="burden_exchange",
+            player_id=0,
+            prompt_instance_id=32,
+            legal_choices=original_choices,
+            public_context=original_context,
+            resume_token="resume_existing_prompt",
+            frame_id=frame_id,
+            module_id=module_id,
+            module_type=module_type,
+            module_cursor=module_cursor,
+        )
+        state = self._module_state(
+            rounds_completed=1,
+            turn_index=3,
+            frame_id=frame_id,
+            module_id=module_id,
+            module_type=module_type,
+            module_cursor=module_cursor,
+        )
+        state.runtime_active_prompt = continuation
+        active_call = SimpleNamespace(
+            invocation=SimpleNamespace(state=state),
+            request=SimpleNamespace(
+                request_type="burden_exchange",
+                player_id=0,
+                fallback_policy="required",
+                public_context={
+                    "round_index": 1,
+                    "turn_index": 3,
+                    "player_cash": 999,
+                    "current_f_value": 10,
+                },
+            ),
+            legal_choices=[
+                {"choice_id": "yes", "label": "Pay 9", "value": {"burden_cost": 9}},
+                {"choice_id": "no", "label": "Keep burden", "value": {"burden_cost": 9}},
+            ],
+        )
+        pending_payload = ensure_prompt_fingerprint(
+            {
+                "request_id": request_id,
+                "request_type": "burden_exchange",
+                "player_id": 1,
+                "prompt_instance_id": 32,
+                "legal_choices": original_choices,
+                "public_context": original_context,
+                "timeout_ms": 30000,
+                "fallback_policy": "required",
+                "runner_kind": "module",
+                "resume_token": "resume_existing_prompt",
+                "frame_id": frame_id,
+                "module_id": module_id,
+                "module_type": module_type,
+                "module_cursor": module_cursor,
+            }
+        )
+
+        envelope = PromptBoundaryBuilder(current_prompt_sequence=32).prepare(
+            {"request_type": "burden_exchange", "fallback_policy": "required"},
+            active_call=active_call,
+        )
+        replay_payload = ensure_prompt_fingerprint({**envelope, "timeout_ms": 30000})
+
+        self.assertEqual(envelope["request_id"], request_id)
+        self.assertEqual(envelope["prompt_instance_id"], 32)
+        self.assertEqual(envelope["legal_choices"], original_choices)
+        self.assertEqual(envelope["public_context"], original_context)
+        self.assertFalse(prompt_fingerprint_mismatch(pending_payload, replay_payload))
 
     def test_human_bridge_keeps_pabal_dice_mode_on_prompt_flow(self) -> None:
         from apps.server.src.services.runtime_service import _ServerHumanPolicyBridge

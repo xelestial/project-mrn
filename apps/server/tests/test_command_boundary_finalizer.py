@@ -25,6 +25,7 @@ class _BoundaryStore:
 class CommandBoundaryFinalizerTests(unittest.TestCase):
     def test_finalizes_deferred_commit_and_materializes_waiting_prompt(self) -> None:
         authoritative_store = _AuthoritativeStore()
+        order: list[str] = []
         emitted: list[tuple[object, str]] = []
         materialized: list[tuple[object, str, dict]] = []
         events: list[tuple[str, dict]] = []
@@ -45,9 +46,13 @@ class CommandBoundaryFinalizerTests(unittest.TestCase):
 
         result = CommandBoundaryFinalizer(
             authoritative_store=authoritative_store,
-            emit_latest_view_commit=lambda loop, session_id: emitted.append((loop, session_id)),
-            materialize_prompt_boundaries=lambda loop, session_id, state: materialized.append(
-                (loop, session_id, copy.deepcopy(state))
+            emit_latest_view_commit=lambda loop, session_id: (
+                order.append("view_commit_emit"),
+                emitted.append((loop, session_id)),
+            ),
+            materialize_prompt_boundaries=lambda loop, session_id, state: (
+                order.append("prompt_materialize"),
+                materialized.append((loop, session_id, copy.deepcopy(state))),
             ),
             logger=lambda event, **fields: events.append((event, dict(fields))),
         ).finalize(
@@ -67,6 +72,7 @@ class CommandBoundaryFinalizerTests(unittest.TestCase):
         self.assertEqual(authoritative_store.commits[0][1]["command_seq"], 7)
         self.assertEqual(emitted, [(None, "s1")])
         self.assertEqual(materialized, [(None, "s1", {"session_id": "s1", "pending_prompt_request_id": "req_1"})])
+        self.assertEqual(order, ["prompt_materialize", "view_commit_emit"])
         self.assertEqual(events[0][0], "runtime_command_boundary_finalization_timing")
         self.assertEqual(events[0][1]["processed_command_seq"], 7)
 

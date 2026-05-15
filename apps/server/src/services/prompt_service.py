@@ -11,6 +11,7 @@ from apps.server.src.domain.module_continuation_contract import (
     simultaneous_batch_state_error,
 )
 from apps.server.src.domain.protocol_ids import prompt_protocol_identity_fields
+from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.command_inbox import CommandInbox
 from apps.server.src.services.prompt_fingerprint import (
     PROMPT_FINGERPRINT_VERSION,
@@ -31,6 +32,17 @@ _TERMINAL_RUNTIME_STATUSES = {
     "failed",
     "stopped",
 }
+
+
+def _elapsed_ms(start: float) -> float:
+    return round((time.monotonic() - start) * 1000, 3)
+
+
+def _log_timing_event(event: str, **fields: Any) -> None:
+    try:
+        log_event(event, **fields)
+    except Exception:
+        return
 
 
 @dataclass(slots=True)
@@ -70,8 +82,29 @@ class PromptService:
 
     def create_prompt(self, session_id: str, prompt: dict) -> PendingPrompt:
         superseded_waiters: list[threading.Event] = []
-        with self._lock:
-            self._prune_resolved()
+        total_start = time.monotonic()
+        lock_wait_start = time.monotonic()
+        self._lock.acquire()
+        lock_acquire_wait_ms = _elapsed_ms(lock_wait_start)
+        lock_held_start = time.monotonic()
+        lock_held_ms = 0.0
+        prune_resolved_ms = 0.0
+        prune_resolved_entries = 0
+        get_pending_ms = 0.0
+        has_recently_resolved_request_ms = 0.0
+        supersede_pending_for_player_ms = 0.0
+        set_pending_ms = 0.0
+        record_lifecycle_ms = 0.0
+        waiter_setup_ms = 0.0
+        request_id = ""
+        request_type = ""
+        player_id = 0
+        cold_start_flag = False
+        try:
+            cold_start_flag = not (self._pending or self._resolved or self._lifecycle or self._waiters)
+            phase_start = time.monotonic()
+            prune_resolved_entries = self._prune_resolved()
+            prune_resolved_ms = _elapsed_ms(phase_start)
             prompt = dict(prompt)
             request_id = str(prompt.get("request_id", "")).strip()
             if not request_id:
@@ -84,25 +117,32 @@ class PromptService:
             request_id = canonical_request_id
             prompt = ensure_prompt_fingerprint(prompt)
             storage_key = _scoped_request_key(session_id, request_id)
+            phase_start = time.monotonic()
             existing = self._get_pending(request_id, session_id=session_id)
+            get_pending_ms = _elapsed_ms(phase_start)
             if existing is not None:
                 if prompt_fingerprint_mismatch(existing.payload, prompt):
                     raise ValueError("prompt_fingerprint_mismatch")
                 raise ValueError("duplicate_pending_request_id")
+            phase_start = time.monotonic()
             if self._has_recently_resolved_request(request_id, session_id=session_id):
                 raise ValueError("duplicate_recent_request_id")
+            has_recently_resolved_request_ms = _elapsed_ms(phase_start)
             if _is_module_prompt(prompt):
                 _require_module_continuation(prompt)
+            request_type = str(prompt.get("request_type") or "")
             player_id = int(prompt.get("player_id", 0))
             timeout_ms = int(prompt.get("timeout_ms", 30000))
             created_at_ms = self._now_ms()
             prompt["created_at_ms"] = created_at_ms
             prompt["expires_at_ms"] = created_at_ms + PENDING_PROMPT_ORPHAN_RETENTION_MS
+            phase_start = time.monotonic()
             superseded_waiters = self._supersede_pending_for_player(
                 session_id=session_id,
                 player_id=player_id,
                 keep_request_id=request_id,
             )
+            supersede_pending_for_player_ms = _elapsed_ms(phase_start)
             item = PendingPrompt(
                 session_id=session_id,
                 request_id=request_id,
@@ -111,7 +151,10 @@ class PromptService:
                 created_at_ms=created_at_ms,
                 payload=prompt,
             )
+            phase_start = time.monotonic()
             self._set_pending(item)
+            set_pending_ms = _elapsed_ms(phase_start)
+            phase_start = time.monotonic()
             self._record_lifecycle(
                 request_id=request_id,
                 state="created",
@@ -120,9 +163,34 @@ class PromptService:
                 prompt=prompt,
                 now_ms=item.created_at_ms,
             )
+            record_lifecycle_ms = _elapsed_ms(phase_start)
+            phase_start = time.monotonic()
             self._waiters[storage_key] = threading.Event()
+            waiter_setup_ms = _elapsed_ms(phase_start)
+        finally:
+            lock_held_ms = _elapsed_ms(lock_held_start)
+            self._lock.release()
         for waiter in superseded_waiters:
             waiter.set()
+        _log_timing_event(
+            "prompt_service_create_prompt_phase_timing",
+            session_id=session_id,
+            request_id=request_id,
+            player_id=player_id,
+            request_type=request_type,
+            lock_acquire_wait_ms=lock_acquire_wait_ms,
+            lock_held_ms=lock_held_ms,
+            prune_resolved_ms=prune_resolved_ms,
+            prune_resolved_entries=prune_resolved_entries,
+            get_pending_ms=get_pending_ms,
+            has_recently_resolved_request_ms=has_recently_resolved_request_ms,
+            supersede_pending_for_player_ms=supersede_pending_for_player_ms,
+            set_pending_ms=set_pending_ms,
+            record_lifecycle_ms=record_lifecycle_ms,
+            waiter_setup_ms=waiter_setup_ms,
+            total_ms=_elapsed_ms(total_start),
+            cold_start_flag=cold_start_flag,
+        )
         return item
 
     def get_pending_prompt(self, request_id: str, session_id: str | None = None) -> PendingPrompt | None:
@@ -849,22 +917,25 @@ class PromptService:
             self._resolved[_scoped_request_key(session_id, request_id)] = (now, reason, str(session_id or ""))
         self._prune_resolved(now)
 
-    def _prune_resolved(self, now_ms: int | None = None) -> None:
+    def _prune_resolved(self, now_ms: int | None = None) -> int:
         now = now_ms if now_ms is not None else self._now_ms()
         cutoff = now - self._resolved_ttl_ms
         if self._prompt_store is not None:
-            for storage_key, payload in self._prompt_store.list_resolved().items():
+            resolved_items = self._prompt_store.list_resolved()
+            for storage_key, payload in resolved_items.items():
                 resolved_at = int(payload.get("resolved_at_ms", 0))
                 if resolved_at < cutoff:
                     self._prompt_store.delete_resolved(storage_key)
                     self._prompt_store.delete_decision(storage_key)
                     self._delete_lifecycle(storage_key)
-            return
-        for storage_key, (resolved_at, _, _) in list(self._resolved.items()):
+            return len(resolved_items)
+        resolved_items = list(self._resolved.items())
+        for storage_key, (resolved_at, _, _) in resolved_items:
             if resolved_at < cutoff:
                 self._resolved.pop(storage_key, None)
                 self._decisions.pop(storage_key, None)
                 self._lifecycle.pop(storage_key, None)
+        return len(resolved_items)
 
     def _supersede_pending_for_player(
         self,

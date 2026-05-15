@@ -141,6 +141,58 @@ class PromptServiceTests(unittest.TestCase):
         result = self.service.submit_decision({"request_id": "r1", "player_id": 1, "choice_id": "roll"})
         self.assertEqual(result["status"], "accepted")
 
+    def test_create_prompt_logs_phase_timing(self) -> None:
+        with mock.patch("apps.server.src.services.prompt_service.log_event") as log_event:
+            pending = self.service.create_prompt(
+                "s1",
+                {
+                    "request_id": "r_timing",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 30000,
+                },
+            )
+
+        log_event.assert_called_once()
+        event_name = log_event.call_args.args[0]
+        fields = log_event.call_args.kwargs
+        self.assertEqual(event_name, "prompt_service_create_prompt_phase_timing")
+        self.assertEqual(fields["session_id"], "s1")
+        self.assertEqual(fields["request_id"], pending.request_id)
+        self.assertEqual(fields["player_id"], 1)
+        self.assertEqual(fields["request_type"], "movement")
+        for key in (
+            "lock_acquire_wait_ms",
+            "lock_held_ms",
+            "prune_resolved_ms",
+            "get_pending_ms",
+            "has_recently_resolved_request_ms",
+            "supersede_pending_for_player_ms",
+            "set_pending_ms",
+            "record_lifecycle_ms",
+            "waiter_setup_ms",
+            "total_ms",
+        ):
+            self.assertIn(key, fields)
+            self.assertGreaterEqual(fields[key], 0.0)
+        self.assertEqual(fields["prune_resolved_entries"], 0)
+        self.assertIs(fields["cold_start_flag"], True)
+
+    def test_create_prompt_timing_log_failure_does_not_break_prompt_creation(self) -> None:
+        with mock.patch("apps.server.src.services.prompt_service.log_event", side_effect=RuntimeError("log failed")):
+            pending = self.service.create_prompt(
+                "s1",
+                {
+                    "request_id": "r_timing_log_failure",
+                    "request_type": "movement",
+                    "player_id": 1,
+                    "timeout_ms": 30000,
+                },
+            )
+
+        self.assertEqual(pending.payload["legacy_request_id"], "r_timing_log_failure")
+        self.assertIsNotNone(self.service.get_pending_prompt(pending.request_id, session_id="s1"))
+
     def test_submit_decision_rejects_non_numeric_player_id_without_exception(self) -> None:
         self.service.create_prompt(
             "s1",

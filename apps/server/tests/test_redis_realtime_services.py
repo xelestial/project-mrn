@@ -474,6 +474,42 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             ],
         )
 
+    def test_game_state_debug_snapshot_defers_prompt_summary_rebuild_until_read(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        game_state = RedisGameStateStore(self.connection)
+
+        prompt_store.save_pending(
+            "req_debug_deferred",
+            {
+                "request_id": "req_debug_deferred",
+                "session_id": "s-debug-deferred",
+                "player_id": 2,
+                "request_type": "movement",
+                "created_at_ms": 100,
+            },
+        )
+
+        with unittest.mock.patch("apps.server.src.services.realtime_persistence.log_event") as log_event:
+            game_state.save_checkpoint(
+                "s-debug-deferred",
+                {
+                    "schema_version": 1,
+                    "session_id": "s-debug-deferred",
+                    "latest_seq": 1,
+                    "latest_event_type": "checkpoint",
+                },
+            )
+            save_events = [call.args[0] for call in log_event.call_args_list]
+            self.assertNotIn("redis_prompt_store_build_prompt_debug_summary_timing", save_events)
+
+            debug_snapshot = game_state.load_debug_snapshot("s-debug-deferred")
+
+        self.assertIsNotNone(debug_snapshot)
+        self.assertEqual(debug_snapshot["prompts"]["counts"]["pending"], 1)
+        self.assertEqual(debug_snapshot["prompts"]["active_prompt"]["request_id"], "req_debug_deferred")
+        events = [call.args[0] for call in log_event.call_args_list]
+        self.assertIn("redis_prompt_store_build_prompt_debug_summary_timing", events)
+
     def test_prompt_lifecycle_store_is_session_scoped_and_cleaned(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
 
@@ -497,7 +533,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertIsNone(prompt_store.get_lifecycle("req_lifecycle_1"))
         self.assertIsNotNone(prompt_store.get_lifecycle("req_lifecycle_2"))
 
-    def test_prompt_debug_index_tracks_session_prompt_state_with_one_hour_ttl(self) -> None:
+    def test_prompt_debug_index_rebuilds_lazily_with_one_hour_ttl(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
 
         prompt_store.save_pending(
@@ -522,6 +558,8 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             },
         )
 
+        self.assertIsNone(self.fake_redis.get(prompt_store._debug_index_key("s-prompt-debug")))
+
         debug_index = prompt_store.load_debug_index("s-prompt-debug")
 
         self.assertIsNotNone(debug_index)
@@ -537,10 +575,85 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertNotIn(prompt_store._pending_key(), self.fake_redis._expires_at_ms)
 
         prompt_store.delete_pending("req_debug_prompt_1", session_id="s-prompt-debug")
+        self.assertIsNone(self.fake_redis.get(prompt_store._debug_index_key("s-prompt-debug")))
 
         debug_index = prompt_store.load_debug_index("s-prompt-debug")
         self.assertEqual(debug_index["counts"]["pending"], 0)
         self.assertEqual(debug_index["counts"]["lifecycle"], 1)
+
+    def test_prompt_store_logs_write_timing_without_eager_debug_summary_rebuild(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        payload = {
+            "session_id": "sess_timing",
+            "request_id": "request_timing",
+            "player_id": 1,
+            "payload": {"request_type": "movement"},
+        }
+
+        with unittest.mock.patch("apps.server.src.services.realtime_persistence.log_event") as log_event:
+            prompt_store.save_pending("request_timing", payload, session_id="sess_timing")
+            prompt_store.save_lifecycle("request_timing", payload, session_id="sess_timing")
+            prompt_store.list_resolved()
+
+        events = [call.args[0] for call in log_event.call_args_list]
+        self.assertIn("redis_prompt_store_save_pending_timing", events)
+        self.assertIn("redis_prompt_store_save_lifecycle_timing", events)
+        self.assertIn("redis_prompt_store_upsert_debug_record_timing", events)
+        self.assertNotIn("redis_prompt_store_build_prompt_debug_summary_timing", events)
+        self.assertIn("redis_prompt_store_list_resolved_timing", events)
+        pending_event = next(
+            call for call in log_event.call_args_list if call.args[0] == "redis_prompt_store_save_pending_timing"
+        )
+        pending_fields = pending_event.kwargs
+        self.assertEqual(pending_fields["session_id"], "sess_timing")
+        self.assertEqual(pending_fields["request_id"], "request_timing")
+        for key in ("hset_pending_ms", "hset_alias_ms", "upsert_debug_record_ms", "total_ms"):
+            self.assertIn(key, pending_fields)
+            self.assertGreaterEqual(pending_fields[key], 0.0)
+
+    def test_prompt_store_debug_summary_rebuilds_on_debug_index_read(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+        payload = {
+            "session_id": "sess_lazy_debug_read",
+            "request_id": "request_lazy_debug_read",
+            "player_id": 1,
+            "request_type": "movement",
+        }
+
+        with unittest.mock.patch("apps.server.src.services.realtime_persistence.log_event") as log_event:
+            prompt_store.save_pending("request_lazy_debug_read", payload, session_id="sess_lazy_debug_read")
+            write_events = [call.args[0] for call in log_event.call_args_list]
+            self.assertNotIn("redis_prompt_store_build_prompt_debug_summary_timing", write_events)
+
+            debug_index = prompt_store.load_debug_index("sess_lazy_debug_read")
+
+        self.assertIsNotNone(debug_index)
+        self.assertEqual(debug_index["counts"]["pending"], 1)
+        events = [call.args[0] for call in log_event.call_args_list]
+        self.assertIn("redis_prompt_store_build_prompt_debug_summary_timing", events)
+
+    def test_prompt_store_timing_log_failure_does_not_skip_debug_bucket_write(self) -> None:
+        prompt_store = RedisPromptStore(self.connection)
+
+        with unittest.mock.patch(
+            "apps.server.src.services.realtime_persistence.log_event",
+            side_effect=RuntimeError("log failed"),
+        ):
+            prompt_store.save_pending(
+                "request_timing_log_failure",
+                {
+                    "session_id": "sess_timing_log_failure",
+                    "request_id": "request_timing_log_failure",
+                    "player_id": 1,
+                    "request_type": "movement",
+                },
+                session_id="sess_timing_log_failure",
+            )
+
+        self.assertIsNotNone(prompt_store.get_pending("request_timing_log_failure", session_id="sess_timing_log_failure"))
+        debug_index = prompt_store.load_debug_index("sess_timing_log_failure")
+        self.assertIsNotNone(debug_index)
+        self.assertEqual(debug_index["counts"]["pending"], 1)
 
     def test_prompt_service_active_prompt_storage_has_no_redis_ttl(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
@@ -561,7 +674,7 @@ class RedisRealtimeServicesTests(unittest.TestCase):
         self.assertNotIn(prompt_store._pending_key(), self.fake_redis._expires_at_ms)
         self.assertNotIn(prompt_store._lifecycle_key(), self.fake_redis._expires_at_ms)
 
-    def test_prompt_debug_index_refresh_uses_session_buckets(self) -> None:
+    def test_prompt_debug_index_lazy_rebuild_uses_session_buckets(self) -> None:
         prompt_store = RedisPromptStore(self.connection)
         prompt_store.save_pending(
             "req_debug_bucket_1",
@@ -585,11 +698,12 @@ class RedisRealtimeServicesTests(unittest.TestCase):
             },
         )
 
+        self.assertEqual(self.fake_redis.hgetall_calls, [])
+        debug_index = prompt_store.load_debug_index("s-prompt-bucket")
         self.assertNotIn(prompt_store._pending_key(), self.fake_redis.hgetall_calls)
         self.assertNotIn(prompt_store._resolved_key(), self.fake_redis.hgetall_calls)
         self.assertNotIn(prompt_store._decisions_key(), self.fake_redis.hgetall_calls)
         self.assertNotIn(prompt_store._lifecycle_key(), self.fake_redis.hgetall_calls)
-        debug_index = prompt_store.load_debug_index("s-prompt-bucket")
         self.assertEqual(debug_index["counts"]["pending"], 1)
         self.assertEqual(debug_index["counts"]["lifecycle"], 1)
 

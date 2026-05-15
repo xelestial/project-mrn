@@ -7,10 +7,22 @@ from typing import Any
 
 from apps.server.src.domain.command_state import CommandState, normalize_command_state
 from apps.server.src.infra.redis_client import RedisConnection
+from apps.server.src.infra.structured_log import log_event
 
 DEBUG_REDIS_RETENTION_SECONDS = 3600
 DEBUG_REDIS_RECORD_LIMIT = 20
 REDIS_LUA_REQUIRED_ERROR = "redis_lua_required"
+
+
+def _elapsed_ms(start: float) -> float:
+    return round((time.monotonic() - start) * 1000, 3)
+
+
+def _log_timing_event(event: str, **fields: Any) -> None:
+    try:
+        log_event(event, **fields)
+    except Exception:
+        return
 
 
 @dataclass(frozen=True)
@@ -381,14 +393,34 @@ class RedisPromptStore:
         return items
 
     def save_pending(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        total_start = time.monotonic()
+        hset_pending_ms = 0.0
+        hset_alias_ms = 0.0
+        upsert_debug_record_ms = 0.0
         field = self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or ""))
+        phase_start = time.monotonic()
         self._connection.client().hset(
             self._pending_key(),
             field,
             _json_dump(payload),
         )
+        hset_pending_ms = _elapsed_ms(phase_start)
+        phase_start = time.monotonic()
         self._save_prompt_aliases(self._pending_key(), field, payload, session_id=session_id)
+        hset_alias_ms = _elapsed_ms(phase_start)
+        phase_start = time.monotonic()
         self._upsert_debug_record("pending", field, payload, session_id=session_id)
+        upsert_debug_record_ms = _elapsed_ms(phase_start)
+        _log_timing_event(
+            "redis_prompt_store_save_pending_timing",
+            session_id=session_id or str(payload.get("session_id") or ""),
+            request_id=str(payload.get("request_id") or request_id),
+            player_id=payload.get("player_id"),
+            hset_pending_ms=hset_pending_ms,
+            hset_alias_ms=hset_alias_ms,
+            upsert_debug_record_ms=upsert_debug_record_ms,
+            total_ms=_elapsed_ms(total_start),
+        )
 
     def delete_pending(self, request_id: str, session_id: str | None = None) -> bool:
         field = self._resolve_prompt_field(self._pending_key(), request_id, session_id=session_id)
@@ -410,12 +442,19 @@ class RedisPromptStore:
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def list_resolved(self) -> dict[str, dict[str, Any]]:
+        total_start = time.monotonic()
         payloads = self._connection.client().hgetall(self._resolved_key())
         result: dict[str, dict[str, Any]] = {}
         for request_id, raw in payloads.items():
             parsed = _json_load_dict(raw)
             if parsed is not None:
                 result[str(request_id)] = parsed
+        _log_timing_event(
+            "redis_prompt_store_list_resolved_timing",
+            entry_count=len(result),
+            hash_bytes_estimate=sum(len(str(raw)) for raw in payloads.values()),
+            elapsed_ms=_elapsed_ms(total_start),
+        )
         return result
 
     def save_resolved(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
@@ -494,14 +533,34 @@ class RedisPromptStore:
         return items
 
     def save_lifecycle(self, request_id: str, payload: dict[str, Any], session_id: str | None = None) -> None:
+        total_start = time.monotonic()
+        hset_lifecycle_ms = 0.0
+        hset_alias_ms = 0.0
+        upsert_debug_record_ms = 0.0
         field = self._prompt_field(request_id, session_id=session_id or str(payload.get("session_id") or ""))
+        phase_start = time.monotonic()
         self._connection.client().hset(
             self._lifecycle_key(),
             field,
             _json_dump(payload),
         )
+        hset_lifecycle_ms = _elapsed_ms(phase_start)
+        phase_start = time.monotonic()
         self._save_prompt_aliases(self._lifecycle_key(), field, payload, session_id=session_id)
+        hset_alias_ms = _elapsed_ms(phase_start)
+        phase_start = time.monotonic()
         self._upsert_debug_record("lifecycle", field, payload, session_id=session_id)
+        upsert_debug_record_ms = _elapsed_ms(phase_start)
+        _log_timing_event(
+            "redis_prompt_store_save_lifecycle_timing",
+            session_id=session_id or str(payload.get("session_id") or ""),
+            request_id=str(payload.get("request_id") or request_id),
+            player_id=payload.get("player_id"),
+            hset_lifecycle_ms=hset_lifecycle_ms,
+            hset_alias_ms=hset_alias_ms,
+            upsert_debug_record_ms=upsert_debug_record_ms,
+            total_ms=_elapsed_ms(total_start),
+        )
 
     def delete_lifecycle(self, request_id: str, session_id: str | None = None) -> None:
         field = self._resolve_prompt_field(self._lifecycle_key(), request_id, session_id=session_id)
@@ -563,7 +622,6 @@ class RedisPromptStore:
             self._delete_debug_record("pending", storage_request_id, None, session_id=session_id, refresh=False)
             self._upsert_debug_record("decisions", storage_request_id, decision_payload, session_id=session_id, refresh=False)
             self._upsert_debug_record("resolved", storage_request_id, resolved_payload, session_id=session_id, refresh=False)
-            self._refresh_debug_index(session_id)
             return {
                 "stream_id": str(result[0]),
                 "seq": int(result[1]),
@@ -610,7 +668,6 @@ class RedisPromptStore:
         self._delete_debug_record("pending", storage_request_id, None, session_id=session_id, refresh=False)
         self._upsert_debug_record("decisions", storage_request_id, decision_payload, session_id=session_id, refresh=False)
         self._upsert_debug_record("resolved", storage_request_id, resolved_payload, session_id=session_id, refresh=False)
-        self._refresh_debug_index(session_id)
         stream_id = str(results[-1]) if results else ""
         return {
             "stream_id": stream_id,
@@ -641,7 +698,11 @@ class RedisPromptStore:
         self._connection.client().delete(self._debug_index_key(session_id))
 
     def load_debug_index(self, session_id: str) -> dict[str, Any] | None:
-        raw = self._connection.client().get(self._debug_index_key(session_id))
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return None
+        self._refresh_debug_index(normalized_session_id)
+        raw = self._connection.client().get(self._debug_index_key(normalized_session_id))
         return _json_load_dict(str(raw)) if raw is not None else None
 
     def _upsert_debug_record(
@@ -651,17 +712,49 @@ class RedisPromptStore:
         payload: dict[str, Any],
         *,
         session_id: str | None = None,
-        refresh: bool = True,
+        refresh: bool = False,
     ) -> None:
+        total_start = time.monotonic()
+        hset_bucket_ms = 0.0
+        expire_bucket_ms = 0.0
+        marker_check_ms = 0.0
+        refresh_index_ms = 0.0
+        set_index_ms = 0.0
+        marker_present = False
         resolved_session_id = _prompt_session_id_from_field_or_payload(field, payload, session_id=session_id)
         if resolved_session_id:
             client = self._connection.client()
             bucket_key = _prompt_debug_bucket_key(self._connection, resolved_session_id, bucket_name)
+            phase_start = time.monotonic()
             client.hset(bucket_key, field, _json_dump(_compact_prompt_debug_record(bucket_name, field, payload)))
+            hset_bucket_ms = _elapsed_ms(phase_start)
+            phase_start = time.monotonic()
             _expire_key(client, bucket_key, DEBUG_REDIS_RETENTION_SECONDS)
+            expire_bucket_ms = _elapsed_ms(phase_start)
+            phase_start = time.monotonic()
             self._touch_debug_index_marker(resolved_session_id)
+            self._invalidate_debug_index(resolved_session_id)
+            marker_check_ms = _elapsed_ms(phase_start)
+            marker_present = True
             if refresh:
-                self._refresh_debug_index(resolved_session_id)
+                refresh_timing = self._refresh_debug_index(resolved_session_id)
+                refresh_index_ms = float(refresh_timing.get("total_ms") or 0.0)
+                set_index_ms = float(refresh_timing.get("set_index_ms") or 0.0)
+            _log_timing_event(
+                "redis_prompt_store_upsert_debug_record_timing",
+                session_id=resolved_session_id,
+                request_id=str(payload.get("request_id") or field),
+                player_id=payload.get("player_id"),
+                bucket_kind=bucket_name,
+                hset_bucket_ms=hset_bucket_ms,
+                expire_bucket_ms=expire_bucket_ms,
+                marker_check_ms=marker_check_ms,
+                marker_present=marker_present,
+                refresh_index_ms=refresh_index_ms,
+                refresh_requested=bool(refresh),
+                set_index_ms=set_index_ms,
+                total_ms=_elapsed_ms(total_start),
+            )
 
     def _delete_debug_record(
         self,
@@ -670,7 +763,7 @@ class RedisPromptStore:
         raw: str | None,
         *,
         session_id: str | None = None,
-        refresh: bool = True,
+        refresh: bool = False,
     ) -> None:
         payload = _json_load_dict(str(raw)) if raw is not None else None
         resolved_session_id = _prompt_session_id_from_field_or_payload(field, payload, session_id=session_id)
@@ -680,6 +773,7 @@ class RedisPromptStore:
             client.hdel(bucket_key, field)
             _expire_key(client, bucket_key, DEBUG_REDIS_RETENTION_SECONDS)
             self._touch_debug_index_marker(resolved_session_id)
+            self._invalidate_debug_index(resolved_session_id)
             if refresh:
                 self._refresh_debug_index(resolved_session_id)
 
@@ -687,18 +781,34 @@ class RedisPromptStore:
         client = self._connection.client()
         client.set(_prompt_debug_marker_key(self._connection, session_id), "1", px=DEBUG_REDIS_RETENTION_SECONDS * 1000)
 
-    def _refresh_debug_index(self, session_id: str) -> None:
+    def _invalidate_debug_index(self, session_id: str) -> None:
+        self._connection.client().delete(self._debug_index_key(session_id))
+
+    def _refresh_debug_index(self, session_id: str) -> dict[str, float]:
+        total_start = time.monotonic()
+        timing = {
+            "build_prompt_debug_summary_ms": 0.0,
+            "set_index_ms": 0.0,
+            "total_ms": 0.0,
+        }
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
-            return
+            return timing
         try:
+            phase_start = time.monotonic()
+            summary = _build_prompt_debug_summary(self._connection, normalized_session_id)
+            timing["build_prompt_debug_summary_ms"] = _elapsed_ms(phase_start)
+            phase_start = time.monotonic()
             self._connection.client().set(
                 self._debug_index_key(normalized_session_id),
-                _json_dump(_build_prompt_debug_summary(self._connection, normalized_session_id)),
+                _json_dump(summary),
                 px=DEBUG_REDIS_RETENTION_SECONDS * 1000,
             )
+            timing["set_index_ms"] = _elapsed_ms(phase_start)
+            timing["total_ms"] = _elapsed_ms(total_start)
         except Exception:
-            return
+            timing["total_ms"] = _elapsed_ms(total_start)
+        return timing
 
     @staticmethod
     def _prompt_field(request_id: str, session_id: str | None = None) -> str:
@@ -1363,7 +1473,14 @@ class RedisGameStateStore:
 
     def load_debug_snapshot(self, session_id: str) -> dict[str, Any] | None:
         raw = self._connection.client().get(self._debug_snapshot_key(session_id))
-        return _json_load_dict(str(raw)) if raw is not None else None
+        snapshot = _json_load_dict(str(raw)) if raw is not None else None
+        if snapshot is None:
+            return None
+        snapshot["prompts"] = RedisPromptStore(self._connection).load_debug_index(session_id) or _empty_prompt_debug_summary(
+            self._connection,
+            session_id,
+        )
+        return snapshot
 
     def commit_transition(
         self,
@@ -1679,7 +1796,7 @@ class RedisGameStateStore:
                 "viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("view_commit_viewers"))),
                 "cached_viewers": sorted(str(item) for item in self._list_from(view_commit_index.get("cached_viewers"))),
             },
-            "prompts": _build_prompt_debug_summary(self._connection, session_id),
+            "prompts": _empty_prompt_debug_summary(self._connection, session_id),
             "commands": self._debug_command_summary(session_id),
             "stream": self._debug_stream_summary(session_id),
             "checkpoint": checkpoint_payload,
@@ -2235,31 +2352,40 @@ class RedisGameStateStore:
 
 
 def _build_prompt_debug_summary(connection: RedisConnection, session_id: str) -> dict[str, Any]:
+    total_start = time.monotonic()
     normalized_session_id = str(session_id or "").strip()
-    use_session_buckets = connection.client().get(_prompt_debug_marker_key(connection, normalized_session_id)) is not None
+    client = connection.client()
+    marker_start = time.monotonic()
+    use_session_buckets = client.get(_prompt_debug_marker_key(connection, normalized_session_id)) is not None
+    marker_check_ms = _elapsed_ms(marker_start)
     buckets: dict[str, dict[str, Any]] = {}
     all_rows: list[dict[str, Any]] = []
+    bucket_timings: dict[str, float] = {}
+    bucket_entries: dict[str, int] = {}
     for bucket_name, hash_key in (
         ("pending", connection.key("prompts", "pending")),
         ("resolved", connection.key("prompts", "resolved")),
         ("decisions", connection.key("prompts", "decisions")),
         ("lifecycle", connection.key("prompts", "lifecycle")),
     ):
+        bucket_start = time.monotonic()
         rows: list[dict[str, Any]] = []
         if use_session_buckets:
             debug_bucket_key = _prompt_debug_bucket_key(connection, normalized_session_id, bucket_name)
-            for raw in connection.client().hgetall(debug_bucket_key).values():
+            for raw in client.hgetall(debug_bucket_key).values():
                 compact = _json_load_dict(str(raw))
                 if compact is not None:
                     rows.append(compact)
         else:
-            for field, raw in connection.client().hgetall(hash_key).items():
+            for field, raw in client.hgetall(hash_key).items():
                 payload = _json_load_dict(str(raw))
                 if payload is None:
                     continue
                 if _prompt_session_id_from_field_or_payload(str(field), payload) != normalized_session_id:
                     continue
                 rows.append(_compact_prompt_debug_record(bucket_name, str(field), payload))
+        bucket_timings[bucket_name] = _elapsed_ms(bucket_start)
+        bucket_entries[bucket_name] = len(rows)
         rows.sort(key=_prompt_debug_sort_key)
         buckets[bucket_name] = {
             "count": len(rows),
@@ -2268,7 +2394,7 @@ def _build_prompt_debug_summary(connection: RedisConnection, session_id: str) ->
         all_rows.extend(rows)
     all_rows.sort(key=_prompt_debug_sort_key)
     active_prompts = buckets.get("pending", {}).get("latest", [])
-    return {
+    summary = {
         "schema_version": 1,
         "session_id": normalized_session_id,
         "retention_seconds": DEBUG_REDIS_RETENTION_SECONDS,
@@ -2284,6 +2410,50 @@ def _build_prompt_debug_summary(connection: RedisConnection, session_id: str) ->
         "active_prompt": active_prompts[-1] if active_prompts else {},
         "latest": all_rows[-DEBUG_REDIS_RECORD_LIMIT:],
         "buckets": buckets,
+    }
+    _log_timing_event(
+        "redis_prompt_store_build_prompt_debug_summary_timing",
+        session_id=normalized_session_id,
+        marker_present=use_session_buckets,
+        marker_check_ms=marker_check_ms,
+        branch="per_session_buckets" if use_session_buckets else "global_hashes",
+        pending_entries=bucket_entries.get("pending", 0),
+        resolved_entries=bucket_entries.get("resolved", 0),
+        decisions_entries=bucket_entries.get("decisions", 0),
+        lifecycle_entries=bucket_entries.get("lifecycle", 0),
+        pending_ms=bucket_timings.get("pending", 0.0),
+        resolved_ms=bucket_timings.get("resolved", 0.0),
+        decisions_ms=bucket_timings.get("decisions", 0.0),
+        lifecycle_ms=bucket_timings.get("lifecycle", 0.0),
+        total_ms=_elapsed_ms(total_start),
+    )
+    return summary
+
+
+def _empty_prompt_debug_summary(connection: RedisConnection, session_id: str) -> dict[str, Any]:
+    normalized_session_id = str(session_id or "").strip()
+    return {
+        "schema_version": 1,
+        "session_id": normalized_session_id,
+        "retention_seconds": DEBUG_REDIS_RETENTION_SECONDS,
+        "deferred_until_debug_read": True,
+        "redis_keys": {
+            "pending": connection.key("prompts", "pending"),
+            "resolved": connection.key("prompts", "resolved"),
+            "decisions": connection.key("prompts", "decisions"),
+            "lifecycle": connection.key("prompts", "lifecycle"),
+            "debug_index": connection.key("prompts", normalized_session_id, "debug_index"),
+            "debug_marker": _prompt_debug_marker_key(connection, normalized_session_id),
+        },
+        "counts": {"pending": 0, "resolved": 0, "decisions": 0, "lifecycle": 0},
+        "active_prompt": {},
+        "latest": [],
+        "buckets": {
+            "pending": {"count": 0, "latest": []},
+            "resolved": {"count": 0, "latest": []},
+            "decisions": {"count": 0, "latest": []},
+            "lifecycle": {"count": 0, "latest": []},
+        },
     }
 
 

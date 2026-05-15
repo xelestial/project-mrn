@@ -48,6 +48,7 @@ git diff --check
 python3 tools/plan_policy_gate.py
 ./.venv/bin/python -m pytest apps/server/tests/test_structured_log.py -q
 ./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py -q
+./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q
 ./.venv/bin/python -m pytest apps/server/tests/test_runtime_rebuild_contract.py -q
 ```
 
@@ -56,6 +57,48 @@ Live verification commands are listed in Phase 6.
 **Responsibility check**
 
 이 작업은 병목을 고치지 않는다. 책임 이동은 “추측 기반 병목 판단”에서 “프롬프트/Redis 경계별 계측 로그가 병목 판단 책임을 가진다”로 이동한다. 최적화 책임은 Phase 7의 원인 판정 뒤 별도 작업으로 넘어간다.
+
+## Implementation Status - 2026-05-15
+
+- Phase 0-5 implementation is complete with behavior-neutral timing events added to `PromptService` and `RedisPromptStore`.
+- `tools/protocol_gate_prompt_snapshot.py` captures the run-start Redis prompt keyspace outside the request path.
+- Local verification passed with prompt service, Redis prompt store, structured log, runtime rebuild contract, diff, and plan-policy checks.
+- Phase 6 fresh-fresh 1-game smoke was attempted at `tmp/rl/full-stack-protocol/prompt-timing-fresh-fresh-smoke`.
+- The smoke did produce `prompt_service_create_prompt_phase_timing` and Redis prompt store timing events in `game-1/raw/backend_server.log`.
+- The smoke stopped before the matrix because runtime rejected command seq 2 with `request id mismatch`.
+- Root cause: `PromptService` canonicalized the prompt boundary to a public `req_...` request id, while `runtime_active_prompt.request_id` and the recovered prompt view could still expose the legacy session-composite id for the same `prompt_instance_id`.
+- A minimal protocol identity blocker fix was added in `RuntimeService`: `PromptRequired` state now syncs active continuation request ids to the canonical prompt envelope, and single-prompt view projection prefers the checkpoint `pending_prompt_request_id` while preserving the stale value as `legacy_request_id`.
+- This identity fix is not a timing optimization. It only unblocks Phase 6 evidence collection by keeping the existing public/legacy compatibility contract coherent.
+- Phase 6 smoke rerun then exposed two additional compatibility blockers in the same prompt contract boundary:
+  - Batch completion accepted public `req_...` ids at the protocol layer but resumed the engine with that public id instead of the original engine continuation request id.
+  - Prompt boundary replay could reuse an existing continuation request id while keeping a newly generated `prompt_instance_id`, `legal_choices`, and `public_context`, which changed the stored pending prompt fingerprint and produced `prompt_fingerprint_mismatch`.
+- Minimal blocker fixes were added:
+  - Batch response application now records protocol/public ids while resolving engine resume through `legacy_request_id` / `submitted_request_id` / original `request_id` metadata.
+  - `PromptBoundaryBuilder` replay now restores `prompt_instance_id`, `legal_choices`, and `public_context` from the existing continuation contract when the continuation matches.
+- The fixes preserve the timing instrumentation goal. They do not optimize prompt latency, alter game rules, change Redis topology, or weaken fingerprint checks.
+- Local verification after the fixes passed:
+  - `./.venv/bin/python -m pytest apps/server/tests/test_runtime_service.py -q` -> `180 passed, 14 subtests passed`
+  - `./.venv/bin/python -m pytest apps/server/tests/test_prompt_service.py apps/server/tests/test_redis_realtime_services.py apps/server/tests/test_runtime_rebuild_contract.py apps/server/tests/test_structured_log.py -q` -> `121 passed`
+  - `python3 tools/plan_policy_gate.py` -> OK
+- Phase 6 blocker smoke rerun passed at `tmp/rl/full-stack-protocol/prompt-replay-contract-smoke`: runtime status `completed`, `141` accepted decisions, `0` rejected/stale acks, and no `request id mismatch`, `request_not_pending`, or `prompt_fingerprint_mismatch` in the checked failure logs.
+- Phase 6 timing matrix completed:
+  - `tmp/rl/full-stack-protocol/prompt-timing-fresh-fresh`
+  - `tmp/rl/full-stack-protocol/prompt-timing-fresh-warm`
+  - `tmp/rl/full-stack-protocol/prompt-timing-accum-fresh`
+  - `tmp/rl/full-stack-protocol/prompt-timing-accum-warm`
+- Phase 7 classification is documented in `docs/current/reports/REPORT_PROMPT_TIMING_INSTRUMENTATION_RESULT_2026-05-15.md`.
+- Chosen classification: **A. Debug summary rebuild dominant**. `upsert_debug_record_ms` accounts for 62.4-70.7% of `create_prompt.total_ms` at p50 across the four matrix conditions, while lock wait and resolved prune are not dominant.
+- The next implementation target is to remove eager debug summary/index rebuild from the synchronous prompt create/decision path without changing authoritative prompt hashes or game semantics.
+- Follow-up implementation is complete at unit-test level:
+  - prompt write/decision paths update debug buckets and markers, invalidate cached debug index, and do not rebuild the summary by default.
+  - `RedisPromptStore.load_debug_index()` is the lazy rebuild boundary for debug inspection.
+  - local verification passed with `4` targeted lazy-debug tests and `295` prompt/Redis/runtime tests.
+- Follow-up implementation was extended to the game-state debug snapshot boundary:
+  - checkpoint/view-commit debug snapshot writes now store a deferred prompt summary placeholder instead of rebuilding the prompt summary.
+  - `RedisGameStateStore.load_debug_snapshot()` enriches the snapshot through `RedisPromptStore.load_debug_index()`, keeping prompt inspection functional outside the write path.
+  - local verification passed with `6` targeted lazy-debug/snapshot tests and `296` prompt/Redis/runtime tests.
+- A rebuilt-stack 1-game live smoke passed at `tmp/rl/full-stack-protocol/prompt-timing-lazy-debug-smoke-final`: runtime `completed`, `219` decisions, max command `431ms`, slow command count `0`, and `redis_prompt_store_build_prompt_debug_summary_timing=0`.
+- Remaining optional evidence step: rerun the full four-condition live timing matrix only if a quantitative before/after latency delta is needed. The structural boundary removal is already proven by the rebuilt-stack live smoke.
 
 ---
 
