@@ -788,7 +788,7 @@ class StreamApiTests(unittest.TestCase):
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
         self.assertIsNone(acks[-1].get("payload", {}).get("reason"))
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
-        self.assertEqual(acks[-1].get("payload", {}).get("player_id"), joined["public_player_id"])
+        self.assertNotIn("player_id", acks[-1].get("payload", {}))
         self.assertEqual(acks[-1].get("payload", {}).get("legacy_player_id"), 1)
         self.assertNotIn("player_id_alias_role", acks[-1].get("payload", {}))
         self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id"), joined["public_player_id"])
@@ -842,7 +842,7 @@ class StreamApiTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(acks), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
-        self.assertEqual(acks[-1].get("payload", {}).get("player_id"), joined["public_player_id"])
+        self.assertNotIn("player_id", acks[-1].get("payload", {}))
         self.assertEqual(acks[-1].get("payload", {}).get("legacy_player_id"), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("provider"), "human")
         self.assertEqual(acks[-1].get("payload", {}).get("public_player_id"), joined["public_player_id"])
@@ -903,7 +903,7 @@ class StreamApiTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(acks), 1)
         self.assertEqual(acks[-1].get("payload", {}).get("status"), "accepted")
-        self.assertEqual(acks[-1].get("payload", {}).get("player_id"), joined["public_player_id"])
+        self.assertNotIn("player_id", acks[-1].get("payload", {}))
         self.assertEqual(acks[-1].get("payload", {}).get("legacy_player_id"), 1)
         self.assertNotIn("player_id_alias_role", acks[-1].get("payload", {}))
         self.assertEqual(acks[-1].get("payload", {}).get("primary_player_id"), joined["public_player_id"])
