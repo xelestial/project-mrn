@@ -11,6 +11,19 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Prompt Choice Payload Identity Guard
+
+- `PromptService.submit_decision()` now rejects a submitted `choice_payload`
+  whose target legacy/public/seat/viewer identity contradicts the selected
+  pending legal choice `value`.
+- The guard runs before command materialization, so a client cannot select one
+  `choice_id` while sending a payload that targets another player.
+
+Responsibility result: selected choice target identity consistency is owned by
+the prompt command materialization boundary. Submitted `choice_payload` is not
+rewritten; unrelated payload fields, engine decision parsing, and numeric target
+bridge compatibility did not move.
+
 ## 2026-05-15 Prompt Choice Payload Command Materialization
 
 - `PromptService.submit_decision()` now materializes the selected pending legal

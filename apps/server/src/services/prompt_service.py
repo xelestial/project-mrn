@@ -287,6 +287,19 @@ class PromptService:
                         now_ms=now,
                     )
                     return {"status": "rejected", "reason": "player_identity_mismatch"}
+                selected_choice_payload = _selected_legal_choice_payload(pending.payload, choice_id)
+                if _choice_payload_target_identity_mismatch(selected_choice_payload, payload.get("choice_payload")):
+                    self._record_lifecycle(
+                        request_id=request_id,
+                        state="rejected",
+                        session_id=pending.session_id,
+                        player_id=pending.player_id,
+                        prompt=pending.payload,
+                        decision=payload,
+                        reason="choice_payload_identity_mismatch",
+                        now_ms=now,
+                    )
+                    return {"status": "rejected", "reason": "choice_payload_identity_mismatch"}
                 if _is_module_prompt(pending.payload):
                     mismatch = _module_decision_mismatch(pending.payload, payload)
                     if mismatch:
@@ -305,7 +318,6 @@ class PromptService:
                 provider = str(payload.get("provider") or pending.payload.get("provider") or "human").strip().lower()
                 if provider not in {"human", "ai"}:
                     provider = "human"
-                selected_choice_payload = _selected_legal_choice_payload(pending.payload, choice_id)
                 decision_payload = dict(payload)
                 if "choice_payload" not in decision_payload and selected_choice_payload:
                     decision_payload["choice_payload"] = selected_choice_payload
@@ -1448,6 +1460,25 @@ def _selected_legal_choice_payload(prompt: dict, choice_id: str) -> dict:
         value = choice.get("value")
         return dict(value) if isinstance(value, dict) else {}
     return {}
+
+
+def _choice_payload_target_identity_mismatch(expected_payload: dict, submitted_payload: object) -> bool:
+    if not expected_payload or not isinstance(submitted_payload, dict):
+        return False
+
+    for field in ("target_public_player_id", "target_seat_id", "target_viewer_id"):
+        expected = str(expected_payload.get(field) or "").strip()
+        actual = str(submitted_payload.get(field) or "").strip()
+        if expected and actual and actual != expected:
+            return True
+
+    expected_legacy = _int_or_none(expected_payload.get("target_legacy_player_id"))
+    if expected_legacy is None:
+        expected_legacy = _int_or_none(expected_payload.get("target_player_id"))
+    actual_legacy = _int_or_none(submitted_payload.get("target_legacy_player_id"))
+    if actual_legacy is None:
+        actual_legacy = _int_or_none(submitted_payload.get("target_player_id"))
+    return expected_legacy is not None and actual_legacy is not None and actual_legacy != expected_legacy
 
 
 def _ensure_prompt_protocol_identity(prompt: dict, *, request_id: str) -> None:

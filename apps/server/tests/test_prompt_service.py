@@ -639,6 +639,56 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(command_payload["choice_payload"], expected_choice_payload)
         self.assertEqual(command_payload["decision"]["choice_payload"], expected_choice_payload)
 
+    def test_submit_decision_rejects_conflicting_choice_payload_target_identity(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_conflicting_choice_payload_identity",
+                "request_type": "doctrine_relief",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [
+                    {
+                        "choice_id": "target_2",
+                        "label": "Target P2",
+                        "value": {
+                            "target_player_id": 2,
+                            "target_legacy_player_id": 2,
+                            "target_public_player_id": "ply_2",
+                            "target_seat_id": "seat_2",
+                            "target_viewer_id": "view_2",
+                            "burden_count": 1,
+                        },
+                    }
+                ],
+            },
+        )
+
+        result = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "r_conflicting_choice_payload_identity",
+                "player_id": 1,
+                "choice_id": "target_2",
+                "choice_payload": {
+                    "target_player_id": 3,
+                    "target_legacy_player_id": 3,
+                    "target_public_player_id": "ply_3",
+                    "target_seat_id": "seat_3",
+                    "target_viewer_id": "view_3",
+                },
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "choice_payload_identity_mismatch")
+        self.assertEqual(command_store.commands, [])
+        lifecycle = service.get_prompt_lifecycle("r_conflicting_choice_payload_identity")
+        self.assertEqual(lifecycle["state"], "rejected")
+        self.assertEqual(lifecycle["reason"], "choice_payload_identity_mismatch")
+
     def test_create_prompt_repairs_malformed_public_primary_identity(self) -> None:
         command_store = CapturingCommandStore()
         service = PromptService(command_store=command_store)
