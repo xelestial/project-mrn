@@ -11,6 +11,24 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 WS Prompt Primary-Only Fixture
+
+- Added frozen `inbound.prompt.primary_identity.json` so the WebSocket contract
+  package has a prompt example identified by `primary_player_id`,
+  `primary_player_id_source`, `public_player_id`, `seat_id`, and `viewer_id`
+  without payload `player_id`.
+- Updated `inbound.prompt.schema.json` so payload `player_id` is one accepted
+  identity channel rather than the mandatory channel. Identity-less prompt
+  payloads remain invalid, and numeric `player_id` still requires explicit
+  legacy alias metadata.
+- `inbound.prompt.public_identity.json` remains the public top-level prompt and
+  active-view example, and numeric prompt examples remain compatibility
+  evidence.
+
+Responsibility result: WebSocket runtime contracts now own primary-only prompt
+fixture evidence. Runtime prompt producers and client consumers did not move in
+this slice.
+
 ## 2026-05-15 WS Decision ACK Primary-Only Fixture
 
 - Added frozen `inbound.decision_ack.primary_identity.json` so the WebSocket

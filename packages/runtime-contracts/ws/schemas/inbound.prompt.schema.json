@@ -30,10 +30,26 @@
       "required": [
         "request_id",
         "request_type",
-        "player_id",
         "timeout_ms",
         "legal_choices",
         "public_context"
+      ],
+      "anyOf": [
+        {
+          "required": ["player_id"]
+        },
+        {
+          "required": ["primary_player_id", "primary_player_id_source"]
+        },
+        {
+          "required": ["public_player_id"]
+        },
+        {
+          "required": ["seat_id"]
+        },
+        {
+          "required": ["viewer_id"]
+        }
       ],
       "allOf": [
         {

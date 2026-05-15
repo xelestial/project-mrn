@@ -944,7 +944,11 @@ Acceptance evidence status, 2026-05-15:
   with `player_id_alias_role: "legacy_compatibility_alias"`. `PromptService.create_prompt()`,
   server active prompt view-state, and the WebSocket inbound prompt schema/example now expose the
   same primary identity fields, and the frontend prompt selector consumes them before falling back
-  to public/protocol/legacy derivation. Server active prompt view-state now emits public/protocol
+  to public/protocol/legacy derivation. The inbound prompt schema also accepts explicit
+  `primary_player_id` plus `primary_player_id_source`, `public_player_id`, `seat_id`, or
+  `viewer_id` without requiring payload `player_id`, while still rejecting identity-less prompt
+  payloads; `inbound.prompt.primary_identity.json` freezes that primary-only public prompt
+  shape without replacing the public top-level prompt example. Server active prompt view-state now emits public/protocol
   top-level `player_id` when available and keeps numeric `legacy_player_id` as the bridge instead
   of forcing the top-level field back to a numeric alias. The frozen `trick_to_use` prompt example
   with embedded view-state is now schema-checked with the same legacy alias metadata as the

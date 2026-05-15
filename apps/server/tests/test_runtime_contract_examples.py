@@ -370,6 +370,25 @@ class RuntimeContractExampleTests(unittest.TestCase):
         self.assertIsInstance(payload.get("seat_id"), str)
         self.assertIsInstance(payload.get("viewer_id"), str)
 
+    def test_inbound_prompt_schema_accepts_primary_identity_without_player_id(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        schema = _load_json(root / "schemas" / "inbound.prompt.schema.json")
+        example_path = root / "examples" / "inbound.prompt.primary_identity.json"
+        self.assertTrue(example_path.exists(), "inbound.prompt.primary_identity.json must exist")
+        example = _load_json(example_path)
+
+        _validate_subset(example, schema, path="$<inbound.prompt.primary_identity>")
+        payload = example.get("payload")
+        self.assertIsInstance(payload, dict)
+        self.assertNotIn("player_id", payload)
+        self.assertNotIn("player_id_alias_role", payload)
+        self.assertIsInstance(payload.get("primary_player_id"), str)
+        self.assertEqual(payload.get("primary_player_id_source"), "public")
+        self.assertEqual(payload.get("public_player_id"), payload.get("primary_player_id"))
+        self.assertIsInstance(payload.get("legacy_player_id"), int)
+        self.assertIsInstance(payload.get("seat_id"), str)
+        self.assertIsInstance(payload.get("viewer_id"), str)
+
     def test_outbound_decision_schema_rejects_missing_player_identity(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
         outbound_decision_schema = _load_json(root / "schemas" / "outbound.decision.schema.json")
@@ -384,6 +403,25 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 },
                 outbound_decision_schema,
                 path="$<outbound.decision.missing_identity>",
+            )
+
+        inbound_prompt_schema = _load_json(root / "schemas" / "inbound.prompt.schema.json")
+        with self.assertRaises(AssertionError):
+            _validate_subset(
+                {
+                    "type": "prompt",
+                    "seq": 4,
+                    "session_id": "sess_missing_identity",
+                    "payload": {
+                        "request_id": "req_missing_identity",
+                        "request_type": "movement",
+                        "timeout_ms": 30000,
+                        "legal_choices": [{"choice_id": "roll"}],
+                        "public_context": {},
+                    },
+                },
+                inbound_prompt_schema,
+                path="$<inbound.prompt.missing_identity>",
             )
 
         inbound_decision_ack_schema = _load_json(root / "schemas" / "inbound.decision_ack.schema.json")
