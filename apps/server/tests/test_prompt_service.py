@@ -763,6 +763,69 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(lifecycle["state"], "rejected")
         self.assertEqual(lifecycle["reason"], "player_identity_mismatch")
 
+    def test_submit_decision_accepts_cross_source_primary_identity_when_legacy_bridge_matches(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_cross_source_primary_identity",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        result = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "r_cross_source_primary_identity",
+                "player_id": 1,
+                "legacy_player_id": 1,
+                "primary_player_id": "ply_1",
+                "primary_player_id_source": "public",
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        command_payload = command_store.commands[0]["payload"]
+        self.assertEqual(command_payload["decision"]["primary_player_id"], "ply_1")
+        self.assertEqual(command_payload["decision"]["primary_player_id_source"], "public")
+
+    def test_submit_decision_rejects_same_source_primary_identity_mismatch(self) -> None:
+        command_store = CapturingCommandStore()
+        service = PromptService(command_store=command_store)
+        service.create_prompt(
+            "s1",
+            {
+                "request_id": "r_same_source_primary_identity",
+                "request_type": "movement",
+                "player_id": 1,
+                "primary_player_id": "ply_1",
+                "primary_player_id_source": "public",
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+
+        result = service.submit_decision(
+            {
+                "session_id": "s1",
+                "request_id": "r_same_source_primary_identity",
+                "player_id": 1,
+                "legacy_player_id": 1,
+                "primary_player_id": "ply_2",
+                "primary_player_id_source": "public",
+                "choice_id": "roll",
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "player_identity_mismatch")
+        self.assertEqual(command_store.commands, [])
+
     def test_simultaneous_batch_decisions_wait_for_collector_completion(self) -> None:
         collector = BatchCollectorStub(
             [

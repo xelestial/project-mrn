@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from unittest import mock
 
 try:
     from fastapi.testclient import TestClient
@@ -1055,6 +1056,54 @@ class SessionsApiTests(unittest.TestCase):
         self.assertEqual(ack.payload["primary_player_id"], public_player_id)
         self.assertEqual(ack.payload["primary_player_id_source"], "public")
         self.assertEqual(ack.payload["public_player_id"], public_player_id)
+
+    def test_external_ai_decision_callback_forwards_primary_player_identity_to_prompt_service(self) -> None:
+        from apps.server.src import state
+
+        state.runtime_settings = RuntimeSettings(admin_token="admin-secret")
+        created = self.client.post("/api/v1/sessions", json=_all_ai_payload())
+        session_data = created.json()["data"]
+        session_id = session_data["session_id"]
+        seat = session_data["seats"][0]
+        pending = state.prompt_service.create_prompt(
+            session_id,
+            {
+                "request_id": "ai_req_forward_primary_player_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "provider": "ai",
+                "timeout_ms": 30000,
+                "legal_choices": [{"choice_id": "roll"}],
+            },
+        )
+        public_request_id = str(pending.payload["public_request_id"])
+
+        captured: list[dict] = []
+        original_submit = state.prompt_service.submit_decision
+
+        def capture_submit(payload: dict) -> dict:
+            captured.append(dict(payload))
+            return original_submit(payload)
+
+        with mock.patch.object(state.prompt_service, "submit_decision", side_effect=capture_submit):
+            accepted = self.client.post(
+                f"/api/v1/sessions/{session_id}/external-ai/decisions",
+                json={
+                    "request_id": public_request_id,
+                    "primary_player_id": seat["public_player_id"],
+                    "primary_player_id_source": "public",
+                    "choice_id": "roll",
+                },
+                headers={"X-Admin-Token": "admin-secret"},
+            )
+
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.json()["data"]["status"], "accepted")
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].get("player_id"), 1)
+        self.assertEqual(captured[0].get("legacy_player_id"), 1)
+        self.assertEqual(captured[0].get("primary_player_id"), seat["public_player_id"])
+        self.assertEqual(captured[0].get("primary_player_id_source"), "public")
 
     def test_external_ai_decision_callback_rejects_malformed_primary_player_identity(self) -> None:
         from apps.server.src import state

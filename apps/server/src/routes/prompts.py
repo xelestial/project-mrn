@@ -192,8 +192,6 @@ async def submit_external_ai_decision(
     decision_payload["player_id"] = resolved_player_id
     decision_payload["legacy_player_id"] = resolved_player_id
     decision_payload["session_id"] = session_id
-    decision_payload.pop("primary_player_id", None)
-    decision_payload.pop("primary_player_id_source", None)
     decision_payload["provider"] = "ai"
     decision_state = prompts.submit_decision(decision_payload)
     ack_payload = build_decision_ack_payload(

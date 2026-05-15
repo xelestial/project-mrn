@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 import unittest
+from unittest import mock
 
 from apps.server.src.domain.visibility import ViewerContext
 from apps.server.src.domain.visibility.projector import project_stream_message_for_viewer
@@ -912,6 +913,57 @@ class StreamApiTests(unittest.TestCase):
             acks[-1].get("payload", {}),
             boundary="stream_decision_ack",
         )
+
+    def test_seat_decision_forwards_primary_player_identity_to_prompt_service(self) -> None:
+        from apps.server.src import state
+
+        session = state.session_service.create_session(_seat1_human_others_ai(), config={"seed": 120})
+        joined = state.session_service.join_session(session.session_id, seat=1, join_token=session.join_tokens[1])
+        state.prompt_service.create_prompt(
+            session.session_id,
+            {
+                "request_id": "r_forward_primary_identity_1",
+                "request_type": "movement",
+                "player_id": 1,
+                "timeout_ms": 5000,
+                "fallback_policy": "timeout_fallback",
+            },
+        )
+
+        captured: list[dict] = []
+        original_submit = state.prompt_service.submit_decision
+
+        def capture_submit(payload: dict) -> dict:
+            captured.append(dict(payload))
+            return original_submit(payload)
+
+        path = f"/api/v1/sessions/{session.session_id}/stream?token={joined['session_token']}"
+        with mock.patch.object(state.prompt_service, "submit_decision", side_effect=capture_submit):
+            with self.client.websocket_connect(path) as ws:
+                ws.send_json(
+                    {
+                        "type": "decision",
+                        "request_id": "r_forward_primary_identity_1",
+                        "primary_player_id": joined["public_player_id"],
+                        "primary_player_id_source": "public",
+                        "choice_id": "roll",
+                        "choice_payload": {},
+                    }
+                )
+
+                for _ in range(10):
+                    msg = ws.receive_json()
+                    if (
+                        msg.get("type") == "decision_ack"
+                        and msg.get("payload", {}).get("request_id") == "r_forward_primary_identity_1"
+                    ):
+                        break
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].get("player_id"), 1)
+        self.assertEqual(captured[0].get("legacy_player_id"), 1)
+        self.assertEqual(captured[0].get("primary_player_id"), joined["public_player_id"])
+        self.assertEqual(captured[0].get("primary_player_id_source"), "public")
 
     def test_seat_decision_rejects_conflicting_protocol_identity_fields(self) -> None:
         from apps.server.src import state

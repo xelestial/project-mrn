@@ -1410,9 +1410,7 @@ def _prompt_player_identity_mismatch(prompt: dict, decision: dict) -> bool:
     expected_source = str(prompt.get("primary_player_id_source") or "").strip()
     actual_source = str(decision.get("primary_player_id_source") or "").strip()
     if expected_primary and actual_primary and expected_source and actual_source:
-        if actual_source != expected_source:
-            return True
-        if actual_primary != expected_primary:
+        if actual_source == expected_source and actual_primary != expected_primary:
             return True
     return False
 

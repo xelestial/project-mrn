@@ -11,6 +11,22 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Decision Route Primary Identity Preservation
+
+- WebSocket decision handling and the external-AI decision callback no longer
+  drop submitted `primary_player_id` / `primary_player_id_source` after
+  resolving the payload to the internal numeric seat id.
+- Both routes still overwrite `player_id` and `legacy_player_id` with the
+  resolved internal seat bridge before calling `PromptService`.
+- `PromptService` now treats a different primary source as compatible when the
+  explicit legacy bridge matches, and still rejects same-source primary
+  identity mismatches plus public/seat/viewer/legacy companion mismatches.
+
+Responsibility result: route handlers remain authorization and identity
+resolution adapters. They no longer discard primary identity evidence before
+the domain acceptance boundary; prompt-vs-decision contradiction checks stay in
+`PromptService`.
+
 ## 2026-05-15 Public Player Wire Helper Explicit Policy
 
 - `public_primary_player_wire_payload()` now requires every caller to pass

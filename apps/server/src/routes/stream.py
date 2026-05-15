@@ -842,8 +842,6 @@ async def stream_ws(websocket: WebSocket, session_id: str) -> None:
                 message["player_id"] = resolved_player_id
                 message["session_id"] = session_id
                 message["legacy_player_id"] = resolved_player_id
-                message.pop("primary_player_id", None)
-                message.pop("primary_player_id_source", None)
                 phase_started_ms = time.perf_counter()
                 decision_state = prompt_service.submit_decision(message)
                 submit_decision_ms = int((time.perf_counter() - phase_started_ms) * 1000)
