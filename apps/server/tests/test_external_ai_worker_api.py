@@ -52,8 +52,70 @@ def _mark_target_payload() -> dict[str, object]:
             "actor_name": "Bandit",
         },
         "legal_choices": [
-            {"choice_id": "2", "title": "Target P2", "value": {"target_player_id": 2}},
-            {"choice_id": "3", "title": "Target P3", "value": {"target_player_id": 3}},
+            {
+                "choice_id": "2",
+                "title": "Target P2",
+                "value": {
+                    "target_player_id": 2,
+                    "target_legacy_player_id": 2,
+                    "target_public_player_id": "player_public_2",
+                    "target_seat_id": "seat:2",
+                    "target_viewer_id": "viewer:sess_worker_mark_1:2",
+                },
+            },
+            {
+                "choice_id": "3",
+                "title": "Target P3",
+                "value": {
+                    "target_player_id": 3,
+                    "target_legacy_player_id": 3,
+                    "target_public_player_id": "player_public_3",
+                    "target_seat_id": "seat:3",
+                    "target_viewer_id": "viewer:sess_worker_mark_1:3",
+                },
+            },
+        ],
+        "transport": "http",
+    }
+
+
+def _doctrine_relief_payload() -> dict[str, object]:
+    return {
+        "request_id": "req_worker_doctrine_1",
+        "session_id": "sess_worker_doctrine_1",
+        "seat": 1,
+        "player_id": 1,
+        "decision_name": "choose_doctrine_relief",
+        "request_type": "doctrine_relief",
+        "fallback_policy": "local_ai",
+        "public_context": {
+            "preferred_target_seat_id": "seat:3",
+        },
+        "legal_choices": [
+            {
+                "choice_id": "relief_p2",
+                "title": "Relieve P2",
+                "value": {
+                    "target_player_id": 2,
+                    "target_legacy_player_id": 2,
+                    "target_public_player_id": "player_public_2",
+                    "target_seat_id": "seat:2",
+                    "target_viewer_id": "viewer:sess_worker_doctrine_1:2",
+                    "priority_score": 9,
+                },
+            },
+            {
+                "choice_id": "relief_p3",
+                "title": "Relieve P3",
+                "value": {
+                    "target_player_id": 3,
+                    "target_legacy_player_id": 3,
+                    "target_public_player_id": "player_public_3",
+                    "target_seat_id": "seat:3",
+                    "target_viewer_id": "viewer:sess_worker_doctrine_1:3",
+                    "priority_score": 1,
+                },
+            },
         ],
         "transport": "http",
     }
@@ -256,6 +318,45 @@ class ExternalAiWorkerApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["choice_id"], "2")
         self.assertEqual(payload["choice_payload"]["value"]["target_player_id"], 2)
+        self.assertEqual(payload["choice_payload"]["value"]["target_public_player_id"], "player_public_2")
+
+    def test_decide_prefers_public_target_identity_for_mark_target(self) -> None:
+        request = _mark_target_payload()
+        request["public_context"] = {
+            "actor_name": "Bandit",
+            "preferred_target_public_player_id": "player_public_3",
+        }
+
+        response = self.client.post("/decide", json=request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "3")
+        self.assertEqual(payload["choice_payload"]["value"]["target_public_player_id"], "player_public_3")
+
+    def test_decide_prefers_target_seat_identity_for_doctrine_relief(self) -> None:
+        response = self.client.post("/decide", json=_doctrine_relief_payload())
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "relief_p3")
+        self.assertEqual(payload["choice_payload"]["value"]["target_seat_id"], "seat:3")
+
+    def test_priority_adapter_prefers_target_identity_before_score_for_doctrine_relief(self) -> None:
+        service = ExternalAiWorkerService(
+            worker_id="worker-api-priority-target",
+            policy_mode="heuristic_v3_engine",
+            worker_profile="priority_scored",
+            worker_adapter="priority_score_v1",
+        )
+        client = TestClient(create_app(service))
+
+        response = client.post("/decide", json=_doctrine_relief_payload())
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["choice_id"], "relief_p3")
+        self.assertEqual(payload["choice_payload"]["value"]["priority_score"], 1)
 
     def test_decide_prefers_contextual_specific_trick_reward(self) -> None:
         response = self.client.post("/decide", json=_specific_trick_reward_payload())

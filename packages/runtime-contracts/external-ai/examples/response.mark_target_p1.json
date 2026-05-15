@@ -4,7 +4,11 @@
     "choice_id": "1",
     "title": "Target P1",
     "value": {
-      "player_id": 1
+      "target_player_id": 1,
+      "target_legacy_player_id": 1,
+      "target_public_player_id": "player_public_1",
+      "target_seat_id": "seat_1",
+      "target_viewer_id": "viewer_1"
     }
   },
   "worker_id": "bot-worker-1",

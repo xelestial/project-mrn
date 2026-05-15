@@ -11,6 +11,19 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 External AI Target Choice Identity Preference
+
+- External AI worker selection policy now honors `preferred_target_public_player_id`,
+  `preferred_target_seat_id`, and `preferred_target_viewer_id` for `mark_target`
+  and `doctrine_relief` choices before falling back to the legacy numeric
+  `preferred_target_player_id`. The priority-scored adapter uses the same
+  target identity preference before score fallback on these target-choice
+  surfaces.
+- Runtime contract examples for external-AI `mark_target` now show target
+  legacy/public/seat/viewer companion fields inside raw choice payloads. The
+  raw payload is still echoed unchanged; this change only moves target-choice
+  preference responsibility into the worker policy adapter.
+
 ## 2026-05-15 Prompt Choice Target Identity Surface
 
 - `mark_target` and `doctrine_relief` prompt surfaces now preserve target

@@ -18,10 +18,22 @@ def _as_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _as_non_empty_string(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 def _choice_index(legal_choices: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], list[str]]:
     by_id = {str(choice.get("choice_id", "")).strip(): choice for choice in legal_choices}
     ids = [choice_id for choice_id in by_id.keys() if choice_id]
     return by_id, ids
+
+
+def _choice_value(choice: dict[str, Any]) -> dict[str, Any]:
+    value = choice.get("value")
+    return value if isinstance(value, dict) else {}
 
 
 def _is_secondary_choice(by_id: dict[str, dict[str, Any]], choice_id: str) -> bool:
@@ -54,6 +66,61 @@ def _preferred_choice_id_from_context(public_context: dict[str, Any], by_id: dic
     preferred = public_context.get("preferred_choice_id")
     if isinstance(preferred, str) and preferred.strip() and preferred.strip() in by_id:
         return preferred.strip()
+    return None
+
+
+def _matches_any_string(value: str | None, candidates: tuple[Any, ...]) -> bool:
+    if value is None:
+        return False
+    return any(_as_non_empty_string(candidate) == value for candidate in candidates)
+
+
+def _matches_any_int(value: int | None, candidates: tuple[Any, ...]) -> bool:
+    if value is None:
+        return False
+    return any(_as_int(candidate) == value for candidate in candidates)
+
+
+def _preferred_target_choice_id_from_context(
+    public_context: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+) -> str | None:
+    preferred_public_player_id = _as_non_empty_string(public_context.get("preferred_target_public_player_id"))
+    preferred_seat_id = _as_non_empty_string(public_context.get("preferred_target_seat_id"))
+    preferred_viewer_id = _as_non_empty_string(public_context.get("preferred_target_viewer_id"))
+    for choice_id, choice in by_id.items():
+        value = _choice_value(choice)
+        if _matches_any_string(
+            preferred_public_player_id,
+            (
+                value.get("target_public_player_id"),
+                value.get("public_player_id"),
+            ),
+        ):
+            return choice_id
+        if _matches_any_string(preferred_seat_id, (value.get("target_seat_id"), value.get("seat_id"))):
+            return choice_id
+        if _matches_any_string(preferred_viewer_id, (value.get("target_viewer_id"), value.get("viewer_id"))):
+            return choice_id
+
+    preferred_target = _as_int(public_context.get("preferred_target_player_id"))
+    if preferred_target is None:
+        return None
+    preferred_choice_id = str(preferred_target)
+    if preferred_choice_id in by_id:
+        return preferred_choice_id
+    for choice_id, choice in by_id.items():
+        value = _choice_value(choice)
+        if _matches_any_int(
+            preferred_target,
+            (
+                value.get("target_player_id"),
+                value.get("target_legacy_player_id"),
+                value.get("legacy_player_id"),
+                value.get("player_id"),
+            ),
+        ):
+            return choice_id
     return None
 
 
@@ -235,11 +302,9 @@ class ReferenceHeuristicDecisionAdapter:
             return _first_non_secondary_choice_id(by_id, ids)
 
         if request_type == "mark_target":
-            preferred_target = _as_int(public_context.get("preferred_target_player_id"))
-            if preferred_target is not None:
-                preferred_choice_id = str(preferred_target)
-                if preferred_choice_id in by_id:
-                    return preferred_choice_id
+            preferred_target_choice_id = _preferred_target_choice_id_from_context(public_context, by_id)
+            if preferred_target_choice_id is not None:
+                return preferred_target_choice_id
             scored = _best_scored_usable_non_secondary_choice_id(by_id, ids)
             if scored is not None:
                 return scored
@@ -273,9 +338,9 @@ class ReferenceHeuristicDecisionAdapter:
             return _best_scored_usable_non_secondary_choice_id(by_id, ids) or _first_non_secondary_choice_id(by_id, ids)
 
         if request_type == "doctrine_relief":
-            preferred_target = _as_int(public_context.get("preferred_target_player_id"))
-            if preferred_target is not None and str(preferred_target) in by_id:
-                return str(preferred_target)
+            preferred_target_choice_id = _preferred_target_choice_id_from_context(public_context, by_id)
+            if preferred_target_choice_id is not None:
+                return preferred_target_choice_id
             return _best_scored_usable_non_secondary_choice_id(by_id, ids) or _first_non_secondary_choice_id(by_id, ids)
 
         return _first_non_secondary_choice_id(by_id, ids)
@@ -343,7 +408,13 @@ class PriorityScoredDecisionAdapter:
         if request_type in {"lap_reward", "start_reward", "geo_bonus", "draft_card", "final_character", "hidden_trick_card", "trick_to_use"}:
             return scored_choice or _first_usable_non_secondary_choice_id(by_id, ids)
 
-        if request_type in {"specific_trick_reward", "doctrine_relief", "mark_target", "coin_placement", "active_flip"}:
+        if request_type in {"doctrine_relief", "mark_target"}:
+            preferred_target_choice_id = _preferred_target_choice_id_from_context(public_context, by_id)
+            if preferred_target_choice_id is not None:
+                return preferred_target_choice_id
+            return scored_choice or _first_non_secondary_choice_id(by_id, ids)
+
+        if request_type in {"specific_trick_reward", "coin_placement", "active_flip"}:
             return scored_choice or _first_non_secondary_choice_id(by_id, ids)
 
         if request_type == "pabal_dice_mode":

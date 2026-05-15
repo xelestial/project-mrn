@@ -991,6 +991,11 @@ Acceptance evidence status, 2026-05-15:
   projection carries target legacy/public/seat/viewer companions next to the numeric target bridge for
   choice-target display. This keeps target readability at the projection boundary without changing the
   numeric engine command payload.
+- `apps/server/tests/test_external_ai_worker_api.py` verifies that the external AI reference worker can select
+  `mark_target` by `preferred_target_public_player_id`, that `doctrine_relief` can select by target seat
+  companion even when the choice id is not numeric, and that the priority-scored worker applies that target
+  identity preference before score fallback. This moves target-choice preference into worker policy while
+  leaving raw choice payload echo and numeric engine command payloads unchanged.
 - `apps/server/tests/test_module_continuation_contract.py` verifies that the shared module-continuation
   contract treats simultaneous batch companion maps as protocol/projection companions only and still
   requires numeric `missing_player_ids` plus `resume_tokens_by_player_id` before runtime module
