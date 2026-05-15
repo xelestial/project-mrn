@@ -157,4 +157,42 @@ describe("frontendTransportAdapter", () => {
       },
     );
   });
+
+  it("preserves public decision identity at the final websocket serialization boundary", () => {
+    const decision = buildDecisionMessage({
+      requestId: "req_public_transport",
+      playerId: 2,
+      primaryPlayerId: "ply_transport_2",
+      primaryPlayerIdSource: "public",
+      legacyPlayerId: 2,
+      publicPlayerId: "ply_transport_2",
+      seatId: "seat_transport_2",
+      viewerId: "view_transport_2",
+      choiceId: "roll",
+      continuation: {
+        publicPromptInstanceId: "pin_transport_public",
+      },
+      viewCommitSeqSeen: 17,
+      clientSeq: 18,
+    });
+
+    const serialized = JSON.parse(new FrontendTransportAdapter().serializeStreamMessage(decision));
+
+    expect(serialized).toMatchObject({
+      type: "decision",
+      request_id: "req_public_transport",
+      player_id: "ply_transport_2",
+      primary_player_id: "ply_transport_2",
+      primary_player_id_source: "public",
+      legacy_player_id: 2,
+      public_player_id: "ply_transport_2",
+      seat_id: "seat_transport_2",
+      viewer_id: "view_transport_2",
+      public_prompt_instance_id: "pin_transport_public",
+      choice_id: "roll",
+      view_commit_seq_seen: 17,
+      client_seq: 18,
+    });
+    expect(serialized).not.toHaveProperty("player_id_alias_role");
+  });
 });

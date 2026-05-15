@@ -888,7 +888,10 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
 - [x] Frontend transport serialization preserves `public_prompt_instance_id`
   next to numeric `prompt_instance_id`, so headless/browser-equivalent WebSocket
   decisions do not drop the public prompt instance companion at the final
-  outbound stream boundary.
+  outbound stream boundary. The same transport boundary now has explicit test
+  evidence that public/protocol decision `player_id`, `primary_player_id`,
+  `legacy_player_id`, and public player/seat/viewer companions survive final
+  serialization without adding a numeric alias label.
 - [x] React join-result viewer identity preserves public player, seat, and
   viewer companions from the session join response instead of reducing the
   local viewer model to numeric `player_id`; numeric join fields remain the

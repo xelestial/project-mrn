@@ -1278,6 +1278,19 @@ Responsibility result: `PromptService` now owns exception-free validation at the
 numeric engine decision boundary. It does not become a public identity resolver;
 that responsibility remains at the route/session adapter boundary.
 
+## 2026-05-15 Frontend Transport Public Identity Evidence
+
+- Added `frontendTransportAdapter.spec.ts` coverage for a public/protocol
+  decision reaching the final WebSocket serialization boundary.
+- The test verifies string top-level `player_id`, `primary_player_id`,
+  `legacy_player_id`, public player/seat/viewer companions, and
+  `public_prompt_instance_id` survive serialization without adding a numeric
+  alias label.
+
+Responsibility result: the frontend transport adapter remains a wire
+serialization boundary. It preserves the decision protocol shape produced by
+the shared builder; it does not interpret or repair identity.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is
