@@ -58,6 +58,32 @@ def seat_protocol_fields(seat: Any) -> dict[str, Any]:
     return fields
 
 
+def public_primary_player_wire_payload(payload: dict[str, Any], *, legacy_player_id: Any | None = None) -> dict[str, Any]:
+    result = dict(payload)
+    public_player_id = str(result.get("public_player_id") or "").strip()
+    legacy_id = _int_or_none(legacy_player_id)
+    if legacy_id is None:
+        legacy_id = _int_or_none(result.get("legacy_player_id"))
+    if legacy_id is None:
+        legacy_id = _int_or_none(result.get("player_id"))
+
+    if public_player_id:
+        result["player_id"] = public_player_id
+        if legacy_id is not None:
+            result["legacy_player_id"] = legacy_id
+        result.pop("player_id_alias_role", None)
+        result["primary_player_id"] = public_player_id
+        result["primary_player_id_source"] = "public"
+        return result
+
+    if legacy_id is not None:
+        result["player_id"] = legacy_id
+        result.setdefault("player_id_alias_role", "legacy_compatibility_alias")
+        result.setdefault("primary_player_id", legacy_id)
+        result.setdefault("primary_player_id_source", "legacy")
+    return result
+
+
 def public_identity_numeric_leaks(payload: Any, *, path: str = "$") -> list[str]:
     leaks: list[str] = []
     _collect_public_identity_numeric_leaks(payload, path=path, leaks=leaks, key=None)
@@ -143,3 +169,14 @@ def _is_numeric_like(value: Any) -> bool:
         stripped = value.strip()
         return bool(stripped and _NUMERIC_STRING_RE.fullmatch(stripped))
     return False
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None

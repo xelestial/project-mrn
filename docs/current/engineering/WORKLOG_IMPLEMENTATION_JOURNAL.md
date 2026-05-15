@@ -11,6 +11,22 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Runtime Prompt Public Primary Publish Boundary
+
+- `public_primary_player_wire_payload()` now owns the shared public-primary
+  wire conversion for server prompt and ACK producers.
+- Runtime prompt publishing uses that conversion for both the private
+  WebSocket `prompt` message and the paired `decision_requested` event when
+  `public_player_id` is available. The wire payload exposes string top-level
+  `player_id`, keeps the numeric seat as `legacy_player_id`, and removes the
+  legacy alias label from the public-primary shape.
+- `PromptService` pending prompts still store numeric `player_id` for internal
+  lifecycle, wait, and command routing.
+
+Responsibility result: public protocol payload shape now belongs to the
+publish boundary; numeric routing responsibility intentionally remains inside
+the prompt lifecycle and engine bridge.
+
 ## 2026-05-15 Stream Display Identity Companion Fallback
 
 - `streamSelectors.ts` prompt/decision actor display now reads explicit

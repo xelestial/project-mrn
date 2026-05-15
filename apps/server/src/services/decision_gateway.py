@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+from apps.server.src.domain.protocol_identity import public_primary_player_wire_payload
 from apps.server.src.domain.protocol_ids import stable_prompt_request_id
 from apps.server.src.infra.structured_log import log_event
 from apps.server.src.services.prompt_fingerprint import ensure_prompt_fingerprint, prompt_fingerprint_mismatch
@@ -1803,19 +1804,7 @@ def build_decision_ack_payload(
     if identity_fields:
         payload.update(dict(identity_fields))
 
-    public_player_id = payload.get("public_player_id")
-    public_player_id_text = str(public_player_id).strip() if public_player_id is not None else ""
-    if public_player_id_text:
-        payload["player_id"] = public_player_id_text
-        payload.setdefault("legacy_player_id", player_id)
-        payload.pop("player_id_alias_role", None)
-        payload["primary_player_id"] = public_player_id_text
-        payload["primary_player_id_source"] = "public"
-    elif isinstance(player_id, int) and not isinstance(player_id, bool):
-        payload["player_id"] = player_id
-        payload.setdefault("player_id_alias_role", "legacy_compatibility_alias")
-        payload.setdefault("primary_player_id", player_id)
-        payload.setdefault("primary_player_id_source", "legacy")
+    payload = public_primary_player_wire_payload(payload, legacy_player_id=player_id)
     if reason:
         payload["reason"] = reason
     if command_seq is not None:

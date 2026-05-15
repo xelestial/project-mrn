@@ -9119,7 +9119,9 @@ class RuntimeServiceTests(unittest.TestCase):
             )
 
             self.assertIsNotNone(payload)
-            self.assertIsNotNone(self.prompt_service.get_pending_prompt("runtime_boundary_delayed_req_1"))
+            pending_prompt = self.prompt_service.get_pending_prompt("runtime_boundary_delayed_req_1")
+            self.assertIsNotNone(pending_prompt)
+            self.assertEqual(pending_prompt.payload["player_id"], 2)
             public_request_id = self._assert_public_prompt_request_id(
                 payload,
                 "runtime_boundary_delayed_req_1",
@@ -9146,6 +9148,11 @@ class RuntimeServiceTests(unittest.TestCase):
                 messages_after_publish[0].payload["legacy_request_id"],
                 "runtime_boundary_delayed_req_1",
             )
+            self.assertEqual(messages_after_publish[0].payload["player_id"], seat.public_player_id)
+            self.assertEqual(messages_after_publish[0].payload["legacy_player_id"], 2)
+            self.assertNotIn("player_id_alias_role", messages_after_publish[0].payload)
+            self.assertEqual(messages_after_publish[0].payload["primary_player_id"], seat.public_player_id)
+            self.assertEqual(messages_after_publish[0].payload["primary_player_id_source"], "public")
             self.assertEqual(messages_after_publish[0].payload["public_player_id"], seat.public_player_id)
             self.assertEqual(messages_after_publish[0].payload["seat_id"], seat.seat_id)
             self.assertEqual(messages_after_publish[0].payload["viewer_id"], seat.viewer_id)
@@ -9155,6 +9162,11 @@ class RuntimeServiceTests(unittest.TestCase):
                 messages_after_publish[1].payload["legacy_request_id"],
                 "runtime_boundary_delayed_req_1",
             )
+            self.assertEqual(messages_after_publish[1].payload["player_id"], seat.public_player_id)
+            self.assertEqual(messages_after_publish[1].payload["legacy_player_id"], 2)
+            self.assertNotIn("player_id_alias_role", messages_after_publish[1].payload)
+            self.assertEqual(messages_after_publish[1].payload["primary_player_id"], seat.public_player_id)
+            self.assertEqual(messages_after_publish[1].payload["primary_player_id_source"], "public")
             self.assertEqual(messages_after_publish[1].payload["public_player_id"], seat.public_player_id)
             self.assertEqual(messages_after_publish[1].payload["seat_id"], seat.seat_id)
             self.assertEqual(messages_after_publish[1].payload["viewer_id"], seat.viewer_id)

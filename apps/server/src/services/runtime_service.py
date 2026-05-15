@@ -22,7 +22,7 @@ from urllib import request as urllib_request
 
 from apps.server.src.core.error_payload import build_error_payload
 from apps.server.src.config.runtime_settings import RuntimeSettings
-from apps.server.src.domain.protocol_identity import display_identity_fields
+from apps.server.src.domain.protocol_identity import display_identity_fields, public_primary_player_wire_payload
 from apps.server.src.domain.protocol_ids import int_or_default, turn_label as protocol_turn_label
 from apps.server.src.domain.prompt_sequence import (
     clear_prompt_boundary_state,
@@ -3871,7 +3871,11 @@ class RuntimeService:
         if not request_id:
             return
         request_type = str(payload.get("request_type") or "")
-        player_id = int(payload.get("player_id") or 0)
+        legacy_player_id = self._int_or_none(payload.get("legacy_player_id"))
+        if legacy_player_id is None:
+            legacy_player_id = self._int_or_none(payload.get("player_id"))
+        player_id = legacy_player_id or 0
+        payload = public_primary_player_wire_payload(payload, legacy_player_id=legacy_player_id)
         stream_backend = _stream_backend_of(self._stream_service)
         publish_prompt = lambda: self._stream_service.publish(session_id, "prompt", payload)
         if stream_backend is None:
@@ -3920,6 +3924,7 @@ class RuntimeService:
             public_context=public_context,
             identity_fields=identity_fields,
         )
+        requested = public_primary_player_wire_payload(requested, legacy_player_id=legacy_player_id)
         publish_event = lambda: self._stream_service.publish(session_id, "event", requested)
         if stream_backend is None:
             _run_runtime_stream_task_sync(
