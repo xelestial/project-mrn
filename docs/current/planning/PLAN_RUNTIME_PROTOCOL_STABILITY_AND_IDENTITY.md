@@ -1066,6 +1066,13 @@ Acceptance evidence status, 2026-05-15:
   choice `value.target_player_id` payloads before pending prompt storage and prompt publication. This
   moves session-owned target identity materialization to the runtime boundary while preserving numeric
   `target_player_id`, `choice_id`, and decision parsing as the engine command bridge.
+- `apps/server/tests/test_prompt_service.py::PromptServiceTests::test_decision_command_materializes_selected_choice_payload_from_prompt_value`
+  and `test_submit_decision_rejects_conflicting_choice_payload_target_identity` verify that
+  `PromptService` materializes the selected legal choice `value` into accepted command payloads when
+  clients submit only `choice_id`, and rejects a submitted `choice_payload` whose target
+  legacy/public/seat/viewer identity contradicts the selected legal choice. This closes the raw
+  choice submission consistency guard while preserving the numeric target bridge needed by the engine
+  command parser.
 - `apps/server/tests/test_external_ai_worker_api.py` verifies that the external AI reference worker can select
   `mark_target` by `preferred_target_public_player_id`, that `doctrine_relief` can select by target seat
   companion even when the choice id is not numeric, and that the priority-scored worker applies that target

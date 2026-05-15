@@ -18,6 +18,9 @@ in the active plans, status index, tests, or canonical contract documents.
   pending legal choice `value`.
 - The guard runs before command materialization, so a client cannot select one
   `choice_id` while sending a payload that targets another player.
+- The protocol identity inventory now separates this closed semantic guard from
+  the still-intentional numeric engine bridge for command parsing and module
+  continuation.
 
 Responsibility result: selected choice target identity consistency is owned by
 the prompt command materialization boundary. Submitted `choice_payload` is not
