@@ -11,22 +11,21 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
-## 2026-05-15 External-AI Smoke Worker Request Primary-Only Identity
+## 2026-05-15 External-AI Smoke Worker/Callback Primary-Only Identity
 
 - `external_ai_full_stack_smoke.py` no longer sends top-level `player_id` to
-  the worker `/decide` request when the pending prompt exposes public/protocol
-  primary identity or public player companions.
-- The worker request still carries `primary_player_id`,
+  the worker `/decide` request or server callback body when the pending prompt
+  exposes public/protocol primary identity or public player companions.
+- The worker request and callback body still carry `primary_player_id`,
   `primary_player_id_source`, `legacy_player_id`, and public/seat/viewer
-  companions, so the request remains identifiable under the updated worker
-  schema/model.
-- Legacy-only pending prompts still produce numeric worker `player_id` plus
-  `player_id_alias_role`. Server callback payloads intentionally still send
-  public/protocol top-level `player_id` until that callback boundary is moved.
+  companions, so both protocol edges remain identifiable through the server
+  callback route's canonical identity adapter.
+- Legacy-only pending prompts still produce numeric worker/callback `player_id`
+  plus `player_id_alias_role`.
 
-Responsibility result: smoke worker request production moved off public
-top-level `player_id`. Server callback routing, prompt submission, and engine
-numeric bridges did not move.
+Responsibility result: smoke worker request and callback production moved off
+public top-level `player_id`. Server callback routing, prompt submission, and
+engine numeric bridges did not move.
 
 ## 2026-05-15 External-AI Worker Primary-Only Identity
 

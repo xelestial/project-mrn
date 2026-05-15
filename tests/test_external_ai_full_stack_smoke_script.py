@@ -223,7 +223,6 @@ def test_callback_payload_preserves_protocol_identity_companions() -> None:
 
     assert callback == {
         "request_id": "req_public_1",
-        "player_id": "player_public_10",
         "primary_player_id": "player_public_10",
         "primary_player_id_source": "public",
         "choice_id": "dice",
@@ -240,7 +239,7 @@ def test_callback_payload_preserves_protocol_identity_companions() -> None:
     }
 
 
-def test_callback_payload_uses_top_level_public_player_id_when_available() -> None:
+def test_callback_payload_uses_primary_identity_without_top_level_player_id_when_available() -> None:
     module = _load_module()
     pending = {
         "request_id": "req_public_3",
@@ -258,7 +257,7 @@ def test_callback_payload_uses_top_level_public_player_id_when_available() -> No
 
     callback = module._callback_payload_from_prompt_and_worker_response(pending, worker_response)
 
-    assert callback["player_id"] == "player_public_10"
+    assert "player_id" not in callback
     assert "player_id_alias_role" not in callback
     assert callback["legacy_player_id"] == 10
     assert callback["primary_player_id"] == "player_public_10"
@@ -284,7 +283,7 @@ def test_callback_payload_prefers_explicit_primary_identity_over_top_level_alias
 
     callback = module._callback_payload_from_prompt_and_worker_response(pending, worker_response)
 
-    assert callback["player_id"] == "player_public_10"
+    assert "player_id" not in callback
     assert "player_id_alias_role" not in callback
     assert callback["legacy_player_id"] == 10
     assert callback["primary_player_id"] == "player_public_10"
@@ -308,7 +307,7 @@ def test_callback_payload_ignores_numeric_public_primary_when_public_companion_e
 
     callback = module._callback_payload_from_prompt_and_worker_response(pending, worker_response)
 
-    assert callback["player_id"] == "player_public_10"
+    assert "player_id" not in callback
     assert "player_id_alias_role" not in callback
     assert callback["legacy_player_id"] == 10
     assert callback["primary_player_id"] == "player_public_10"

@@ -164,22 +164,6 @@ def _pending_prompt_identity_summary(pending: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _protocol_player_id(source: dict[str, Any]) -> Any:
-    primary_player_id, primary_player_id_source = _primary_player_identity(source)
-    if primary_player_id_source in {"public", "protocol"}:
-        return primary_player_id
-
-    public_player_id = source.get("public_player_id")
-    if isinstance(public_player_id, str) and public_player_id.strip():
-        return public_player_id.strip()
-
-    player_id = source.get("player_id")
-    if isinstance(player_id, str) and player_id.strip() and not player_id.strip().isdigit():
-        return player_id.strip()
-
-    return _numeric_legacy_player_id(source)
-
-
 def _worker_request_from_pending_prompt(pending: dict[str, Any], *, fallback_seat: int) -> dict[str, Any]:
     legal_choices = pending.get("legal_choices")
     if not isinstance(legal_choices, list) or not legal_choices:
@@ -215,12 +199,14 @@ def _callback_payload_from_prompt_and_worker_response(
     choice_id = str(worker_response.get("choice_id") or "").strip()
     if not choice_id:
         raise RuntimeError(f"worker response missing choice_id: {json.dumps(worker_response, ensure_ascii=False)}")
+    primary_player_id, primary_player_id_source = _primary_player_identity(pending)
     callback: dict[str, Any] = {
         "request_id": str(pending.get("request_id") or "").strip(),
-        "player_id": _protocol_player_id(pending),
         "choice_id": choice_id,
         "choice_payload": worker_response.get("choice_payload") if isinstance(worker_response.get("choice_payload"), dict) else {},
     }
+    if primary_player_id_source == "legacy":
+        callback["player_id"] = primary_player_id
     for field in ("prompt_fingerprint", "prompt_fingerprint_version"):
         value = pending.get(field)
         if value is not None:
