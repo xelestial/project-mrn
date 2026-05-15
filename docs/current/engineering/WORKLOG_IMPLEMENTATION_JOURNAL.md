@@ -1339,6 +1339,21 @@ and ACK payloads without becoming a public identity resolver. It still uses the
 numeric viewer bridge for authorization until viewer routing migrates to
 public/seat/viewer identity.
 
+## 2026-05-15 Decision ACK Public Primary Producer
+
+- Updated `build_decision_ack_payload()` so ACKs with `public_player_id` emit a
+  public string top-level `player_id`.
+- The same ACK payload preserves the internal numeric seat as
+  `legacy_player_id` and omits `player_id_alias_role`; numeric-only ACKs remain
+  labeled legacy compatibility aliases.
+- WebSocket human-decision ACKs and external-AI callback ACKs now verify the
+  public-primary shape while keeping target delivery covered by the visibility
+  projection bridge.
+
+Responsibility result: ACK payload construction now owns preferred public wire
+identity selection. It does not remove the numeric engine bridge or change
+decision submission/routing authorization.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

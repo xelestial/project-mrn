@@ -1798,20 +1798,24 @@ def build_decision_ack_payload(
     payload: dict[str, Any] = {
         "request_id": request_id,
         "status": status,
-        "player_id": player_id,
         "provider": provider,
     }
     if identity_fields:
         payload.update(dict(identity_fields))
-    if isinstance(player_id, int) and not isinstance(player_id, bool):
-        public_player_id = payload.get("public_player_id")
+
+    public_player_id = payload.get("public_player_id")
+    public_player_id_text = str(public_player_id).strip() if public_player_id is not None else ""
+    if public_player_id_text:
+        payload["player_id"] = public_player_id_text
+        payload.setdefault("legacy_player_id", player_id)
+        payload.pop("player_id_alias_role", None)
+        payload["primary_player_id"] = public_player_id_text
+        payload["primary_player_id_source"] = "public"
+    elif isinstance(player_id, int) and not isinstance(player_id, bool):
+        payload["player_id"] = player_id
         payload.setdefault("player_id_alias_role", "legacy_compatibility_alias")
-        if public_player_id is not None and str(public_player_id).strip():
-            payload.setdefault("primary_player_id", public_player_id)
-            payload.setdefault("primary_player_id_source", "public")
-        else:
-            payload.setdefault("primary_player_id", player_id)
-            payload.setdefault("primary_player_id_source", "legacy")
+        payload.setdefault("primary_player_id", player_id)
+        payload.setdefault("primary_player_id_source", "legacy")
     if reason:
         payload["reason"] = reason
     if command_seq is not None:
