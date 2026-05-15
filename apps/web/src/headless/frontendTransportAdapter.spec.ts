@@ -119,6 +119,7 @@ describe("frontendTransportAdapter", () => {
       choicePayload: { tile_index: 3 },
       continuation: {
         promptInstanceId: 9,
+        publicPromptInstanceId: "pin_transport_9",
         promptFingerprint: "fp",
         promptFingerprintVersion: "1",
         resumeToken: "resume",
@@ -150,6 +151,7 @@ describe("frontendTransportAdapter", () => {
         module_id: "module",
         module_type: "PromptModule",
         module_cursor: "await_choice",
+        public_prompt_instance_id: "pin_transport_9",
         view_commit_seq_seen: 12,
         client_seq: 12,
       },

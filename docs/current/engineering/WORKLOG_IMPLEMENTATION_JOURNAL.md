@@ -11,6 +11,21 @@ entries only when they help a future implementation session decide:
 Older detailed phase logs should be removed once their conclusions are reflected
 in the active plans, status index, tests, or canonical contract documents.
 
+## 2026-05-15 Frontend Transport Prompt Instance Companion
+
+- `FrontendTransportAdapter` serialization coverage now verifies that outbound
+  decisions preserve `public_prompt_instance_id` next to the numeric
+  `prompt_instance_id` lifecycle bridge when using the same stream protocol as
+  the browser frontend.
+- The protocol identity inventory now lists the frontend transport adapter as a
+  compatibility boundary instead of hiding it behind the shared decision
+  builder.
+
+Responsibility result: prompt lifecycle ownership did not move. The transport
+adapter now has explicit evidence responsibility for carrying the public prompt
+instance companion through the WebSocket serialization boundary; numeric
+`prompt_instance_id` remains the internal resume/lifecycle bridge.
+
 ## 2026-05-15 Redis Inspector Prompt Identity Companions
 
 - `RedisStateInspector` compact prompt and outbox summaries now preserve public

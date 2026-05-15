@@ -885,6 +885,10 @@ Rollback means switching the environment flag back to `off` or `dual`. Do not de
   fingerprint is present. This narrows client-side continuation identity usage
   without removing numeric continuation payload fields that server runtime
   resume still consumes.
+- [x] Frontend transport serialization preserves `public_prompt_instance_id`
+  next to numeric `prompt_instance_id`, so headless/browser-equivalent WebSocket
+  decisions do not drop the public prompt instance companion at the final
+  outbound stream boundary.
 - [x] UI labels still show `P1` to `P4` through `seat_index` and `player_label`.
 - [x] `source_event_seq`, `stream_seq`, and `commit_seq` are numeric and monotonic.
 - [x] Every prompt has `request_id`, `prompt_instance_id`, `resume_token`, target identity, lifecycle state, and required commit sequence.
