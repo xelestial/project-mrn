@@ -1370,6 +1370,20 @@ Responsibility result: ACK payload construction now owns preferred public wire
 identity selection. It does not remove the numeric engine bridge or change
 decision submission/routing authorization.
 
+## 2026-05-15 External AI Decision Requested Event Example
+
+- Extended the WebSocket public-primary example gate to the external-AI
+  `decision_requested` event example.
+- Updated `inbound.event.decision_requested.external_ai.json` so top-level
+  `player_id`, `primary_player_id`, and `public_player_id` are the public string
+  identity, with the numeric seat preserved only as `legacy_player_id`.
+- Left `inbound.event.schema.json` broad because domain events still share one
+  compatibility envelope.
+
+Responsibility result: runtime-contract examples now own the public-primary
+event evidence that runtime prompt publishing already emits. Event schema
+compatibility and engine routing bridges remain unchanged.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

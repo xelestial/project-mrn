@@ -947,7 +947,10 @@ Acceptance evidence status, 2026-05-15:
   with a string top-level `player_id`. `build_decision_ack_payload()` now uses that public
   top-level `player_id` when `public_player_id` is available and preserves the numeric
   bridge as explicit `legacy_player_id`; numeric-only ACKs remain labeled compatibility
-  aliases.
+  aliases. The frozen external-AI `decision_requested` event example now also carries public
+  string top-level `player_id`, matching `primary_player_id`/`public_player_id`, and preserves
+  the numeric seat only as `legacy_player_id`, so the runtime contract example matches the
+  prompt publishing wire shape.
   External-AI request examples now exercise the public-primary path directly:
   top-level `player_id` and `primary_player_id` are public string identities,
   while `legacy_player_id`, `public_player_id`, `seat_id`, and `viewer_id`
