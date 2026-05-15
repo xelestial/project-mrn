@@ -1079,7 +1079,9 @@ Acceptance evidence status, 2026-05-15:
   specifically prefers explicit active-prompt `primary_player_id` plus source over a numeric active
   `player_id` alias. HTTP policy `player_summary` now attaches projected player stats by explicit
   `legacy_player_id` when view-state player rows carry public/protocol `player_id` strings, rather than
-  requiring numeric `player_id` rows. Replay rows, observations, and final player summaries now expose
+  requiring numeric `player_id` rows. The compact headless view-commit trace also rejects malformed
+  numeric explicit primary ids when the declared source is `public` or `protocol`, falling back to the
+  public/protocol companions instead. Replay rows, observations, and final player summaries now expose
   `primary_player_id` plus source while keeping numeric `player_id` as the legacy display/grouping alias
   for reward and rank calculations. `HeadlessGameClient.spec.ts` also verifies that headless active prompt
   routing answers public-only prompts without a numeric `legacy_player_id` bridge while keeping legacy-only

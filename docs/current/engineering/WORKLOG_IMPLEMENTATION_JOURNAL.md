@@ -1143,6 +1143,22 @@ make the legacy bridge explicit instead of requiring consumers to infer it from
 the alias value. Numeric aliases intentionally remain during the compatibility
 window.
 
+## 2026-05-15 Headless Trace Primary Identity Repair
+
+- Added `HeadlessGameClient.spec.ts` coverage for compact view-commit traces
+  receiving malformed `primary_player_id: 2` with
+  `primary_player_id_source: "public"` plus a valid `public_player_id`
+  companion.
+- `compactActivePromptIdentity()` now accepts numeric explicit primary ids only
+  when the declared source is `legacy`; public/protocol primary ids must be
+  strings or fall back to public/protocol companions.
+- Numeric `active_prompt_player_id` and `active_prompt_legacy_player_id` remain
+  available as legacy/debug trace aliases.
+
+Responsibility result: headless trace compaction now mirrors the decision
+protocol primary-identity rule. It owns debug evidence normalization only; it
+does not change server payloads, prompt selection, or engine numeric bridges.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

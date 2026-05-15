@@ -408,6 +408,49 @@ describe("HeadlessGameClient", () => {
     });
   });
 
+  it("repairs malformed numeric public primary identity in compact traces", async () => {
+    const client = new HeadlessGameClient({
+      sessionId: "sess_headless_malformed_trace_primary",
+      token: "seat-2",
+      playerId: 2,
+      policy: baselineDecisionPolicy,
+    });
+
+    const outbound = await client.ingestMessage(
+      viewCommitMessage({
+        commitSeq: 16,
+        requestId: "req_malformed_trace_primary_16",
+        playerId: 2,
+        primaryPlayerId: 2,
+        primaryPlayerIdSource: "public",
+        legacyPlayerId: 2,
+        publicPlayerId: "player_public_2",
+        seatId: "seat_public_2",
+        viewerId: "viewer_public_2",
+        choicePayload: { tile_index: 11, buy: true },
+      }),
+    );
+
+    expect(outbound).toHaveLength(1);
+    expect(client.trace.find((event) => event.event === "view_commit_seen")?.payload).toMatchObject({
+      active_prompt_identity: {
+        primary_player_id: "player_public_2",
+        primary_player_id_source: "public",
+        protocol_player_id: "player_public_2",
+        legacy_player_id: 2,
+        public_player_id: "player_public_2",
+        seat_id: "seat_public_2",
+        viewer_id: "viewer_public_2",
+      },
+      active_prompt_primary_player_id: "player_public_2",
+      active_prompt_primary_player_id_source: "public",
+      active_prompt_player_id: 2,
+      active_prompt_protocol_player_id: "player_public_2",
+      active_prompt_legacy_player_id: 2,
+      active_prompt_public_player_id: "player_public_2",
+    });
+  });
+
   it("keeps routing legacy prompts when the viewer also exposes public identity", async () => {
     const client = new HeadlessGameClient({
       sessionId: "sess_headless_mixed_viewer_legacy_prompt",

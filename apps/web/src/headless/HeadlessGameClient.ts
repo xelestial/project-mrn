@@ -1549,8 +1549,11 @@ function compactActivePromptIdentity(active: Record<string, unknown> | null): Re
   const activePlayerId = active["player_id"];
   const publicPlayerId = stringValue(active["public_player_id"]);
   const legacyPlayerId = numberValue(active["legacy_player_id"]) ?? numberValue(activePlayerId);
-  const explicitPrimaryPlayerId = protocolPlayerIdValue(active["primary_player_id"]);
   const explicitPrimaryPlayerIdSource = promptIdentitySourceValue(active["primary_player_id_source"]);
+  const explicitPrimaryPlayerId = explicitPrimaryProtocolPlayerIdValue(
+    active["primary_player_id"],
+    explicitPrimaryPlayerIdSource,
+  );
   const protocolPlayerId =
     publicPlayerId ??
     (typeof activePlayerId === "string" || typeof activePlayerId === "number" ? activePlayerId : legacyPlayerId);
@@ -1580,6 +1583,22 @@ function compactActivePromptIdentity(active: Record<string, unknown> | null): Re
 function protocolPlayerIdValue(value: unknown): ProtocolPlayerId | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+  return null;
+}
+
+function explicitPrimaryProtocolPlayerIdValue(
+  value: unknown,
+  source: "public" | "protocol" | "legacy" | null,
+): ProtocolPlayerId | null {
+  if (source === null) {
+    return null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return source === "legacy" ? value : null;
   }
   if (typeof value === "string" && value.trim()) {
     return value;
