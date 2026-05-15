@@ -936,7 +936,10 @@ Acceptance evidence status, 2026-05-15:
   same primary identity fields, and the frontend prompt selector consumes them before falling back
   to public/protocol/legacy derivation. Server active prompt view-state now emits public/protocol
   top-level `player_id` when available and keeps numeric `legacy_player_id` as the bridge instead
-  of forcing the top-level field back to a numeric alias. Runtime prompt publishing now applies
+  of forcing the top-level field back to a numeric alias. The frozen `trick_to_use` prompt example
+  with embedded view-state is now schema-checked with the same legacy alias metadata as the
+  `movement` prompt example, so no frozen prompt example presents a bare numeric target identity.
+  Runtime prompt publishing now applies
   the same public-primary wire conversion to WebSocket `prompt` messages and paired
   `decision_requested` events while preserving the numeric seat only as explicit
   `legacy_player_id`; the pending prompt stored in `PromptService` remains numeric for internal

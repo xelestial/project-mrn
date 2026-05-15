@@ -1414,6 +1414,22 @@ Responsibility result: with-view-state event examples now document runtime
 fanout actor identity enrichment at the event boundary. Nested view-state
 selector/display migration remains intentionally out of scope.
 
+## 2026-05-15 With-View-State Prompt Legacy Alias Metadata
+
+- Added `inbound.prompt.trick_to_use.with_view_state.json` to frozen inbound
+  prompt schema/example coverage.
+- Added a focused example test requiring numeric prompt `player_id` fields to
+  carry `player_id_alias_role`, `primary_player_id`,
+  `primary_player_id_source`, and `legacy_player_id`.
+- Updated the `trick_to_use` prompt example so both the top-level prompt payload
+  and nested active prompt view label numeric `player_id` as a legacy
+  compatibility alias.
+
+Responsibility result: frozen prompt examples now own the rule that numeric
+prompt target ids are never presented as unlabeled public identity. Runtime
+prompt publishing, prompt routing, and selector/display migration remain
+unchanged.
+
 ## 2026-05-12 Runtime Rebuild Baseline
 
 - The active rebuild plan is

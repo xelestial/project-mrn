@@ -7,6 +7,10 @@
     "request_id": "req_turn8_trick",
     "request_type": "trick_to_use",
     "player_id": 1,
+    "player_id_alias_role": "legacy_compatibility_alias",
+    "primary_player_id": 1,
+    "primary_player_id_source": "legacy",
+    "legacy_player_id": 1,
     "timeout_ms": 30000,
     "legal_choices": [
       {
@@ -31,6 +35,10 @@
           "request_id": "req_turn8_trick",
           "request_type": "trick_to_use",
           "player_id": 1,
+          "player_id_alias_role": "legacy_compatibility_alias",
+          "primary_player_id": 1,
+          "primary_player_id_source": "legacy",
+          "legacy_player_id": 1,
           "timeout_ms": 30000,
           "choices": [
             {

@@ -105,6 +105,7 @@ class RuntimeContractExampleTests(unittest.TestCase):
             ("inbound.event.schema.json", "inbound.event.turn_start.with_view_state.json"),
             ("inbound.event.schema.json", "inbound.event.player_move.with_view_state.json"),
             ("inbound.prompt.schema.json", "inbound.prompt.movement.json"),
+            ("inbound.prompt.schema.json", "inbound.prompt.trick_to_use.with_view_state.json"),
             ("inbound.decision_ack.schema.json", "inbound.decision_ack.accepted.json"),
             ("inbound.decision_ack.schema.json", "inbound.decision_ack.rejected.with_view_state.json"),
             ("inbound.error.schema.json", "inbound.error.resume_gap_too_old.json"),
@@ -169,6 +170,50 @@ class RuntimeContractExampleTests(unittest.TestCase):
                 self.assertIsInstance(payload.get("legacy_player_id"), int)
                 self.assertIsInstance(payload.get("seat_id"), str)
                 self.assertIsInstance(payload.get("viewer_id"), str)
+
+    def test_ws_prompt_examples_label_numeric_player_aliases(self) -> None:
+        root = _project_root() / "packages" / "runtime-contracts" / "ws"
+        prompt_schema = _load_json(root / "schemas" / "inbound.prompt.schema.json")
+
+        for filename in (
+            "inbound.prompt.movement.json",
+            "inbound.prompt.trick_to_use.with_view_state.json",
+        ):
+            message = _load_json(root / "examples" / filename)
+            _validate_subset(message, prompt_schema, path=f"$<{filename}>")
+            payload = message.get("payload")
+            assert isinstance(payload, dict), f"{filename}.payload: expected object"
+
+            active_prompt: dict[str, Any] | None = None
+            view_state = payload.get("view_state")
+            if isinstance(view_state, dict):
+                prompt_view = view_state.get("prompt")
+                if isinstance(prompt_view, dict):
+                    active = prompt_view.get("active")
+                    if isinstance(active, dict):
+                        active_prompt = active
+
+            prompt_payloads: list[tuple[str, dict[str, Any]]] = [(f"{filename}.payload", payload)]
+            if active_prompt is not None:
+                prompt_payloads.append((f"{filename}.payload.view_state.prompt.active", active_prompt))
+
+            for path, prompt_payload in prompt_payloads:
+                player_id = prompt_payload.get("player_id")
+                if not isinstance(player_id, int):
+                    continue
+
+                assert prompt_payload.get("player_id_alias_role") == "legacy_compatibility_alias", (
+                    f"{path}: numeric player_id must be labeled as legacy compatibility alias"
+                )
+                assert prompt_payload.get("primary_player_id") == player_id, (
+                    f"{path}: legacy prompt primary_player_id must mirror numeric player_id"
+                )
+                assert prompt_payload.get("primary_player_id_source") == "legacy", (
+                    f"{path}: numeric prompt primary_player_id_source must be legacy"
+                )
+                assert prompt_payload.get("legacy_player_id") == player_id, (
+                    f"{path}: numeric prompt must carry legacy_player_id"
+                )
 
     def test_outbound_decision_schema_owns_continuation_identity_fields(self) -> None:
         root = _project_root() / "packages" / "runtime-contracts" / "ws"
