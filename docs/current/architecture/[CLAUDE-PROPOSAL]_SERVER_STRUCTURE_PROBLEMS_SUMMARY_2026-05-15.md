@@ -2,20 +2,24 @@
 
 작성일: 2026-05-15
 검증일: 2026-05-15 (현재 main `dbfa382a` 기준)
+재정렬: 2026-05-15 (CONSULTING 라이브 증거 반영 후)
 작성자: Claude
 
-> **검증 결과 한 줄 요약**: 16개 문제 중 **6개 완전 해결 / 5개 부분 해결 또는 위치 이동 / 5개 잔존**.
-> 가장 심각했던 P1·P2는 둘 다 해결됨. 잔존 문제는 P6 (RuntimeService 거대 파일), P8 (status 이중화), P10 (비-Lua 비원자성), P15·P16 (in-memory set/dict).
-> 각 항목 아래 `[현재 상태]` 줄로 표기.
+> **현재 진짜 블로커 (2026-05-15 라이브)**: `PromptService.create_prompt()` — 첫 `DraftModule draft_card` prompt에서 **6,681ms** 소요로 5,000ms backend timing gate 위반. P1~P16에는 포함되지 않은 신규 병목. §11 신규 섹션 참조.
+>
+> **과거 16개 구조 문제 검증 결과**: 6개 완전 해결 / 5개 부분 해결 또는 위치 이동 / 5개 잔존. 가장 심각했던 P1·P2는 둘 다 해결됨. 잔존 문제는 P6 (RuntimeService 거대 파일), P8 (status 이중화), P10 (비-Lua 비원자성), P15·P16 (in-memory set/dict). 각 항목 아래 `[현재 상태]` 줄로 표기.
 
 근거 문서 (architecture 폴더 전체):
-- `[AUDIT]_CURRENT_GAME_SERVER_STRUCTURE_2026-05-12.md` — 현재 구현 실측
+- `[AUDIT]_CURRENT_GAME_SERVER_STRUCTURE_2026-05-12.md` — 현재 구현 실측 (당시)
 - `[CLAUDE-PROPOSAL]_SERVER_STRUCTURE_DIAGNOSIS_2026-05-12.md` — 1차 진단
 - `[CLAUDE-PROPOSAL]_SERVER_STRUCTURE_ADDENDUM_2026-05-12.md` — 심층 코드 분석 보충
 - `[CLAUDE-PROPOSAL]_SERVER_REDESIGN_2026-05-12.md` — 초기 재설계
 - `[CLAUDE-PROPOSAL]_SERVER_REDESIGN_FULL_2026-05-12.md` — 전체 재설계
 - `[PROPOSAL]_SERVER_LOGIC_DESIGN_AGENT_A_2026-05-12.md` — Agent A 제안 (Event Sourcing)
 - `[PROPOSAL]_SERVER_LOGIC_DESIGN_AGENT_B_2026-05-12.md` — Agent B 제안 (Actor/Saga)
+- `PLAN_SERVER_RUNTIME_REBUILD_2026-05-12.md` — 진행 중인 재구축 계획 (당시 worktree에 없었음)
+- **`CLAUDE_CONSULTING_CONTEXT_LIVE_PROTOCOL_BACKEND_TIMING_2026-05-15.md`** — 2026-05-15 라이브 실패 증거 (가장 최신, 결정적)
+
 참조 룰: `docs/current/rules/[REFERENCE]_CORE_RULE_DECISION_FLOW_2026-05-12.md`
 
 ---
@@ -24,7 +28,9 @@
 
 기존 진단·재설계 문서들이 5개로 흩어져 있다. 각각 발견 순서, 코드 깊이, 해결책 중심으로 쓰여 있어 "**현재 무엇이 문제인가**"만 단독으로 보기 어렵다.
 
-이 문서는 해결책을 다루지 않는다. **문제점만 정리한다**. 해결 방향은 REDESIGN_FULL 문서를 본다.
+이 문서는 해결책을 다루지 않는다. **문제점만 정리한다**. 해결 방향은 REDESIGN_FULL 문서와 PLAN_SERVER_RUNTIME_REBUILD를 본다.
+
+**시간 순서 주의:** §1~§10은 2026-05-12 시점 진단을 검증한 결과다. §11은 2026-05-15 라이브 실패에서 발견된 신규 병목이다. 우선순위는 §11이 가장 높다.
 
 ---
 
@@ -261,8 +267,133 @@ REFERENCE §22, §25의 불변식을 위배한다. 잠재 버그가 아니라 **
 
 ---
 
-## 9. 한 줄로
+## 9. 과거 진단 요약
 
-> **누더기의 핵심 원인이었던 P1·P2는 제거됐다. 이제 남은 것은 큰 분리 작업(P6·P8·P9)과 작은 위생 작업(P10·P12·P15·P16)이다. 새로운 패치를 쌓지 말고 분리 작업으로 가야 한다.**
+> **누더기의 핵심 원인이었던 P1·P2는 제거됐다.** 16개 중 11개에 진척. 남은 잔존은 분리 작업(P6·P8·P9)과 위생 작업(P10·P12·P15·P16).
+>
+> 그러나 이것은 **2026-05-12 진단 기준의 평가**다. 2026-05-15 라이브 증거가 새로운 1순위를 가져왔다 → §11.
 
 해결 방향은 `[CLAUDE-PROPOSAL]_SERVER_REDESIGN_FULL_2026-05-12.md` Step 3 이후 단계를 본다 (Step 1·2는 이미 완료).
+
+---
+
+## 10. 2026-05-12 → 2026-05-15 사이 진행된 작업 (참고)
+
+`PLAN_SERVER_RUNTIME_REBUILD_2026-05-12.md` + CONSULTING 문서가 보고하는 진척:
+
+- Direct runtime execution fallback이 wakeup 코드에서 제거됨.
+- Command recovery / processing guards / execution gate / finalizer / staging store / runner가 `RuntimeService`에서 추출됨.
+- **`SessionLoop`이 `SessionCommandExecutor`를 통해 lifecycle 소유** — 단일 실행자 패턴 실현.
+- `RuntimeService.process_command_once()` 호환 wrapper 완전히 제거.
+- HTTP external AI가 provider=`ai` prompt boundary에서 멈추고 callback이 `PromptService` / command inbox로 재진입.
+- 동시 batch는 `BatchCollector`가 소유.
+- 단일 서버 capacity: 5게임·8게임 통과, 10게임에서 5초 SLO 처음 위반. 방향은 **horizontal server scaling** (Redis fan-out 아님).
+- 프로토콜 identity는 compatibility-first migration. `SessionService.resolve_protocol_player_id()` 단일 경계에서 public→numeric 해석.
+
+이로 인해 P3·P7·P11·P14는 단순 fix가 아니라 **구조 재정렬의 일부**로 해결됐다. REDESIGN_FULL의 Step 3·4가 사실상 완료된 상태.
+
+---
+
+## 11. ⚠️ 현재 1순위 블로커: `PromptService.create_prompt()` 6.7초 latency
+
+### 11.1 라이브 증거 (2026-05-15)
+
+`CLAUDE_CONSULTING_CONTEXT_LIVE_PROTOCOL_BACKEND_TIMING_2026-05-15.md` §"Latest Live Failure":
+
+```
+세션: sess_YSOf75ft6J23igWa-SLLmP-q
+요청: req_83d495c0-4818-5221-a9a3-e35c1d3f371c (draft_card)
+실패 유형: backend_timing
+임계: --max-backend-transition-ms 5000
+실측: 6,772ms
+```
+
+분해:
+
+```
+runtime_decision_gateway_prompt_timing:
+  create_prompt_ms  = 6,681   ← 지배적
+  replay_wait_ms    =    53
+  total_ms          = 6,735
+
+runtime_transition_phase_timing (DraftModule, draft_card):
+  engine_transition_ms     = 6,735   ← create_prompt 포함
+  prompt_materialize_ms    =     1
+  prompt_publish_ms        =     3
+  redis_commit_ms          =    12
+  view_commit_build_ms     =     6
+  total_ms                 = 6,772
+```
+
+**해석**:
+- decision route는 7ms (정상). browser 지연 아님.
+- Redis commit 12ms, view_commit build 6ms (정상). 중복 commit 아님.
+- 다음 `DraftModule` prompt는 같은 모듈에서 29ms로 정상 동작.
+- **bottleneck은 첫 prompt 생성에만 집중**되어 있음 → cold path 또는 lock 경합 의심.
+
+### 11.2 구조적 질문 (CONSULTING §Useful Review Lens)
+
+`PromptService.create_prompt()`이 단일 책임인지, 여러 책임이 묶여 있는지가 핵심이다. 현재 한 메서드 안에서 가능한 책임들:
+
+1. 프로토콜 identity 어댑테이션 (public string → numeric seat)
+2. prompt continuation validation
+3. 기존 pending prompt 교체 (`_supersede_pending_for_player`)
+4. Redis 영속화 (`save_pending`)
+5. lifecycle / debug audit trail 기록
+6. replay / recovery 지원 (`_has_recently_resolved_request`)
+7. WebSocket-visible prompt boundary materialization
+8. command boundary timing accountability
+
+이들이 **모두 atomic이어야 하는지** 결정되지 않은 채 한 lock 또는 한 경로에 묶여 있다.
+
+### 11.3 의심 후보 (CONSULTING §Candidate areas to inspect)
+
+라이브 증거로는 단일 sub-phase를 지목할 수 없다. 다음 중 하나 이상:
+
+- `PromptService.create_prompt()`의 lock scope
+- `_prune_resolved`
+- `_has_recently_resolved_request`
+- 기존 pending prompt lookup
+- `_supersede_pending_for_player`
+- `_set_pending`
+- lifecycle record write
+- prompt alias writes
+- debug record write
+- Redis client cold path / connection establishment
+- 첫 draft prompt에서의 container CPU scheduling / cold startup
+
+### 11.4 즉시 필요한 것
+
+**행동 변경이 아니라 sub-phase 계측 (instrumentation)이 먼저다**. CONSULTING §Recommended Immediate Investigation:
+
+1. `PromptService.create_prompt()` 각 단계별 timing:
+   - lock wait, `_prune_resolved`, identity normalization, scoped key build, existing pending lookup, recent resolved lookup, continuation validation, supersede, `_set_pending`, lifecycle write, waiter setup
+2. `RedisPromptStore` 단계별 timing:
+   - pending HSET, alias writes, lifecycle write, debug/upsert, recently resolved scan
+3. 같은 실패 seed 반복 실행:
+   - fresh stack vs same-session 두 번째 prompt vs stack restart 후 same seed vs restart 없이 same seed
+
+### 11.5 절대 하지 말 것 (CONSULTING §What Not To Do Yet)
+
+- `--max-backend-transition-ms 5000`을 완화하지 말 것
+- 프로토콜 identity compatibility bridge를 제거하지 말 것
+- 증거 없이 Redis scaling을 비난하지 말 것
+- `1 server + multiple Redis`를 valid baseline으로 취급하지 말 것
+- `RuntimeService` 또는 `PromptService`에 또 다른 helper를 추가하지 말 것 — ownership을 그대로 둔 채 helper를 추가하면 누더기가 같은 자리에 재형성된다.
+- prompt 영속화를 critical path 밖으로 옮기지 말 것 — 어느 컴포넌트가 prompt boundary atomicity를 소유할지 먼저 결정해야 한다.
+
+### 11.6 P1~P16과의 관계
+
+이 신규 병목은 **과거 16개 문제와 무관한 신규 issue**가 아니다. 다음과 연결된다:
+
+- P6 (RuntimeService 거대 파일) — `PromptService`가 명확히 추출되지 않은 채 여러 책임이 묶여 있는 게 같은 패턴.
+- P11→P12 (`_stable_prompt_request_id`가 주 경로로 승격) — request_id 결정 시점이 create_prompt 내부의 어느 단계인지 명확하지 않음. 그 단계가 lock 내부면 경합 후보.
+- P16 (`_waiters` in-memory) — `waiter/event setup`이 create_prompt의 sub-phase 중 하나. 비용이 비대칭일 수 있음.
+
+따라서 §11은 P1~P16의 *재배치된 변주*가 아니라 **실측 라이브 데이터로 본 첫 정량 증거**다. 진단을 정량 영역으로 끌어올린 첫 시점.
+
+---
+
+## 12. 최종 한 줄
+
+> **2026-05-12에 기록한 16개 문제 중 가장 중요한 둘(P1·P2)은 해결됐고, 분리 작업도 절반 이상 진행됐다. 하지만 2026-05-15 라이브 데이터가 새로운 1순위를 보여준다: `PromptService.create_prompt()` 첫 호출이 6.7초. 다음 행동은 이 함수의 sub-phase 계측이지 새 helper 추가가 아니다.**
